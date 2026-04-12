@@ -1,0 +1,29 @@
+{
+  "name": "paw-print-widget",
+  "version": "0.1.0",
+  "description": "Embeddable customer-facing widget for Paw OS pockets. Zero framework deps, <10KB gzipped.",
+  "private": true,
+  "type": "module",
+  "main": "dist/widget.js",
+  "files": [
+    "dist/widget.js",
+    "dist/widget.js.map",
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "playwright test",
+    "test:size": "node scripts/check-size.mjs",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "esbuild": "0.25.0",
+    "http-server": "14.1.1",
+    "typescript": "5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

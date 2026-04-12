@@ -1,0 +1,8 @@
+node_modules/
+dist/
+tests/fixtures/widget.js
+.DS_Store
+*.log
+.playwright/
+playwright-report/
+test-results/
