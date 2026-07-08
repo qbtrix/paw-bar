@@ -1,9 +1,10 @@
-// Paw Print widget — embeddable customer-facing surface for Paw OS pockets.
+// Paw Bar widget — embeddable customer-facing surface for Paw OS pockets.
+// Renamed 2026-07-08 to Paw Bar: mounts on [data-paw-bar]; exposes window.PawBar.
 // Created: 2026-04-13 (Move 3 PR-C) — Auto-mounts on DOMContentLoaded against
-// every <div data-paw-print="widget_id">. Emits `pp.ready` / `pp.error` /
+// every <div data-paw-bar="widget_id">. Emits `pp.ready` / `pp.error` /
 // `pp.event` CustomEvents on the host element so embedders can hook in.
 
-import { PawPrintClient } from './client';
+import { PawBarClient } from './client';
 import { getCustomerRef } from './customer-ref';
 import { render } from './render';
 import type { Spec } from './types';
@@ -15,15 +16,15 @@ const BUILD_VERSION: string = typeof __BUILD_VERSION__ === 'string' ? __BUILD_VE
 
 interface MountedWidget {
   host: HTMLElement;
-  client: PawPrintClient;
+  client: PawBarClient;
 }
 
 const mounted: MountedWidget[] = [];
 
 function readGlobalEndpoint(): string | null {
-  const globalAny = window as unknown as { __PAW_PRINT_ENDPOINT__?: string };
-  return typeof globalAny.__PAW_PRINT_ENDPOINT__ === 'string'
-    ? globalAny.__PAW_PRINT_ENDPOINT__
+  const globalAny = window as unknown as { __PAW_BAR_ENDPOINT__?: string };
+  return typeof globalAny.__PAW_BAR_ENDPOINT__ === 'string'
+    ? globalAny.__PAW_BAR_ENDPOINT__
     : null;
 }
 
@@ -32,14 +33,14 @@ function dispatch(host: HTMLElement, name: string, detail: unknown): void {
 }
 
 async function mount(host: HTMLElement): Promise<void> {
-  const widgetId = host.getAttribute('data-paw-print');
+  const widgetId = host.getAttribute('data-paw-bar');
   const endpoint = host.getAttribute('data-endpoint') ?? DEFAULT_ENDPOINT;
   if (!widgetId) {
-    dispatch(host, 'error', { reason: 'missing data-paw-print attribute' });
+    dispatch(host, 'error', { reason: 'missing data-paw-bar attribute' });
     return;
   }
 
-  const client = new PawPrintClient(endpoint, widgetId);
+  const client = new PawBarClient(endpoint, widgetId);
   mounted.push({ host, client });
 
   try {
@@ -53,7 +54,7 @@ async function mount(host: HTMLElement): Promise<void> {
   }
 }
 
-function makeEmitter(host: HTMLElement, client: PawPrintClient) {
+function makeEmitter(host: HTMLElement, client: PawBarClient) {
   return async (event: string, payload: Record<string, unknown>) => {
     try {
       const customerRef = await getCustomerRef();
@@ -67,7 +68,7 @@ function makeEmitter(host: HTMLElement, client: PawPrintClient) {
 }
 
 function autoMount(): void {
-  const hosts = document.querySelectorAll<HTMLElement>('[data-paw-print]');
+  const hosts = document.querySelectorAll<HTMLElement>('[data-paw-bar]');
   hosts.forEach((host) => {
     void mount(host);
   });
@@ -79,12 +80,12 @@ if (document.readyState === 'loading') {
   autoMount();
 }
 
-const pawPrintGlobal = {
+const pawBarGlobal = {
   version: BUILD_VERSION,
   mount,
   mounted,
 };
 
-(window as unknown as { PawPrint: typeof pawPrintGlobal }).PawPrint = pawPrintGlobal;
+(window as unknown as { PawBar: typeof pawBarGlobal }).PawBar = pawBarGlobal;
 
 export {};

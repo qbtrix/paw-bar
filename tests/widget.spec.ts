@@ -1,4 +1,4 @@
-// Playwright smoke + integration tests for the Paw Print widget bundle.
+// Playwright smoke + integration tests for the Paw Bar widget bundle.
 // Created: 2026-04-13 — Mock the runtime API with `page.route()` so the widget
 // can load a fixed spec, render DOM, emit pp.event on button click, and post
 // a mock event with a hashed customer_ref.
@@ -36,14 +36,14 @@ const DEMO_SPEC = {
 
 test.describe('widget bundle', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/paw-print/spec/pp_test_widget', (route) =>
+    await page.route('**/paw-bar/spec/pp_test_widget', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(DEMO_SPEC),
       }),
     );
-    await page.route('**/paw-print/events/pp_test_widget', async (route) => {
+    await page.route('**/paw-bar/events/pp_test_widget', async (route) => {
       const body = route.request().postDataJSON();
       await route.fulfill({
         status: 200,
@@ -64,7 +64,7 @@ test.describe('widget bundle', () => {
     await page.goto('/');
     const eventPromise = page.evaluate(() => {
       return new Promise<Record<string, unknown>>((resolve) => {
-        document.querySelector('[data-paw-print]')!.addEventListener(
+        document.querySelector('[data-paw-bar]')!.addEventListener(
           'pp.event',
           (ev) => resolve((ev as CustomEvent).detail as Record<string, unknown>),
           { once: true },
@@ -88,7 +88,7 @@ test.describe('widget bundle', () => {
     let firstRef: string | null = null;
     let secondRef: string | null = null;
 
-    await page.route('**/paw-print/events/pp_test_widget', async (route) => {
+    await page.route('**/paw-bar/events/pp_test_widget', async (route) => {
       const body = route.request().postDataJSON() as { customer_ref: string };
       if (firstRef === null) firstRef = body.customer_ref;
       else secondRef = body.customer_ref;

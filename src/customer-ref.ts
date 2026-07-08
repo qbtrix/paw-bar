@@ -1,10 +1,10 @@
 // Cookie-based customer_ref — a SHA-256 hash of a random client-side value.
-// Matches the privacy posture from PAW-PRINT-MVP.md: no email, no IP, just a
+// Matches the privacy posture from PAW-BAR-MVP.md: no email, no IP, just a
 // stable anonymous handle so rate limiting + session stitching work on the
 // server without storing PII. Falls back to a memory-only ref when
 // localStorage is blocked (Safari private mode, embedded in iframes).
 
-const STORAGE_KEY = 'pawprint.customer_ref';
+const STORAGE_KEY = 'pawbar.customer_ref';
 let memoryRef: string | null = null;
 
 export async function getCustomerRef(): Promise<string> {

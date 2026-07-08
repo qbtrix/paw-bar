@@ -1,5 +1,6 @@
 {
-  "name": "paw-print-widget",
+  "_comment": "Renamed 2026-07-08 to Paw Bar (package paw-bar-widget). Rename-only change; no behavior refactor.",
+  "name": "paw-bar-widget",
   "version": "0.1.0",
   "description": "Embeddable customer-facing widget for Paw OS pockets. Zero framework deps, <10KB gzipped.",
   "private": true,

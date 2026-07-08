@@ -1,5 +1,5 @@
 // scripts/check-size.mjs — Fail the build when dist/widget.js gzips above 10KB.
-// Created: 2026-04-13 — Contract from PAW-PRINT-MVP.md: the bundle stays small
+// Created: 2026-04-13 — Contract from PAW-BAR-MVP.md: the bundle stays small
 // enough that embedders don't hesitate to drop it in. 10KB gzipped matches the
 // planning doc target.
 
