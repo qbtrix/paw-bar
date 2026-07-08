@@ -1,4 +1,6 @@
-# paw-print-widget
+<!-- Renamed 2026-07-08 to Paw Bar. Package name is now paw-bar-widget; host attribute data-paw-bar; global window.PawBar. -->
+
+# Paw Bar
 
 Embeddable customer-facing widget for Paw OS pockets. The frontend side of the full-stack decision loop Palantir cannot offer: events on a brand-embedded widget flow into a Pocket, Instinct nudges the owner, approved actions flow back.
 
@@ -6,13 +8,13 @@ Embeddable customer-facing widget for Paw OS pockets. The frontend side of the f
 
 - Zero framework dependencies.
 - Under 10 KB gzipped, enforced by `scripts/check-size.mjs`.
-- Mounts on every `[data-paw-print]` element in the DOM at `DOMContentLoaded`.
+- Mounts on every `[data-paw-bar]` element in the DOM at `DOMContentLoaded`.
 
 ## Usage
 
 ```html
 <script src="https://pp.pocketpaw.dev/widget.js"></script>
-<div data-paw-print="pp_your_widget_id"
+<div data-paw-bar="pp_your_widget_id"
      data-endpoint="https://runtime.pocketpaw.dev/api/v1"></div>
 ```
 

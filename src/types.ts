@@ -1,4 +1,4 @@
-// Shared types — deliberately narrow to match ee/paw_print/models.py on the
+// Shared types — deliberately narrow to match ee/paw_bar/models.py on the
 // server. Unknown fields on a block are ignored so forward-compatible spec
 // additions don't break older bundles.
 

@@ -1,4 +1,5 @@
-// build.mjs — Produce the Paw Print widget bundle.
+// build.mjs — Produce the Paw Bar widget bundle.
+// Renamed 2026-07-08 to Paw Bar (bundle/product rename; rename-only).
 // Created: 2026-04-13 — Zero-dependency esbuild setup targeting evergreen
 // browsers (ES2020). Minified IIFE output so embedders can `<script src="…">`
 // without touching their own bundler. Sourcemap emitted for debugging.

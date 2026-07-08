@@ -1,4 +1,4 @@
-// DOM renderer — turns a Paw Print spec into a sandboxed tree of native
+// DOM renderer — turns a Paw Bar spec into a sandboxed tree of native
 // elements. Never uses innerHTML with user-supplied content; every string
 // comes in via textContent so an attacker-controlled spec cannot inject
 // executable markup.
