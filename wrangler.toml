@@ -1,0 +1,17 @@
+# wrangler.toml — Cloudflare static hosting scaffold for the Paw Bar widget.
+# Created: 2026-07-11 (paw-bar hosting/versioning slice).
+#
+# NOT PROVISIONED. The worker name below is deliberately unprovisioned and no
+# route/custom domain is configured: picking the real host (and wiring DNS +
+# TLS for it) is a CAPTAIN decision. Until then `npm run deploy` only does a
+# wrangler dry-run. Once a host is chosen, set a `route`/custom domain here
+# and drop the placeholder name.
+#
+# Serves ./dist as static assets: /widget.js (latest) and the immutable
+# /widget-<version>.js artifacts emitted by build.mjs.
+
+name = "paw-bar-widget-UNPROVISIONED-PLACEHOLDER"
+compatibility_date = "2026-07-01"
+
+[assets]
+directory = "./dist"

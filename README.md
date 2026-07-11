@@ -6,17 +6,17 @@ Embeddable customer-facing widget for Paw OS pockets. The frontend side of the f
 
 - Zero framework dependencies.
 - Under 10 KB gzipped, enforced by `scripts/check-size.mjs`.
-- Mounts on every `[data-paw-print]` element in the DOM at `DOMContentLoaded`.
+- Mounts on every `[data-paw-bar]` element in the DOM at `DOMContentLoaded` (the legacy `data-paw-print` attribute still works as a read alias).
 
 ## Usage
 
 ```html
 <script src="https://pp.pocketpaw.dev/widget.js"></script>
-<div data-paw-print="pp_your_widget_id"
+<div data-paw-bar="pp_your_widget_id"
      data-endpoint="https://runtime.pocketpaw.dev/api/v1"></div>
 ```
 
-Point `data-endpoint` at your paw-runtime install. Omit it in production and the bundle falls back to the default host.
+Point `data-endpoint` at your paw-runtime install (the widget talks to `/paw-bar/*`). Omit it in production and the bundle falls back to the default host. Note: no CDN host is provisioned yet — the script URL above is a placeholder until the captain picks DNS/TLS; `wrangler.toml` holds the unprovisioned Cloudflare scaffold and `npm run deploy` is a dry-run placeholder.
 
 ### Lifecycle events
 

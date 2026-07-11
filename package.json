@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "node build.mjs",
+    "deploy": "echo '[paw-bar] deploy placeholder — host is NOT provisioned; DNS/TLS is a captain step. Dry-run only:' && npx wrangler deploy --dry-run",
     "test": "playwright test",
     "test:size": "node scripts/check-size.mjs",
     "clean": "rm -rf dist"
