@@ -7,6 +7,13 @@
   posts {pawbar:resize,h} up to the loader on every size change; opening posts
   {pawbar:open}, collapsing to the pill posts {pawbar:close}. Owns nothing but
   view state — the transcript/streaming lives in the injected ChatStore.
+
+  2026-07-15 sizing fix: the ResizeObserver now measures an inner .pawbar-content
+  wrapper, not .pawbar-root. The root is position:fixed inset:0 so its height IS
+  the iframe's height — observing it posted the iframe's own height back to the
+  loader, a stuck loop that collapsed the opened panel to MIN_H (the "folding"
+  bug). Root is now transparent chrome (pointer-events:none); the content
+  wrapper catches clicks and is the sole sizing source (+ROOT_PAD for padding).
 -->
 <script lang="ts">
   import type { ChatStore } from '../store/chat.svelte';
@@ -27,6 +34,7 @@
   type View = 'pill' | 'bar' | 'panel';
   let view = $state<View>('pill');
   let rootEl: HTMLDivElement | null = $state(null);
+  let contentEl: HTMLDivElement | null = $state(null);
   let composer: ReturnType<typeof Composer> | null = $state(null);
 
   function openBar() {
@@ -59,14 +67,21 @@
     if (e.key === 'Escape' && view !== 'pill') onEscape();
   }
 
-  // Report our rendered height to the loader so the iframe fits each state.
+  // Report our rendered CONTENT height to the loader so the iframe fits each
+  // state. We observe the inner content wrapper, NOT .pawbar-root: the root is
+  // position:fixed inset:0, so its height IS the iframe's own height — observing
+  // it feeds the loader back the height it just set, a stuck loop that collapses
+  // the opened panel to the loader's MIN_H (the "folding" bug). ROOT_PAD is the
+  // root's 12px top + 12px bottom padding, added so the iframe box wraps the
+  // content plus its breathing room.
+  const ROOT_PAD = 24;
   $effect(() => {
-    if (!rootEl) return;
+    if (!contentEl) return;
     const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height ?? rootEl?.offsetHeight ?? 0;
-      poster.resize(h);
+      const h = entries[0]?.contentRect.height ?? contentEl?.offsetHeight ?? 0;
+      poster.resize(h + ROOT_PAD);
     });
-    ro.observe(rootEl);
+    ro.observe(contentEl);
     return () => ro.disconnect();
   });
 </script>
@@ -81,7 +96,8 @@
   role="region"
   aria-label="Site concierge"
 >
-  {#if view === 'pill'}
+  <div class="pawbar-content" bind:this={contentEl}>
+    {#if view === 'pill'}
     <button type="button" class="pill" onclick={openBar} aria-expanded="false">
       <span class="pill-dot"></span>
       <span class="pill-label">Ask about this site</span>
@@ -125,7 +141,8 @@
         />
       </div>
     </section>
-  {/if}
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -139,6 +156,21 @@
     padding: 12px;
     font-family: var(--pawbar-font);
     color: var(--pawbar-fg);
+    /* The root spans the whole (often transiently taller) iframe but is
+       transparent chrome — only the content wrapper below should catch clicks. */
+    pointer-events: none;
+  }
+
+  /* The measured content box: pill or panel. Kept separate from .pawbar-root so
+     the ResizeObserver reads real content height, not the fixed root's iframe
+     height. Re-enables pointer events the root switched off. */
+  .pawbar-content {
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    min-height: 0;
+    max-height: 100%;
   }
 
   /* ── Collapsed pill ─────────────────────────────────────────────────────── */
