@@ -1,0 +1,18 @@
+{
+  "_comment": "loader/tsconfig.json — Created 2026-07-15 (A2). Type-checks the glass-bar loader in isolation from the frozen widget's src. Same strict evergreen-browser profile as the root tsconfig; includes only loader/src.",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["src"]
+}

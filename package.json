@@ -16,12 +16,17 @@
     "build": "node build.mjs",
     "test": "playwright test",
     "test:size": "node scripts/check-size.mjs",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "build:loader": "node loader/build.mjs",
+    "size:loader": "node loader/scripts/check-size.mjs",
+    "typecheck:loader": "tsc -p loader/tsconfig.json --noEmit",
+    "test:loader": "node --test 'loader/test/*.test.mjs'"
   },
   "devDependencies": {
     "@playwright/test": "1.55.0",
     "esbuild": "0.25.0",
     "http-server": "14.1.1",
+    "jsdom": "29.0.1",
     "typescript": "5.8.3"
   },
   "engines": {
