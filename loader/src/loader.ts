@@ -2,17 +2,24 @@
 // Created 2026-07-15: the ~2KB zero-dependency IIFE a foreign site pastes in to
 // embed the glass concierge. It finds its own <script> tag, reads the embed
 // config off it (data-site-key / data-widget-id / data-endpoint), computes the
-// host (parent) origin, and mounts a fixed bottom-right iframe pointing at the
-// A1 frame endpoint (/paw-bar/frame?key=&w=&po=). The loader owns ONLY the
-// launcher chrome + iframe sizing; the glass app (A3) renders INSIDE the iframe
-// and drives open/close/resize via postMessage.
+// host (parent) origin, and mounts the concierge iframe pointing at the A1
+// frame endpoint (/paw-bar/frame?key=&w=&po=). The loader owns ONLY the iframe
+// box (size + position); the glass app (A3) renders INSIDE the iframe and
+// drives the box over postMessage.
 //
-// 2026-07-15 centered palette: OPEN is now a full-viewport overlay iframe — the
-// app renders a dim backdrop + a centered command-palette panel inside it
-// (design direction: center + wide, not an Intercom corner box). Collapsed
-// stays the small bottom-right pill box. {pawbar:resize,h} is honoured ONLY
-// while collapsed (it sizes the pill box); while open the box is the viewport
-// and app-reported content heights must not shrink it.
+// 2026-07-15 bar-first docking (captain direction): the docked resting state is
+// a center-bottom BAR (width capped at BAR_MAX_W) that the app can flip to a
+// minimized CHIP ({pawbar:view}). {pawbar:resize,h,w} sizes the docked box —
+// height always, width only for the chip (the bar width is loader policy; using
+// the app-reported width for the bar would feed back and shrink it). OPEN is a
+// full-viewport overlay (the app draws the dim backdrop + centered palette).
+// MOVE: on {pawbar:drag,phase:start} the loader snapshots the dock box, goes
+// full-viewport, and replies {pawbar:box,x,y,w,h} so the app can track the
+// pointer; {pawbar:drag,phase:end,x,y} adopts the new anchor and persists it
+// (host localStorage) so the placement survives reloads. The anchor is the
+// box's CENTER-BOTTOM point, so the bar and the (narrower) chip stay pinned to
+// the same visual spot; a sub-DRAG_MIN_PX "drag" is a click on the grip and
+// adopts nothing (else the default-centered dock gets silently pinned).
 //
 // SECURITY: inbound messages are honoured ONLY when event.origin === the frame
 // origin AND event.source === the iframe's own contentWindow. Every outbound
@@ -21,13 +28,22 @@
 
 const LOADED_FLAG = '__pawBarLoaderLoaded';
 const FRAME_PATH = '/paw-bar/frame';
+// v2: the anchor is the box's CENTER-BOTTOM point {cx, by}, not a top-left —
+// a top-left pins the smaller chip to the bar's left edge when views flip.
+const POS_KEY = '__pawbar_pos_v2';
+// Pointer travel below this is a click on the grip, not a move — adopting an
+// anchor for it would silently pin the default-centered dock forever.
+const DRAG_MIN_PX = 4;
 
-// Collapsed launcher box (px). The loader owns it; the app reports the pill's
-// content height via {pawbar:resize,h} and toggles state via {pawbar:open|close}.
-// Open has no box constants — it is the full viewport (centered palette).
-const COLLAPSED = { w: 300, h: 96 };
+// Dock policy. Heights (and the chip width) are app-reported via
+// {pawbar:resize}; these are just the pre-report defaults and caps.
+const BAR_MAX_W = 720;
+const DEFAULT_BAR_H = 96;
+const DEFAULT_CHIP = { w: 240, h: 72 };
 const MIN_H = 48;
-const VIEWPORT_MARGIN = 24; // keep the box off the very edge on small screens
+const VIEWPORT_MARGIN = 24; // keep the dock off the very edge on small screens
+
+type DockView = 'bar' | 'chip';
 
 interface PawBarApi {
   open(): void;
@@ -75,7 +91,7 @@ type LoaderWindow = Window &
   // 2. The origin the iframe must post back to is the host page's origin.
   const parentOrigin = resolveParentOrigin(win);
 
-  // 3. Build the frame URL and mount the collapsed iframe.
+  // 3. Build the frame URL and mount the docked iframe.
   const src =
     endpoint +
     FRAME_PATH +
@@ -90,42 +106,54 @@ type LoaderWindow = Window &
   iframe.title = 'Site concierge';
   iframe.setAttribute('allow', 'clipboard-write');
   // Inline styles are required here: the loader runs on a foreign page and must
-  // neither depend on nor inject a stylesheet. One fixed, borderless, bottom-
-  // right box; max-*:100v* is a CSS safety net so it can never exceed the
-  // viewport even before JS clamps it.
-  iframe.style.cssText = frameStyle(COLLAPSED.w, COLLAPSED.h);
+  // neither depend on nor inject a stylesheet. One fixed, borderless box;
+  // max-*:100v* is a CSS safety net so it can never exceed the viewport.
+  iframe.style.cssText = frameStyle();
   iframe.src = src;
-  (doc.body || doc.documentElement).appendChild(iframe);
 
-  let expanded = false;
+  // Dock state. `anchor` is the user-chosen CENTER-BOTTOM point (null = default
+  // centered at the viewport bottom); `overlay` = panel open or mid-drag, when
+  // the iframe is the whole viewport and dock sizing must not apply. `dragFrom`
+  // is the box snapshot at drag start, for the no-move guard and coordinate
+  // conversion at drag end.
+  let view: DockView = 'bar';
+  let overlay = false;
+  let anchor: { cx: number; by: number } | null = readAnchor(win);
+  let dragFrom: { x: number; y: number; w: number; h: number } | null = null;
+  const size = { bar: { h: DEFAULT_BAR_H }, chip: { w: DEFAULT_CHIP.w, h: DEFAULT_CHIP.h } };
 
-  function applyBox(w: number, h: number): void {
+  function dockBox(): { x: number; y: number; w: number; h: number } {
     const vw = win.innerWidth || 0;
     const vh = win.innerHeight || 0;
-    iframe.style.width = (vw ? Math.min(w, vw - VIEWPORT_MARGIN) : w) + 'px';
-    iframe.style.height =
-      (vh ? clamp(h, MIN_H, vh - VIEWPORT_MARGIN) : Math.max(MIN_H, h)) + 'px';
+    const maxW = vw ? vw - VIEWPORT_MARGIN : BAR_MAX_W;
+    const w = view === 'bar' ? Math.min(BAR_MAX_W, maxW) : Math.min(size.chip.w, maxW);
+    const h = vh ? clamp(size[view].h, MIN_H, vh - VIEWPORT_MARGIN) : Math.max(MIN_H, size[view].h);
+    // Derive this box's top-left from the center-bottom anchor so bar and chip
+    // stay visually anchored to the same spot despite their different sizes.
+    const cx = anchor ? anchor.cx : (vw || w) / 2;
+    const by = anchor ? anchor.by : vh;
+    const x = clamp(Math.round(cx - w / 2), 0, Math.max(0, vw - w));
+    const y = clamp(Math.round(by - h), 0, Math.max(0, vh - h));
+    return { x, y, w, h };
   }
 
-  function setExpanded(next: boolean): void {
-    expanded = next;
-    if (next) {
-      // Open = full-viewport overlay; the app draws the dim backdrop and the
-      // centered palette panel inside. vw/vh track window resizes for free.
-      iframe.style.width = '100vw';
-      iframe.style.height = '100vh';
-    } else {
-      applyBox(COLLAPSED.w, COLLAPSED.h);
-    }
+  function applyDock(): void {
+    const b = dockBox();
+    iframe.style.left = b.x + 'px';
+    iframe.style.top = b.y + 'px';
+    iframe.style.width = b.w + 'px';
+    iframe.style.height = b.h + 'px';
   }
 
-  function setHeight(h: number): void {
-    // Content-height reports size the COLLAPSED pill box only. While open the
-    // box is the viewport — honouring an app-reported content height here
-    // would shrink the overlay out from under the centered panel.
-    if (expanded) return;
-    applyBox(COLLAPSED.w, h);
+  function goFullscreen(): void {
+    iframe.style.left = '0px';
+    iframe.style.top = '0px';
+    iframe.style.width = '100vw';
+    iframe.style.height = '100vh';
   }
+
+  (doc.body || doc.documentElement).appendChild(iframe);
+  applyDock();
 
   function postToFrame(msg: Record<string, unknown>): void {
     // ALWAYS pin to the frame origin — never "*".
@@ -138,40 +166,84 @@ type LoaderWindow = Window &
   win.addEventListener('message', (ev: MessageEvent): void => {
     if (ev.origin !== frameOrigin) return;
     if (ev.source !== iframe.contentWindow) return;
-    const data = ev.data as { type?: string; h?: unknown } | null;
+    const data = ev.data as
+      | { type?: string; h?: unknown; w?: unknown; view?: unknown; phase?: unknown; x?: unknown; y?: unknown }
+      | null;
     if (!data || typeof data !== 'object') return;
     switch (data.type) {
       case 'pawbar:resize': {
+        if (overlay) break; // the overlay is viewport-sized; dock reports wait
         const h = Number(data.h);
-        if (Number.isFinite(h)) setHeight(h);
+        if (Number.isFinite(h)) size[view].h = h;
+        const w = Number(data.w);
+        // Width is honoured for the chip only — the bar width is loader policy.
+        if (view === 'chip' && Number.isFinite(w) && w > 0) size.chip.w = w;
+        applyDock();
+        break;
+      }
+      case 'pawbar:view': {
+        if (data.view === 'bar' || data.view === 'chip') {
+          view = data.view;
+          overlay = false;
+          applyDock();
+        }
         break;
       }
       case 'pawbar:open':
-        setExpanded(true);
+        overlay = true;
+        goFullscreen();
         break;
       case 'pawbar:close':
-        setExpanded(false);
+        overlay = false;
+        applyDock();
         break;
+      case 'pawbar:drag': {
+        if (data.phase === 'start') {
+          if (overlay) break;
+          const b = dockBox();
+          dragFrom = b;
+          overlay = true;
+          goFullscreen();
+          postToFrame({ type: 'pawbar:box', x: b.x, y: b.y, w: b.w, h: b.h });
+        } else if (data.phase === 'end') {
+          const x = Number(data.x);
+          const y = Number(data.y);
+          const from = dragFrom;
+          dragFrom = null;
+          const moved =
+            from && Number.isFinite(x) && Number.isFinite(y)
+              ? Math.abs(x - from.x) + Math.abs(y - from.y) >= DRAG_MIN_PX
+              : false;
+          if (from && moved) {
+            anchor = { cx: x + from.w / 2, by: y + from.h };
+            writeAnchor(win, anchor);
+          }
+          overlay = false;
+          applyDock();
+        }
+        break;
+      }
     }
   });
 
-  // Re-clamp the collapsed box to the viewport on rotation / resize (mobile).
-  // The open overlay is vw/vh-sized and tracks the viewport by itself.
+  // Re-clamp the dock on rotation / resize (mobile). The overlay is vw/vh-sized
+  // and tracks the viewport by itself.
   win.addEventListener('resize', (): void => {
-    if (expanded) return;
-    applyBox(COLLAPSED.w, parseInt(iframe.style.height, 10) || COLLAPSED.h);
+    if (!overlay) applyDock();
   });
 
   // 5. Programmatic control for embedders. Resizes the chrome the loader owns
   //    AND forwards a pinned host-intent to the app (forward-compatible: the app
-  //    ignores unknown message types today, honours them once it listens).
+  //    honours pawbar:host-open / pawbar:host-close).
   win.PawBar = {
     open(): void {
-      setExpanded(true);
+      overlay = true;
+      goFullscreen();
       postToFrame({ type: 'pawbar:host-open' });
     },
     close(): void {
-      setExpanded(false);
+      overlay = false;
+      applyDock();
       postToFrame({ type: 'pawbar:host-close' });
     },
   };
@@ -202,6 +274,28 @@ function normalizeEndpoint(ep: string): string {
 
 function clamp(n: number, lo: number, hi: number): number {
   return n < lo ? lo : n > hi ? hi : n;
+}
+
+function readAnchor(win: Window): { cx: number; by: number } | null {
+  try {
+    const raw = win.localStorage.getItem(POS_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as { cx?: unknown; by?: unknown };
+    if (Number.isFinite(p.cx) && Number.isFinite(p.by)) {
+      return { cx: p.cx as number, by: p.by as number };
+    }
+  } catch {
+    /* storage denied / corrupt — fall back to the default placement */
+  }
+  return null;
+}
+
+function writeAnchor(win: Window, a: { cx: number; by: number }): void {
+  try {
+    win.localStorage.setItem(POS_KEY, JSON.stringify(a));
+  } catch {
+    /* storage denied — the placement just doesn't persist */
+  }
 }
 
 function resolveParentOrigin(win: Window): string {
@@ -236,13 +330,13 @@ function warn(msg: string): void {
   }
 }
 
-function frameStyle(w: number, h: number): string {
+function frameStyle(): string {
   return [
     'position:fixed',
-    'right:0',
-    'bottom:0',
-    'width:' + w + 'px',
-    'height:' + h + 'px',
+    'left:0',
+    'top:0',
+    'width:0px',
+    'height:0px',
     'max-width:100vw',
     'max-height:100vh',
     'border:0',

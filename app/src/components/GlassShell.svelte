@@ -1,35 +1,33 @@
 <!--
-  GlassShell.svelte — The three-state morph shell for the concierge iframe:
-  collapsed pill → input bar → full panel. Created 2026-07-15 (A3 glass bar).
-  CLICK + ESCAPE driven and mobile-safe (never hover-driven). The frosted glass
-  is a translucent tinted surface + backdrop-blur on the panel itself (there's
-  no Tauri vibrancy inside an iframe over an unknown host bg). A ResizeObserver
-  posts {pawbar:resize,h} up to the loader on every size change; opening posts
-  {pawbar:open}, collapsing to the pill posts {pawbar:close}. Owns nothing but
-  view state — the transcript/streaming lives in the injected ChatStore.
+  GlassShell.svelte — The morph shell for the concierge iframe. Created
+  2026-07-15 (A3 glass bar). CLICK + ESCAPE driven and mobile-safe (never
+  hover-driven). Frosted glass = translucent tinted surface + backdrop-blur on
+  the surface itself (no Tauri vibrancy inside an iframe over an unknown host
+  bg). Owns nothing but view state — transcript/streaming lives in the injected
+  ChatStore.
 
-  2026-07-15 sizing fix: the ResizeObserver now measures an inner .pawbar-content
-  wrapper, not .pawbar-root. The root is position:fixed inset:0 so its height IS
-  the iframe's height — observing it posted the iframe's own height back to the
-  loader, a stuck loop that collapsed the opened panel to MIN_H (the "folding"
-  bug). Root is now transparent chrome (pointer-events:none); the content
-  wrapper catches clicks and is the sole sizing source (+ROOT_PAD for padding).
+  2026-07-15 bar-first (captain direction): the docked resting state is a
+  center-bottom INPUT BAR (the product face, per the ai-bar genesis mockups) —
+  not a corner pill. Views:
+    bar   (default) wide glass input bar, center-bottom; draggable by its grip;
+          minimizes to the chip; sending opens the panel with the reply.
+    chip  minimized pill at the bar's anchor; click restores the bar.
+    panel centered command palette — min(940px,100%) over a dim blurred
+          backdrop; Esc / ✕ / outside click return to the bar.
+  The docked view persists in frame localStorage. Drag protocol: grip
+  pointerdown posts {pawbar:drag,phase:start}; the loader goes full-viewport
+  and replies {pawbar:box,x,y,w,h}; the app tracks the pointer (pointer
+  capture) and posts {pawbar:drag,phase:end,x,y} for the loader to adopt as
+  the new dock anchor. Inbound parent messages are honoured only from
+  window.parent AND the configured parentOrigin (mirrors the loader's gate).
 
-  2026-07-15 two-state morph: dropped the intermediate "bar" view — pill now
-  opens the full glass panel directly (composer focused, empty-state welcome
-  when the transcript is empty). Live feedback: the squat input-only bar read
-  as a folded/broken widget, not a designed state. Also deepened the glass
-  (surface opacity, blur, inset top highlight) so the panel reads frosted
-  instead of flat over light host pages.
-
-  2026-07-15 centered palette: the open panel is now a centered command-palette
-  overlay — min(940px, 100%) wide over a dim blurred backdrop — instead of an
-  Intercom-style corner box (captain direction, per the ai-bar genesis mockups).
-  The loader makes the iframe full-viewport while open; a transparent backdrop
-  button collapses on outside click (a real <button> so the a11y is structural,
-  not suppressed). Content-height reports only matter while collapsed.
+  Sizing: a ResizeObserver on the inner .pawbar-content wrapper (NOT the fixed
+  inset:0 root — observing the root reflects the iframe's own height back and
+  folds the dock, the original "folding" bug) posts {pawbar:resize,h,w}; the
+  loader applies it only while docked.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { ChatStore } from '../store/chat.svelte';
   import type { PawBarPoster } from '../lib/postmessage';
   import MessageList from './MessageList.svelte';
@@ -39,51 +37,165 @@
     store,
     poster,
     theme = 'dark',
+    parentOrigin = '',
   }: {
     store: ChatStore;
     poster: PawBarPoster;
     theme?: 'light' | 'dark';
+    parentOrigin?: string;
   } = $props();
 
-  type View = 'pill' | 'panel';
-  let view = $state<View>('pill');
+  type View = 'bar' | 'chip' | 'panel';
+  const VIEW_KEY = '__pawbar_view_v1';
+
+  function readInitialView(): View {
+    try {
+      return localStorage.getItem(VIEW_KEY) === 'chip' ? 'chip' : 'bar';
+    } catch {
+      return 'bar';
+    }
+  }
+  function persistDock(v: 'bar' | 'chip') {
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      /* storage denied in a sandboxed frame — the pref just doesn't stick */
+    }
+  }
+
+  let view = $state<View>(readInitialView());
   let rootEl: HTMLDivElement | null = $state(null);
   let contentEl: HTMLDivElement | null = $state(null);
   let composer: ReturnType<typeof Composer> | null = $state(null);
+
+  // Announce the persisted dock view ONCE so the loader sizes the first box
+  // right. Untracked on purpose: a reactive read of `view` here would re-post a
+  // dock view when the panel opens and yank the loader out of fullscreen
+  // mid-open (bit the first live run). View transitions post explicitly.
+  $effect(() => {
+    const dock = untrack(() => view);
+    poster.view(dock === 'chip' ? 'chip' : 'bar');
+  });
 
   function openPanel() {
     view = 'panel';
     poster.open();
     queueMicrotask(() => composer?.focus());
   }
-  function collapse() {
-    view = 'pill';
-    poster.close();
+  function closePanel() {
+    view = 'bar';
+    poster.view('bar');
+    persistDock('bar');
+    queueMicrotask(() => composer?.focus());
+  }
+  function minimize() {
+    view = 'chip';
+    poster.view('chip');
+    persistDock('chip');
+  }
+  function restoreBar() {
+    view = 'bar';
+    poster.view('bar');
+    persistDock('bar');
+    queueMicrotask(() => composer?.focus());
   }
 
-  function handleSend(text: string) {
+  // Sending from the bar morphs into the panel so the reply streams in place.
+  function handleBarSend(text: string) {
+    openPanel();
+    void store.send(text);
+  }
+  function handlePanelSend(text: string) {
     void store.send(text);
   }
 
   function onKeydown(e: KeyboardEvent) {
-    // Escape collapses the panel from anywhere (including composer focus).
-    // No-op in the pill state — nothing to collapse.
-    if (e.key === 'Escape' && view === 'panel') collapse();
+    if (e.key !== 'Escape' || drag) return;
+    if (view === 'panel') closePanel();
+    else if (view === 'bar') minimize();
   }
 
-  // Report our rendered CONTENT height to the loader so the iframe fits each
-  // state. We observe the inner content wrapper, NOT .pawbar-root: the root is
-  // position:fixed inset:0, so its height IS the iframe's own height — observing
-  // it feeds the loader back the height it just set, a stuck loop that collapses
-  // the opened panel to the loader's MIN_H (the "folding" bug). ROOT_PAD is the
-  // root's 12px top + 12px bottom padding, added so the iframe box wraps the
-  // content plus its breathing room.
-  const ROOT_PAD = 24;
+  // ── Drag protocol (bar only) ──────────────────────────────────────────────
+  // Pre-drag, pointer coords are iframe-relative and the iframe IS the dock box,
+  // so the grab offset equals the pointer position at pointerdown. Once the
+  // loader replies with the box (and the iframe is full-viewport), pointer
+  // coords are viewport-relative and box.x = clientX - grabX holds the grip
+  // under the pointer. DOCK_PAD converts between the iframe box and the visible
+  // content inside the root's padding.
+  const DOCK_PAD = 12;
+  let drag = $state<{ x: number; y: number; w: number; h: number } | null>(null);
+  let awaitingBox = false;
+  let grabX = 0;
+  let grabY = 0;
+
+  function onGripDown(e: PointerEvent) {
+    if (view !== 'bar' || drag || awaitingBox) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    grabX = e.clientX;
+    grabY = e.clientY;
+    awaitingBox = true;
+    poster.dragStart();
+  }
+  function onGripMove(e: PointerEvent) {
+    if (!drag) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    drag = {
+      ...drag,
+      x: clamp(e.clientX - grabX, 0, Math.max(0, vw - drag.w)),
+      y: clamp(e.clientY - grabY, 0, Math.max(0, vh - drag.h)),
+    };
+  }
+  function onGripUp() {
+    awaitingBox = false;
+    if (!drag) return;
+    poster.dragEnd(drag.x, drag.y);
+    drag = null;
+  }
+  function clamp(n: number, lo: number, hi: number): number {
+    return n < lo ? lo : n > hi ? hi : n;
+  }
+
+  // Inbound messages from the loader: same dual gate as the loader's own
+  // listener — the exact configured parent origin AND the parent window itself.
+  $effect(() => {
+    function onMessage(ev: MessageEvent) {
+      if (window.parent === window || ev.source !== window.parent) return;
+      if (parentOrigin && ev.origin !== parentOrigin) return;
+      const data = ev.data as { type?: string; x?: number; y?: number; w?: number; h?: number } | null;
+      if (!data || typeof data !== 'object') return;
+      switch (data.type) {
+        case 'pawbar:box': {
+          if (!awaitingBox) break;
+          awaitingBox = false;
+          const { x, y, w, h } = data;
+          if ([x, y, w, h].every((n) => Number.isFinite(n))) {
+            drag = { x: x!, y: y!, w: w!, h: h! };
+          }
+          break;
+        }
+        case 'pawbar:host-open':
+          if (view !== 'panel') openPanel();
+          break;
+        case 'pawbar:host-close':
+          if (view === 'panel') closePanel();
+          break;
+      }
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  });
+
+  // Report docked content size (+ the root padding) so the loader fits the box.
+  const ROOT_PAD = DOCK_PAD * 2;
   $effect(() => {
     if (!contentEl) return;
     const ro = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height ?? contentEl?.offsetHeight ?? 0;
-      poster.resize(h + ROOT_PAD);
+      const rect = entries[0]?.contentRect;
+      const h = rect?.height ?? contentEl?.offsetHeight ?? 0;
+      const w = rect?.width ?? contentEl?.offsetWidth ?? 0;
+      poster.resize(h + ROOT_PAD, w + ROOT_PAD);
     });
     ro.observe(contentEl);
     return () => ro.disconnect();
@@ -96,56 +208,99 @@
   class="pawbar-root"
   data-pawbar-theme={theme}
   data-pawbar-view={view}
+  data-pawbar-dragging={drag ? 'true' : undefined}
   bind:this={rootEl}
   role="region"
   aria-label="Site concierge"
 >
   {#if view === 'panel'}
-    <button type="button" class="backdrop" onclick={collapse} aria-label="Close concierge" tabindex="-1"></button>
+    <button type="button" class="backdrop" onclick={closePanel} aria-label="Close concierge" tabindex="-1"></button>
   {/if}
-  <div class="pawbar-content" bind:this={contentEl}>
-    {#if view === 'pill'}
-    <button type="button" class="pill" onclick={openPanel} aria-expanded="false">
-      <span class="pill-dot"></span>
-      <span class="pill-label">Ask about this site</span>
-    </button>
-  {:else}
-    <section class="panel" role="dialog" aria-modal="true" aria-label="Site concierge">
-      <header class="head">
-        <div class="head-title">
-          <span class="head-dot"></span>
-          <span>Concierge</span>
-        </div>
-        <button type="button" class="icon-btn" onclick={collapse} aria-label="Close">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+
+  <div
+    class="pawbar-content"
+    bind:this={contentEl}
+    style={drag
+      ? `position:fixed;left:${drag.x + DOCK_PAD}px;top:${drag.y + DOCK_PAD}px;width:${drag.w - ROOT_PAD}px;height:${drag.h - ROOT_PAD}px;`
+      : ''}
+  >
+    {#if view === 'chip'}
+      <button type="button" class="chip" onclick={restoreBar} aria-expanded="false" aria-label="Open concierge bar">
+        <span class="glow-dot"></span>
+        <span>Ask</span>
+      </button>
+    {:else if view === 'bar'}
+      <div class="bar">
+        <button
+          type="button"
+          class="grip"
+          aria-label="Move concierge bar"
+          onpointerdown={onGripDown}
+          onpointermove={onGripMove}
+          onpointerup={onGripUp}
+          onpointercancel={onGripUp}
+        >
+          <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">
+            <circle cx="3" cy="3" r="1.3" fill="currentColor" />
+            <circle cx="3" cy="8" r="1.3" fill="currentColor" />
+            <circle cx="3" cy="13" r="1.3" fill="currentColor" />
+            <circle cx="7" cy="3" r="1.3" fill="currentColor" />
+            <circle cx="7" cy="8" r="1.3" fill="currentColor" />
+            <circle cx="7" cy="13" r="1.3" fill="currentColor" />
           </svg>
         </button>
-      </header>
-
-      {#if store.messages.length === 0}
-        <div class="empty">
-          <span class="empty-dot"></span>
-          <p class="empty-title">Ask about this site</p>
-          <p class="empty-sub">Instant answers, grounded in this site's own knowledge.</p>
+        <span class="glow-dot"></span>
+        <div class="bar-composer">
+          <Composer
+            bind:this={composer}
+            isStreaming={store.isStreaming}
+            onSend={handleBarSend}
+            onStop={() => store.stop()}
+          />
         </div>
-      {:else}
-        <MessageList messages={store.messages} />
-      {/if}
-
-      {#if store.error}
-        <div class="banner" role="status">{store.error}</div>
-      {/if}
-
-      <div class="composer-wrap">
-        <Composer
-          bind:this={composer}
-          isStreaming={store.isStreaming}
-          onSend={handleSend}
-          onStop={() => store.stop()}
-        />
+        <button type="button" class="icon-btn" onclick={minimize} aria-label="Minimize">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+          </svg>
+        </button>
       </div>
-    </section>
+    {:else}
+      <section class="panel" role="dialog" aria-modal="true" aria-label="Site concierge">
+        <header class="head">
+          <div class="head-title">
+            <span class="head-dot"></span>
+            <span>Concierge</span>
+          </div>
+          <button type="button" class="icon-btn" onclick={closePanel} aria-label="Close">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+            </svg>
+          </button>
+        </header>
+
+        {#if store.messages.length === 0}
+          <div class="empty">
+            <span class="glow-dot empty-dot"></span>
+            <p class="empty-title">Ask about this site</p>
+            <p class="empty-sub">Instant answers, grounded in this site's own knowledge.</p>
+          </div>
+        {:else}
+          <MessageList messages={store.messages} />
+        {/if}
+
+        {#if store.error}
+          <div class="banner" role="status">{store.error}</div>
+        {/if}
+
+        <div class="composer-wrap">
+          <Composer
+            bind:this={composer}
+            isStreaming={store.isStreaming}
+            onSend={handlePanelSend}
+            onStop={() => store.stop()}
+          />
+        </div>
+      </section>
     {/if}
   </div>
 </div>
@@ -171,6 +326,11 @@
     align-items: center;
     padding: clamp(16px, 4vh, 40px);
   }
+  /* Mid-drag the content wrapper is fixed-positioned inline; kill the padding
+     so the wrapper's coords map 1:1 to the posted box. */
+  .pawbar-root[data-pawbar-dragging='true'] {
+    padding: 0;
+  }
 
   /* Outside-click catcher + page dim. A real button (keyboard story stays Esc /
      the header X; tabindex -1 keeps it out of the tab order). */
@@ -186,9 +346,9 @@
     cursor: default;
   }
 
-  /* The measured content box: pill or panel. Kept separate from .pawbar-root so
-     the ResizeObserver reads real content height, not the fixed root's iframe
-     height. Re-enables pointer events the root switched off. */
+  /* The measured content box: bar, chip, or panel. Kept separate from
+     .pawbar-root so the ResizeObserver reads real content size, not the fixed
+     root's iframe size. Re-enables pointer events the root switched off. */
   .pawbar-content {
     pointer-events: auto;
     display: flex;
@@ -197,6 +357,11 @@
     min-height: 0;
     max-height: 100%;
   }
+  /* The chip hugs its content so the reported width shrinks the iframe box. */
+  .pawbar-root[data-pawbar-view='chip'] .pawbar-content {
+    align-self: center;
+    width: fit-content;
+  }
   /* Palette proportions from the genesis mockup (~969×737 on a 16" frame). */
   .pawbar-root[data-pawbar-view='panel'] .pawbar-content {
     position: relative;
@@ -204,13 +369,22 @@
     height: min(720px, 100%);
   }
 
-  /* ── Collapsed pill ─────────────────────────────────────────────────────── */
-  .pill {
-    align-self: flex-end;
-    display: inline-flex;
+  /* ── Shared accent dot ──────────────────────────────────────────────────── */
+  .glow-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--pawbar-accent);
+    box-shadow: 0 0 10px var(--pawbar-accent);
+  }
+
+  /* ── Docked input bar (the product face) ────────────────────────────────── */
+  .bar {
+    display: flex;
     align-items: center;
-    gap: 9px;
-    padding: 12px 18px;
+    gap: 10px;
+    padding: 8px 10px 8px 4px;
     border-radius: 999px;
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface);
@@ -218,22 +392,61 @@
     backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
     /* Inset top highlight = the light edge that sells frosted glass. */
     box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), var(--pawbar-shadow);
+  }
+  .bar-composer {
+    flex: 1;
+    min-width: 0;
+  }
+  /* The bar IS the composer chrome — strip the inner composer's own shell. */
+  .bar-composer :global(form) {
+    border: none;
+    background: none;
+    padding: 0;
+  }
+  .bar-composer :global(form:focus-within) {
+    box-shadow: none;
+  }
+  .grip {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 34px;
+    border: none;
+    border-radius: 10px;
+    background: none;
+    color: var(--pawbar-fg-muted);
+    cursor: grab;
+    touch-action: none;
+  }
+  .grip:active {
+    cursor: grabbing;
+    color: var(--pawbar-fg);
+  }
+
+  /* ── Minimized chip ─────────────────────────────────────────────────────── */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--pawbar-border);
+    background: var(--pawbar-surface);
+    -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
+    backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), var(--pawbar-shadow);
     color: var(--pawbar-fg);
     font: inherit;
     font-size: 14px;
     font-weight: 500;
+    white-space: nowrap;
     cursor: pointer;
-    transition: transform 0.16s ease, background 0.16s ease;
+    transition: transform 0.16s ease;
   }
-  .pill:hover {
+  .chip:hover {
     transform: translateY(-1px);
-  }
-  .pill-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--pawbar-accent);
-    box-shadow: 0 0 10px var(--pawbar-accent);
   }
 
   /* ── Panel (frosted surface) ────────────────────────────────────────────── */
@@ -267,8 +480,6 @@
   .empty-dot {
     width: 10px;
     height: 10px;
-    border-radius: 50%;
-    background: var(--pawbar-accent);
     box-shadow: 0 0 18px var(--pawbar-accent);
     margin-bottom: 8px;
   }
@@ -306,6 +517,7 @@
     background: var(--pawbar-accent);
   }
   .icon-btn {
+    flex: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;

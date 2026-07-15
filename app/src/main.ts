@@ -33,5 +33,12 @@ const poster = createPoster(config.parentOrigin);
 
 mount(GlassShell, {
   target,
-  props: { store, poster, theme: config.theme },
+  props: {
+    store,
+    poster,
+    theme: config.theme,
+    // Lets the shell validate inbound loader messages (drag box, host intents)
+    // against the same origin the poster pins outbound messages to.
+    parentOrigin: config.parentOrigin,
+  },
 });
