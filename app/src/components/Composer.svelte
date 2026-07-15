@@ -5,6 +5,8 @@
   Shift+Enter-newline, paste-intercept (files surfaced, not dumped as base64),
   and a send button that becomes a Stop button mid-stream. Voice/emoji are
   owner-mode later — out of scope for the concierge visitor face.
+  2026-07-15 polish: 15px type, roomier padding, 36px send, softer focus ring
+  (45% ring mix — the full-strength ring read as a harsh outline).
 -->
 <script lang="ts">
   import { autosize } from '../lib/composer/autosize';
@@ -83,14 +85,14 @@
     display: flex;
     align-items: flex-end;
     gap: 8px;
-    padding: 8px;
+    padding: 10px;
     border: 1px solid var(--pawbar-border);
     border-radius: 16px;
     background: var(--pawbar-surface-strong);
   }
   .composer:focus-within {
     border-color: var(--pawbar-ring);
-    box-shadow: 0 0 0 3px var(--pawbar-ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--pawbar-ring) 45%, transparent);
   }
   textarea {
     flex: 1;
@@ -100,7 +102,7 @@
     background: none;
     color: var(--pawbar-fg);
     font: inherit;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.5;
     max-height: 160px;
     padding: 6px 4px 6px 8px;
@@ -110,8 +112,8 @@
   }
   .send {
     flex: none;
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     display: inline-flex;
     align-items: center;
     justify-content: center;

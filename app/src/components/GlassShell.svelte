@@ -14,6 +14,13 @@
   loader, a stuck loop that collapsed the opened panel to MIN_H (the "folding"
   bug). Root is now transparent chrome (pointer-events:none); the content
   wrapper catches clicks and is the sole sizing source (+ROOT_PAD for padding).
+
+  2026-07-15 two-state morph: dropped the intermediate "bar" view — pill now
+  opens the full glass panel directly (composer focused, empty-state welcome
+  when the transcript is empty). Live feedback: the squat input-only bar read
+  as a folded/broken widget, not a designed state. Also deepened the glass
+  (surface opacity, blur, inset top highlight) so the panel reads frosted
+  instead of flat over light host pages.
 -->
 <script lang="ts">
   import type { ChatStore } from '../store/chat.svelte';
@@ -31,40 +38,30 @@
     theme?: 'light' | 'dark';
   } = $props();
 
-  type View = 'pill' | 'bar' | 'panel';
+  type View = 'pill' | 'panel';
   let view = $state<View>('pill');
   let rootEl: HTMLDivElement | null = $state(null);
   let contentEl: HTMLDivElement | null = $state(null);
   let composer: ReturnType<typeof Composer> | null = $state(null);
 
-  function openBar() {
-    view = 'bar';
-    poster.open();
-    queueMicrotask(() => composer?.focus());
-  }
-  function expandPanel() {
+  function openPanel() {
     view = 'panel';
     poster.open();
+    queueMicrotask(() => composer?.focus());
   }
   function collapse() {
     view = 'pill';
     poster.close();
   }
-  function onEscape() {
-    if (view === 'panel') view = store.messages.length > 0 ? 'bar' : 'pill';
-    else if (view === 'bar') view = 'pill';
-    if (view === 'pill') poster.close();
-  }
 
   function handleSend(text: string) {
-    if (view !== 'panel') expandPanel();
     void store.send(text);
   }
 
   function onKeydown(e: KeyboardEvent) {
-    // Escape collapses one level from anywhere (including composer focus).
+    // Escape collapses the panel from anywhere (including composer focus).
     // No-op in the pill state — nothing to collapse.
-    if (e.key === 'Escape' && view !== 'pill') onEscape();
+    if (e.key === 'Escape' && view === 'panel') collapse();
   }
 
   // Report our rendered CONTENT height to the loader so the iframe fits each
@@ -98,37 +95,35 @@
 >
   <div class="pawbar-content" bind:this={contentEl}>
     {#if view === 'pill'}
-    <button type="button" class="pill" onclick={openBar} aria-expanded="false">
+    <button type="button" class="pill" onclick={openPanel} aria-expanded="false">
       <span class="pill-dot"></span>
       <span class="pill-label">Ask about this site</span>
     </button>
   {:else}
-    <section class="panel" class:is-bar={view === 'bar'}>
-      {#if view === 'panel'}
-        <header class="head">
-          <div class="head-title">
-            <span class="head-dot"></span>
-            <span>Concierge</span>
-          </div>
-          <button type="button" class="icon-btn" onclick={collapse} aria-label="Close">
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
-            </svg>
-          </button>
-        </header>
-        <MessageList messages={store.messages} />
-      {:else}
-        <div class="bar-head">
-          <span class="bar-hint">Ask about this site</span>
-          <button type="button" class="icon-btn" onclick={collapse} aria-label="Close">
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
-            </svg>
-          </button>
+    <section class="panel">
+      <header class="head">
+        <div class="head-title">
+          <span class="head-dot"></span>
+          <span>Concierge</span>
         </div>
+        <button type="button" class="icon-btn" onclick={collapse} aria-label="Close">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+          </svg>
+        </button>
+      </header>
+
+      {#if store.messages.length === 0}
+        <div class="empty">
+          <span class="empty-dot"></span>
+          <p class="empty-title">Ask about this site</p>
+          <p class="empty-sub">Instant answers, grounded in this site's own knowledge.</p>
+        </div>
+      {:else}
+        <MessageList messages={store.messages} />
       {/if}
 
-      {#if store.error && view === 'panel'}
+      {#if store.error}
         <div class="banner" role="status">{store.error}</div>
       {/if}
 
@@ -179,13 +174,14 @@
     display: inline-flex;
     align-items: center;
     gap: 9px;
-    padding: 11px 16px;
+    padding: 12px 18px;
     border-radius: 999px;
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface);
-    -webkit-backdrop-filter: blur(var(--pawbar-blur));
-    backdrop-filter: blur(var(--pawbar-blur));
-    box-shadow: var(--pawbar-shadow);
+    -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
+    backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
+    /* Inset top highlight = the light edge that sells frosted glass. */
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), var(--pawbar-shadow);
     color: var(--pawbar-fg);
     font: inherit;
     font-size: 14px;
@@ -204,7 +200,7 @@
     box-shadow: 0 0 10px var(--pawbar-accent);
   }
 
-  /* ── Panel / bar (shared frosted surface) ───────────────────────────────── */
+  /* ── Panel (frosted surface) ────────────────────────────────────────────── */
   .panel {
     display: flex;
     flex-direction: column;
@@ -214,13 +210,43 @@
     border-radius: var(--pawbar-radius);
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface);
-    -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.4);
-    backdrop-filter: blur(var(--pawbar-blur)) saturate(1.4);
-    box-shadow: var(--pawbar-shadow);
+    -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.6);
+    backdrop-filter: blur(var(--pawbar-blur)) saturate(1.6);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.09), var(--pawbar-shadow);
     overflow: hidden;
   }
-  .panel.is-bar {
-    height: auto;
+
+  /* ── Empty transcript welcome ───────────────────────────────────────────── */
+  .empty {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 24px;
+    text-align: center;
+  }
+  .empty-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--pawbar-accent);
+    box-shadow: 0 0 18px var(--pawbar-accent);
+    margin-bottom: 8px;
+  }
+  .empty-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .empty-sub {
+    margin: 0;
+    font-size: 13px;
+    color: var(--pawbar-fg-muted);
+    max-width: 260px;
+    line-height: 1.45;
   }
   .head {
     display: flex;
@@ -242,16 +268,6 @@
     height: 7px;
     border-radius: 50%;
     background: var(--pawbar-accent);
-  }
-  .bar-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 8px 2px 14px;
-  }
-  .bar-hint {
-    font-size: 12px;
-    color: var(--pawbar-fg-muted);
   }
   .icon-btn {
     display: inline-flex;
@@ -281,9 +297,5 @@
   .composer-wrap {
     padding: 12px;
     border-top: 1px solid var(--pawbar-border);
-  }
-  .panel.is-bar .composer-wrap {
-    border-top: none;
-    padding-top: 6px;
   }
 </style>
