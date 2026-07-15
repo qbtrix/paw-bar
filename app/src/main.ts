@@ -3,12 +3,15 @@
 // (dev fallback in config.ts), injects any white-label token overrides as inline
 // CSS vars on the mount root, builds the ChatStore + lifecycle poster, and mounts
 // the GlassShell. Styles are imported here so Vite emits the single pawbar.css.
+// 2026-07-15 (C2): also builds the CartStore for the visitor action loop and
+// passes it to the shell, which provides it to descendant card CTAs via context.
 import { mount } from 'svelte';
 import './styles/tokens.css';
 import './styles/glass.css';
 import GlassShell from './components/GlassShell.svelte';
 import { readConfig } from './config';
 import { ChatStore } from './store/chat.svelte';
+import { CartStore } from './store/cart.svelte';
 import { createPoster } from './lib/postmessage';
 
 const config = readConfig();
@@ -24,17 +27,20 @@ for (const [rawKey, rawValue] of Object.entries(config.tokens)) {
   if (typeof rawValue === 'string') target.style.setProperty(key, rawValue);
 }
 
-const store = new ChatStore({
+const storeConfig = {
   endpoint: config.endpoint,
   widgetId: config.widgetId,
   siteKey: config.siteKey,
-});
+};
+const store = new ChatStore(storeConfig);
+const cart = new CartStore(storeConfig);
 const poster = createPoster(config.parentOrigin);
 
 mount(GlassShell, {
   target,
   props: {
     store,
+    cart,
     poster,
     theme: config.theme,
     // Lets the shell validate inbound loader messages (drag box, host intents)

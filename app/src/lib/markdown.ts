@@ -13,6 +13,12 @@
 // (findUnclosedFenceStart) so an in-flight ```code block doesn't leak raw
 // backticks mid-stream. The ui-spec-specific JSON-brace mask is not ported —
 // there are no ui-spec fences without Ripple.
+//
+// 2026-07-15 (C2 action loop): parseSegments now intercepts a ```pawbar-card
+// fence (CARD_FENCE_LANG) BEFORE markdown render, emitting a `card` segment
+// carrying the raw JSON. The card layer (lib/cards.ts + the card components)
+// validates + renders it via Svelte props only — the DOMPurify path is
+// untouched. A mid-stream unclosed card fence is shimmer-masked like any other.
 
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -37,7 +43,13 @@ export const MARKDOWN_ADD_ATTR = [
 export type Segment =
   | { type: 'html'; html: string }
   | { type: 'code'; code: string; lang: string }
+  | { type: 'card'; json: string }
   | { type: 'code-loading' };
+
+/** Fence language that carries an agent-authored action card. Intercepted
+ *  BEFORE markdown render and parsed as JSON into native glass components
+ *  (Svelte props only) — it never touches the DOMPurify/markdown path. */
+export const CARD_FENCE_LANG = 'pawbar-card';
 
 export function renderMarkdown(text: string): string {
   // gfm + breaks: turn on GitHub Flavored Markdown extras (tables,
@@ -103,7 +115,13 @@ export function parseSegments(content: string, streaming = false): Segment[] {
     const lang = match[1] || '';
     // Normalize interior CRLF so copy-to-clipboard never carries `\r`.
     const code = match[2].replace(/\r\n/g, '\n').trimEnd();
-    result.push({ type: 'code', lang, code });
+    if (lang === CARD_FENCE_LANG) {
+      // Intercept before markdown: hand the raw JSON to the card layer, which
+      // validates it (cards.parseCard) and renders via Svelte props only.
+      result.push({ type: 'card', json: code });
+    } else {
+      result.push({ type: 'code', lang, code });
+    }
     lastIndex = match.index + match[0].length;
   }
 

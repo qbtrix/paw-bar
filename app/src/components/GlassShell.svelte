@@ -25,25 +25,40 @@
   inset:0 root — observing the root reflects the iframe's own height back and
   folds the dock, the original "folding" bug) posts {pawbar:resize,h,w}; the
   loader applies it only while docked.
+
+  2026-07-15 (C2 action loop): takes the CartStore and provides it via context to
+  descendant card CTAs; the panel header carries the CartBadge (checkout handoff),
+  and the docked bar shows a compact count badge (opens the panel) when the cart
+  is non-empty. Opening the panel triggers the store's one-shot cart hydrate.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { ChatStore } from '../store/chat.svelte';
+  import { type CartStore, provideCart } from '../store/cart.svelte';
   import type { PawBarPoster } from '../lib/postmessage';
   import MessageList from './MessageList.svelte';
   import Composer from './Composer.svelte';
+  import CartBadge from './CartBadge.svelte';
 
   let {
     store,
+    cart,
     poster,
     theme = 'dark',
     parentOrigin = '',
   }: {
     store: ChatStore;
+    cart: CartStore;
     poster: PawBarPoster;
     theme?: 'light' | 'dark';
     parentOrigin?: string;
   } = $props();
+
+  // Expose the cart to descendant card CTAs (Markdown → CardBlock → ProductCard)
+  // + the header badge without prop-drilling through the transcript. untrack:
+  // the store instance is created once in main.ts and never reassigned, so we
+  // capture it at init without registering a reactive dependency.
+  provideCart(untrack(() => cart));
 
   type View = 'bar' | 'chip' | 'panel';
   const VIEW_KEY = '__pawbar_view_v1';
@@ -64,7 +79,6 @@
   }
 
   let view = $state<View>(readInitialView());
-  let rootEl: HTMLDivElement | null = $state(null);
   let contentEl: HTMLDivElement | null = $state(null);
   let composer: ReturnType<typeof Composer> | null = $state(null);
 
@@ -80,6 +94,8 @@
   function openPanel() {
     view = 'panel';
     poster.open();
+    // Initial cart hydrate on the first open (one-shot inside the store).
+    void cart.load();
     queueMicrotask(() => composer?.focus());
   }
   function closePanel() {
@@ -209,7 +225,6 @@
   data-pawbar-theme={theme}
   data-pawbar-view={view}
   data-pawbar-dragging={drag ? 'true' : undefined}
-  bind:this={rootEl}
   role="region"
   aria-label="Site concierge"
 >
@@ -258,6 +273,28 @@
             onStop={() => store.stop()}
           />
         </div>
+        {#if cart.count > 0}
+          <button
+            type="button"
+            class="bar-cart"
+            onclick={openPanel}
+            aria-label={`Cart, ${cart.count} item${cart.count === 1 ? '' : 's'} — open concierge`}
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+              <path
+                d="M6 6h15l-1.5 9h-12L5 3H2"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <circle cx="9" cy="20" r="1.4" fill="currentColor" />
+              <circle cx="17" cy="20" r="1.4" fill="currentColor" />
+            </svg>
+            <span>{cart.count}</span>
+          </button>
+        {/if}
         <button type="button" class="icon-btn" onclick={minimize} aria-label="Minimize">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
@@ -271,11 +308,14 @@
             <span class="head-dot"></span>
             <span>Concierge</span>
           </div>
-          <button type="button" class="icon-btn" onclick={closePanel} aria-label="Close">
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
-            </svg>
-          </button>
+          <div class="head-actions">
+            <CartBadge />
+            <button type="button" class="icon-btn" onclick={closePanel} aria-label="Close">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
         </header>
 
         {#if store.messages.length === 0}
@@ -424,6 +464,28 @@
     cursor: grabbing;
     color: var(--pawbar-fg);
   }
+  /* Compact cart indicator on the docked bar — count only, opens the panel
+     (where the full CartBadge popover + checkout lives). Shown only when the
+     visitor has items. */
+  .bar-cart {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--pawbar-border);
+    border-radius: 999px;
+    background: none;
+    color: var(--pawbar-fg);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .bar-cart:hover {
+    background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
+  }
 
   /* ── Minimized chip ─────────────────────────────────────────────────────── */
   .chip {
@@ -515,6 +577,11 @@
     height: 7px;
     border-radius: 50%;
     background: var(--pawbar-accent);
+  }
+  .head-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
   .icon-btn {
     flex: none;
