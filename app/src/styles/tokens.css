@@ -1,0 +1,50 @@
+/* tokens.css — The ~15 --pawbar-* custom properties that make the glass
+   concierge a white-label headless surface. Created 2026-07-15 (A3 glass bar).
+   Defaults are quiet-authority glass (dark). Style is driven by a
+   data-pawbar-theme attribute on the app root + this CSS-var scale (the cmdk
+   pattern), so a light/dark flip is one attribute and a full re-skin is
+   window.__PAWBAR__.tokens injected inline on the root (see main.ts). All
+   colors are oklch (wide-gamut, matches the paw-enterprise design system). */
+
+.pawbar-root {
+  /* Surfaces — translucent because we sit in an iframe over an unknown host bg;
+     the blur is applied on the panel element, not here. */
+  --pawbar-surface: oklch(0.17 0.015 260 / 0.72);
+  --pawbar-surface-strong: oklch(0.2 0.02 260 / 0.92);
+  /* Text */
+  --pawbar-fg: oklch(0.98 0 0 / 0.92);
+  --pawbar-fg-muted: oklch(0.98 0 0 / 0.55);
+  /* Lines + focus */
+  --pawbar-border: oklch(1 0 0 / 0.12);
+  --pawbar-ring: oklch(0.62 0.19 258 / 0.55);
+  /* Accent — quiet authority blue (no green, per the billing/brand palette) */
+  --pawbar-accent: oklch(0.62 0.19 258);
+  --pawbar-accent-fg: oklch(0.99 0 0);
+  /* Bubbles */
+  --pawbar-user-bubble: oklch(0.62 0.19 258 / 0.92);
+  --pawbar-assistant-bubble: oklch(1 0 0 / 0.05);
+  /* Danger */
+  --pawbar-danger: oklch(0.62 0.2 25);
+  /* Shape + motion + type */
+  --pawbar-radius: 18px;
+  --pawbar-blur: 22px;
+  --pawbar-shadow: 0 24px 64px -16px oklch(0 0 0 / 0.55);
+  --pawbar-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Light quiet-authority glass — same var names, re-tuned. Selected by
+   data-pawbar-theme="light" on the app root. */
+.pawbar-root[data-pawbar-theme='light'] {
+  --pawbar-surface: oklch(0.99 0.003 260 / 0.72);
+  --pawbar-surface-strong: oklch(1 0 0 / 0.9);
+  --pawbar-fg: oklch(0.22 0.01 260 / 0.95);
+  --pawbar-fg-muted: oklch(0.22 0.01 260 / 0.6);
+  --pawbar-border: oklch(0.2 0.02 260 / 0.12);
+  --pawbar-ring: oklch(0.62 0.19 258 / 0.45);
+  --pawbar-accent: oklch(0.58 0.2 258);
+  --pawbar-accent-fg: oklch(0.99 0 0);
+  --pawbar-user-bubble: oklch(0.58 0.2 258 / 0.95);
+  --pawbar-assistant-bubble: oklch(0.2 0.02 260 / 0.05);
+  --pawbar-danger: oklch(0.55 0.22 25);
+  --pawbar-shadow: 0 24px 64px -16px oklch(0.2 0.02 260 / 0.25);
+}

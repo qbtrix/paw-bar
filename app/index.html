@@ -1,0 +1,43 @@
+<!doctype html>
+<!--
+  index.html — Dev + build entry for the glass concierge app.
+  Created 2026-07-15 (A3 glass bar). In production the backend frame endpoint
+  (A1) serves its OWN HTML that sets window.__PAWBAR__ and loads dist/pawbar.js.
+  This file is the `vite dev` harness: it stubs window.__PAWBAR__ with localhost
+  dev defaults so the shell renders and the composer works (a real streamed
+  reply still needs a running backend — that's the A4 smoke). The gradient body
+  simulates an arbitrary host page behind the transparent iframe surface.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Paw Bar — Glass Concierge (dev)</title>
+    <style>
+      /* Dev-only: a busy host background to prove the glass/blur reads well. */
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(1200px 800px at 12% 18%, #2a3f6b 0%, transparent 55%),
+          radial-gradient(900px 700px at 88% 82%, #6b2a52 0%, transparent 55%),
+          linear-gradient(135deg, #0d1018, #161a24);
+      }
+    </style>
+    <script>
+      // Stub the boot config the production frame HTML would inject.
+      window.__PAWBAR__ = {
+        siteKey: 'dev-site-key',
+        widgetId: 'dev-widget',
+        endpoint: 'http://localhost:8888/api/v1',
+        parentOrigin: window.location.origin,
+        mode: 'concierge',
+        theme: 'dark',
+      };
+    </script>
+  </head>
+  <body>
+    <div id="pawbar-app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

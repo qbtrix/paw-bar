@@ -1,0 +1,21 @@
+{
+  "//": "Created 2026-07-15 (A3): app TS config scoped to app/src + app/tests. Kept separate from the frozen widget's root tsconfig (include: [\"src\"]) so its tooling is untouched. Bundler resolution + strict, matching the frozen widget's posture.",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "allowJs": true,
+    "checkJs": false,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": ["svelte", "vite/client", "vitest/globals"]
+  },
+  "include": ["src", "tests", "vite.config.ts", "svelte.config.js"]
+}
