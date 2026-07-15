@@ -86,7 +86,9 @@
     align-items: flex-start;
   }
   .bubble {
-    max-width: 88%;
+    /* 88% of the narrow corner box was fine; on the wide centered palette an
+       unbounded 88% makes unreadable ~800px lines — cap for measure. */
+    max-width: min(88%, 640px);
     padding: 10px 13px;
     border-radius: 16px;
     border: 1px solid var(--pawbar-border);

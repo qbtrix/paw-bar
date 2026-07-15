@@ -21,6 +21,13 @@
   as a folded/broken widget, not a designed state. Also deepened the glass
   (surface opacity, blur, inset top highlight) so the panel reads frosted
   instead of flat over light host pages.
+
+  2026-07-15 centered palette: the open panel is now a centered command-palette
+  overlay — min(940px, 100%) wide over a dim blurred backdrop — instead of an
+  Intercom-style corner box (captain direction, per the ai-bar genesis mockups).
+  The loader makes the iframe full-viewport while open; a transparent backdrop
+  button collapses on outside click (a real <button> so the a11y is structural,
+  not suppressed). Content-height reports only matter while collapsed.
 -->
 <script lang="ts">
   import type { ChatStore } from '../store/chat.svelte';
@@ -93,6 +100,9 @@
   role="region"
   aria-label="Site concierge"
 >
+  {#if view === 'panel'}
+    <button type="button" class="backdrop" onclick={collapse} aria-label="Close concierge" tabindex="-1"></button>
+  {/if}
   <div class="pawbar-content" bind:this={contentEl}>
     {#if view === 'pill'}
     <button type="button" class="pill" onclick={openPanel} aria-expanded="false">
@@ -100,7 +110,7 @@
       <span class="pill-label">Ask about this site</span>
     </button>
   {:else}
-    <section class="panel">
+    <section class="panel" role="dialog" aria-modal="true" aria-label="Site concierge">
       <header class="head">
         <div class="head-title">
           <span class="head-dot"></span>
@@ -151,9 +161,29 @@
     padding: 12px;
     font-family: var(--pawbar-font);
     color: var(--pawbar-fg);
-    /* The root spans the whole (often transiently taller) iframe but is
-       transparent chrome — only the content wrapper below should catch clicks. */
+    /* The root spans the whole iframe but is transparent chrome — only the
+       backdrop and content wrapper below should catch clicks. */
     pointer-events: none;
+  }
+  /* Open = centered command palette (the loader makes the iframe full-viewport). */
+  .pawbar-root[data-pawbar-view='panel'] {
+    justify-content: center;
+    align-items: center;
+    padding: clamp(16px, 4vh, 40px);
+  }
+
+  /* Outside-click catcher + page dim. A real button (keyboard story stays Esc /
+     the header X; tabindex -1 keeps it out of the tab order). */
+  .backdrop {
+    position: absolute;
+    inset: 0;
+    border: none;
+    padding: 0;
+    background: oklch(0.13 0.01 260 / 0.34);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    pointer-events: auto;
+    cursor: default;
   }
 
   /* The measured content box: pill or panel. Kept separate from .pawbar-root so
@@ -166,6 +196,12 @@
     align-items: stretch;
     min-height: 0;
     max-height: 100%;
+  }
+  /* Palette proportions from the genesis mockup (~969×737 on a 16" frame). */
+  .pawbar-root[data-pawbar-view='panel'] .pawbar-content {
+    position: relative;
+    width: min(940px, 100%);
+    height: min(720px, 100%);
   }
 
   /* ── Collapsed pill ─────────────────────────────────────────────────────── */
@@ -206,7 +242,7 @@
     flex-direction: column;
     min-height: 0;
     max-height: 100%;
-    height: 560px;
+    height: 100%;
     border-radius: var(--pawbar-radius);
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface);

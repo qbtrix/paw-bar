@@ -130,11 +130,27 @@ test('open/close messages toggle the iframe box', () => {
   window.dispatchEvent(
     messageEvent(window, { data: { type: 'pawbar:open' }, origin: FRAME_ORIGIN, source: iframe.contentWindow }),
   );
-  assert.equal(iframe.style.width, '420px'); // expanded width
+  // Open = full-viewport overlay (the app centers the palette inside it).
+  assert.equal(iframe.style.width, '100vw');
+  assert.equal(iframe.style.height, '100vh');
   window.dispatchEvent(
     messageEvent(window, { data: { type: 'pawbar:close' }, origin: FRAME_ORIGIN, source: iframe.contentWindow }),
   );
   assert.equal(iframe.style.width, '300px'); // collapsed width
+});
+
+test('resize messages are ignored while open — the overlay stays viewport-sized', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const fromFrame = (data) =>
+    messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
+  window.dispatchEvent(fromFrame({ type: 'pawbar:open' }));
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 437 }));
+  assert.equal(iframe.style.height, '100vh'); // not 437px
+  // After close, content-height reports size the pill box again.
+  window.dispatchEvent(fromFrame({ type: 'pawbar:close' }));
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 72 }));
+  assert.equal(iframe.style.height, '72px');
 });
 
 test('window.PawBar.open() pins its outbound post to the frame origin (never "*")', () => {

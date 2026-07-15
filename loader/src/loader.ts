@@ -7,6 +7,13 @@
 // launcher chrome + iframe sizing; the glass app (A3) renders INSIDE the iframe
 // and drives open/close/resize via postMessage.
 //
+// 2026-07-15 centered palette: OPEN is now a full-viewport overlay iframe — the
+// app renders a dim backdrop + a centered command-palette panel inside it
+// (design direction: center + wide, not an Intercom corner box). Collapsed
+// stays the small bottom-right pill box. {pawbar:resize,h} is honoured ONLY
+// while collapsed (it sizes the pill box); while open the box is the viewport
+// and app-reported content heights must not shrink it.
+//
 // SECURITY: inbound messages are honoured ONLY when event.origin === the frame
 // origin AND event.source === the iframe's own contentWindow. Every outbound
 // post pins targetOrigin to the frame origin — never "*". Idempotent; exposes
@@ -15,10 +22,10 @@
 const LOADED_FLAG = '__pawBarLoaderLoaded';
 const FRAME_PATH = '/paw-bar/frame';
 
-// Launcher chrome boxes (px). The loader owns these; the app reports its content
-// height via {pawbar:resize,h} and toggles state via {pawbar:open|close}.
+// Collapsed launcher box (px). The loader owns it; the app reports the pill's
+// content height via {pawbar:resize,h} and toggles state via {pawbar:open|close}.
+// Open has no box constants — it is the full viewport (centered palette).
 const COLLAPSED = { w: 300, h: 96 };
-const EXPANDED = { w: 420, h: 640 };
 const MIN_H = 48;
 const VIEWPORT_MARGIN = 24; // keep the box off the very edge on small screens
 
@@ -102,12 +109,22 @@ type LoaderWindow = Window &
 
   function setExpanded(next: boolean): void {
     expanded = next;
-    const box = next ? EXPANDED : COLLAPSED;
-    applyBox(box.w, box.h);
+    if (next) {
+      // Open = full-viewport overlay; the app draws the dim backdrop and the
+      // centered palette panel inside. vw/vh track window resizes for free.
+      iframe.style.width = '100vw';
+      iframe.style.height = '100vh';
+    } else {
+      applyBox(COLLAPSED.w, COLLAPSED.h);
+    }
   }
 
   function setHeight(h: number): void {
-    applyBox((expanded ? EXPANDED : COLLAPSED).w, h);
+    // Content-height reports size the COLLAPSED pill box only. While open the
+    // box is the viewport — honouring an app-reported content height here
+    // would shrink the overlay out from under the centered panel.
+    if (expanded) return;
+    applyBox(COLLAPSED.w, h);
   }
 
   function postToFrame(msg: Record<string, unknown>): void {
@@ -138,10 +155,11 @@ type LoaderWindow = Window &
     }
   });
 
-  // Re-clamp to the viewport on rotation / resize (mobile).
+  // Re-clamp the collapsed box to the viewport on rotation / resize (mobile).
+  // The open overlay is vw/vh-sized and tracks the viewport by itself.
   win.addEventListener('resize', (): void => {
-    const box = expanded ? EXPANDED : COLLAPSED;
-    applyBox(box.w, parseInt(iframe.style.height, 10) || box.h);
+    if (expanded) return;
+    applyBox(COLLAPSED.w, parseInt(iframe.style.height, 10) || COLLAPSED.h);
   });
 
   // 5. Programmatic control for embedders. Resizes the chrome the loader owns
