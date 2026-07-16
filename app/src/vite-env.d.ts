@@ -2,6 +2,9 @@
 // Created 2026-07-15 (A3): registers Vite client + Svelte types and declares
 // the window.__PAWBAR__ config contract the serving frame HTML injects before
 // the bundle loads (see src/config.ts for the reader + dev fallback).
+// 2026-07-16 (D4): added the optional `greeting` field — the owner's concierge
+// greeting the frame emits from the Site doc; the bar renders it as the
+// empty-state welcome (blank/absent falls back to the default copy).
 /// <reference types="svelte" />
 /// <reference types="vite/client" />
 
@@ -17,6 +20,8 @@ interface PawBarBootConfig {
   tokens?: Record<string, string>;
   /** Optional 'light' | 'dark'; defaults to 'dark' (quiet-authority glass). */
   theme?: 'light' | 'dark';
+  /** Optional owner-authored concierge greeting; shown as the empty-state welcome. */
+  greeting?: string;
 }
 
 interface Window {

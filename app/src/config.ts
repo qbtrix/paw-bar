@@ -8,6 +8,9 @@
 // origin (the embedding page) or '*' ONLY as a dev-page fallback — the real
 // frame always supplies an exact origin, and postMessage refuses to post to a
 // pinned origin mismatch in production.
+// 2026-07-16 (D4): added `greeting` — the owner's concierge greeting the frame
+// emits from the Site doc. Read defensively (non-string coerces to ''); the
+// shell shows it as the empty-state welcome, else the default copy.
 
 export interface PawBarConfig {
   siteKey: string;
@@ -17,6 +20,7 @@ export interface PawBarConfig {
   mode: 'concierge';
   tokens: Record<string, string>;
   theme: 'light' | 'dark';
+  greeting: string;
 }
 
 function devParentOrigin(): string {
@@ -40,5 +44,7 @@ export function readConfig(): PawBarConfig {
     mode: 'concierge',
     tokens: boot?.tokens ?? {},
     theme: boot?.theme ?? 'dark',
+    // Defensive: only a real string survives; a number/null/malformed value → ''.
+    greeting: typeof boot?.greeting === 'string' ? boot.greeting : '',
   };
 }

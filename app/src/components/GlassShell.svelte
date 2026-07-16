@@ -30,6 +30,11 @@
   descendant card CTAs; the panel header carries the CartBadge (checkout handoff),
   and the docked bar shows a compact count badge (opens the panel) when the cart
   is non-empty. Opening the panel triggers the store's one-shot cart hydrate.
+
+  2026-07-16 (D4 greeting): takes an optional `greeting` prop (the owner's
+  concierge greeting, threaded from readConfig via main.ts). When it's a
+  non-empty string the panel's empty-transcript state shows it as the welcome
+  message; when blank it keeps the default "Ask about this site" copy.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -45,12 +50,14 @@
     cart,
     poster,
     theme = 'dark',
+    greeting = '',
     parentOrigin = '',
   }: {
     store: ChatStore;
     cart: CartStore;
     poster: PawBarPoster;
     theme?: 'light' | 'dark';
+    greeting?: string;
     parentOrigin?: string;
   } = $props();
 
@@ -321,8 +328,12 @@
         {#if store.messages.length === 0}
           <div class="empty">
             <span class="glow-dot empty-dot"></span>
-            <p class="empty-title">Ask about this site</p>
-            <p class="empty-sub">Instant answers, grounded in this site's own knowledge.</p>
+            {#if greeting}
+              <p class="empty-greeting">{greeting}</p>
+            {:else}
+              <p class="empty-title">Ask about this site</p>
+              <p class="empty-sub">Instant answers, grounded in this site's own knowledge.</p>
+            {/if}
           </div>
         {:else}
           <MessageList messages={store.messages} />
@@ -556,6 +567,16 @@
     color: var(--pawbar-fg-muted);
     max-width: 260px;
     line-height: 1.45;
+  }
+  /* Owner greeting: a sentence or two in the owner's voice, so it reads as
+     body copy (relaxed weight/leading), not a terse bold title. */
+  .empty-greeting {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    max-width: 320px;
+    line-height: 1.5;
+    white-space: pre-line;
   }
   .head {
     display: flex;

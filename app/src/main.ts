@@ -5,6 +5,8 @@
 // the GlassShell. Styles are imported here so Vite emits the single pawbar.css.
 // 2026-07-15 (C2): also builds the CartStore for the visitor action loop and
 // passes it to the shell, which provides it to descendant card CTAs via context.
+// 2026-07-16 (D4): threads config.greeting to the shell as a prop so the panel's
+// empty state renders the owner's concierge greeting when set.
 import { mount } from 'svelte';
 import './styles/tokens.css';
 import './styles/glass.css';
@@ -43,6 +45,7 @@ mount(GlassShell, {
     cart,
     poster,
     theme: config.theme,
+    greeting: config.greeting,
     // Lets the shell validate inbound loader messages (drag box, host intents)
     // against the same origin the poster pins outbound messages to.
     parentOrigin: config.parentOrigin,
