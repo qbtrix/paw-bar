@@ -7,6 +7,9 @@
 // passes it to the shell, which provides it to descendant card CTAs via context.
 // 2026-07-16 (D4): threads config.greeting to the shell as a prop so the panel's
 // empty state renders the owner's concierge greeting when set.
+// 2026-07-30 (email capture + articles): builds the ContactStore (pending-
+// decision email prompt) and threads the store config to the shell so the
+// articles view fetches against the same endpoint/widget/key.
 import { mount } from 'svelte';
 import './styles/tokens.css';
 import './styles/glass.css';
@@ -14,6 +17,7 @@ import GlassShell from './components/GlassShell.svelte';
 import { readConfig } from './config';
 import { ChatStore } from './store/chat.svelte';
 import { CartStore } from './store/cart.svelte';
+import { ContactStore } from './store/contact.svelte';
 import { createPoster } from './lib/postmessage';
 
 const config = readConfig();
@@ -36,6 +40,7 @@ const storeConfig = {
 };
 const store = new ChatStore(storeConfig);
 const cart = new CartStore(storeConfig);
+const contact = new ContactStore(storeConfig);
 const poster = createPoster(config.parentOrigin);
 
 mount(GlassShell, {
@@ -43,6 +48,8 @@ mount(GlassShell, {
   props: {
     store,
     cart,
+    contact,
+    chatConfig: storeConfig,
     poster,
     theme: config.theme,
     greeting: config.greeting,

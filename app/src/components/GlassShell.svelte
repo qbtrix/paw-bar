@@ -44,6 +44,18 @@
   transition. Same design language: icon-btn trigger, glass surface, inlined
   lucide stroke glyphs.
 
+  2026-07-30 (email capture + articles): after an assistant turn rests, the
+  shell asks the ContactStore to check ONCE for a pending decision — pending +
+  no stored contact flag renders the inline "Leaving? We can email you when
+  the team confirms." bubble at the tail of the thread (MessageList's footer
+  snippet), with ✕ dismiss (session-only), inline 422 correction, and a quiet
+  sent-confirmation. The email value lives ONLY in the input + request body —
+  never the transcript, the chat store, or storage. The quick-actions menu
+  also grew "Browse articles": the panel body swaps to a fetched article list
+  (spinner → list → "No articles yet"; every failure shows the empty state),
+  rows open in a new tab, a back affordance (and Escape, peeled before the
+  panel's own) returns to the conversation.
+
   2026-07-30 paw-os design-language pass (captain: match ChatPill, esp. phone):
   the docked bar's accent dot became a circular paw MASCOT avatar (ChatPill's
   .mascot-avatar pattern — paw glyph in a 2px-bordered circle); the bar's inner
@@ -54,9 +66,11 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { ChatStore } from '../store/chat.svelte';
+  import type { ChatStore, ChatStoreConfig } from '../store/chat.svelte';
   import { type CartStore, provideCart } from '../store/cart.svelte';
+  import type { ContactStore } from '../store/contact.svelte';
   import type { PawBarPoster } from '../lib/postmessage';
+  import { fetchArticles, type Article } from '../lib/articles-client';
   import { serializeTranscript } from '../lib/transcript';
   import MessageList from './MessageList.svelte';
   import Composer from './Composer.svelte';
@@ -65,6 +79,8 @@
   let {
     store,
     cart,
+    contact,
+    chatConfig,
     poster,
     theme = 'dark',
     greeting = '',
@@ -72,6 +88,8 @@
   }: {
     store: ChatStore;
     cart: CartStore;
+    contact: ContactStore;
+    chatConfig: ChatStoreConfig;
     poster: PawBarPoster;
     theme?: 'light' | 'dark';
     greeting?: string;
@@ -118,6 +136,7 @@
   function openPanel() {
     view = 'panel';
     menuOpen = false;
+    panelBody = 'chat';
     poster.open();
     // Initial cart hydrate on the first open (one-shot inside the store).
     void cart.load();
@@ -154,13 +173,62 @@
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape' || drag) return;
-    // The quick-actions menu is the innermost layer — Escape peels it first.
+    // The quick-actions menu is the innermost layer — Escape peels it first,
+    // then the articles view (back to the conversation), then the panel.
     if (menuOpen) {
       menuOpen = false;
       return;
     }
+    if (view === 'panel' && panelBody === 'articles') {
+      backToChat();
+      return;
+    }
     if (view === 'panel') closePanel();
     else if (view === 'bar') minimize();
+  }
+
+  // ── Email capture (pending-decision contact prompt) ───────────────────────
+  // After an assistant turn reaches a rest state, ask the ContactStore to run
+  // its ONE pending-decision check (it self-guards on the stored flag, the
+  // session dismissal, and in-flight polls). Streaming edge detection only —
+  // untracked reads keep message content out of this effect's dependencies.
+  let contactEmail = $state('');
+  let prevStreaming = false;
+  $effect(() => {
+    const streaming = store.isStreaming;
+    if (prevStreaming && !streaming) {
+      const last = untrack(() => store.messages[store.messages.length - 1]);
+      if (last?.role === 'assistant' && last.status === 'done') void contact.maybeOffer();
+    }
+    prevStreaming = streaming;
+  });
+
+  function submitContact(e: SubmitEvent) {
+    e.preventDefault();
+    void contact.submit(contactEmail);
+  }
+
+  // ── Articles view (quick-actions "Browse articles") ───────────────────────
+  let panelBody = $state<'chat' | 'articles'>('chat');
+  let articles = $state<Article[]>([]);
+  let articlesLoading = $state(false);
+
+  function openArticles() {
+    menuOpen = false;
+    panelBody = 'articles';
+    articlesLoading = true;
+    void fetchArticles({
+      endpoint: chatConfig.endpoint,
+      widgetId: chatConfig.widgetId,
+      signedKey: chatConfig.siteKey,
+    }).then((list) => {
+      articles = list;
+      articlesLoading = false;
+    });
+  }
+  function backToChat() {
+    panelBody = 'chat';
+    queueMicrotask(() => composer?.focus());
   }
 
   // ── Quick actions (panel header menu) ─────────────────────────────────────
@@ -278,6 +346,43 @@
 </script>
 
 <svelte:window onkeydown={onKeydown} onpointerdown={onWindowPointerDown} />
+
+<!-- Inline contact prompt, rendered at the tail of the thread via MessageList's
+     footer snippet. The email value stays in local component state + the
+     request body — it never touches the chat store or the transcript. -->
+{#snippet contactPrompt()}
+  {#if contact.status === 'offer'}
+    <div class="contact" role="group" aria-label="Email notification offer">
+      <button type="button" class="contact-dismiss" onclick={() => contact.dismiss()} aria-label="Dismiss">
+        <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+        </svg>
+      </button>
+      <p class="contact-copy">Leaving? We can email you when the team confirms.</p>
+      <form class="contact-form" onsubmit={submitContact}>
+        <input
+          class="contact-input"
+          class:invalid={contact.emailError}
+          type="email"
+          bind:value={contactEmail}
+          placeholder="you@example.com"
+          autocomplete="email"
+          aria-label="Your email"
+          aria-invalid={contact.emailError}
+        />
+        <button type="submit" class="contact-send" disabled={contact.isSubmitting}>Notify me</button>
+      </form>
+      {#if contact.emailError}
+        <p class="contact-err" role="status">That email doesn't look right.</p>
+      {/if}
+    </div>
+  {:else if contact.status === 'sent'}
+    <p class="contact-sent" role="status">
+      <span class="glow-dot"></span>
+      <span>Got it — we'll email you when the team confirms.</span>
+    </p>
+  {/if}
+{/snippet}
 
 <div
   class="pawbar-root"
@@ -443,6 +548,24 @@
                     </svg>
                     <span>Download transcript</span>
                   </button>
+                  <button type="button" class="menu-item" role="menuitem" onclick={openArticles}>
+                    <!-- lucide book-open -->
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                    </svg>
+                    <span>Browse articles</span>
+                  </button>
                   <button type="button" class="menu-item" role="menuitem" onclick={minimize}>
                     <!-- lucide minus (the bar's minimize glyph) -->
                     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -461,32 +584,65 @@
           </div>
         </header>
 
-        {#if store.messages.length === 0}
-          <div class="empty">
-            <span class="glow-dot empty-dot"></span>
-            {#if greeting}
-              <p class="empty-greeting">{greeting}</p>
+        {#if panelBody === 'articles'}
+          <div class="articles">
+            <button type="button" class="articles-back" onclick={backToChat}>
+              <!-- lucide arrow-left -->
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <path d="M19 12H5m6-6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>Back to conversation</span>
+            </button>
+            {#if articlesLoading}
+              <div class="articles-state" aria-label="Loading articles">
+                <div class="dots"><span></span><span></span><span></span></div>
+              </div>
+            {:else if articles.length === 0}
+              <div class="articles-state">
+                <p class="empty-title">No articles yet</p>
+                <p class="empty-sub">When this site publishes articles, they'll show up here.</p>
+              </div>
             {:else}
-              <p class="empty-title">Ask about this site</p>
-              <p class="empty-sub">Instant answers, grounded in this site's own knowledge.</p>
+              <div class="articles-list">
+                {#each articles as article (article.url)}
+                  <a class="article-row" href={article.url} target="_blank" rel="noopener noreferrer">
+                    <span class="article-title">{article.title}</span>
+                    {#if article.snippet}
+                      <span class="article-snippet">{article.snippet}</span>
+                    {/if}
+                  </a>
+                {/each}
+              </div>
             {/if}
           </div>
         {:else}
-          <MessageList messages={store.messages} />
-        {/if}
+          {#if store.messages.length === 0}
+            <div class="empty">
+              <span class="glow-dot empty-dot"></span>
+              {#if greeting}
+                <p class="empty-greeting">{greeting}</p>
+              {:else}
+                <p class="empty-title">Ask about this site</p>
+                <p class="empty-sub">Instant answers, grounded in this site's own knowledge.</p>
+              {/if}
+            </div>
+          {:else}
+            <MessageList messages={store.messages} footer={contactPrompt} />
+          {/if}
 
-        {#if store.error}
-          <div class="banner" role="status">{store.error}</div>
-        {/if}
+          {#if store.error}
+            <div class="banner" role="status">{store.error}</div>
+          {/if}
 
-        <div class="composer-wrap">
-          <Composer
-            bind:this={composer}
-            isStreaming={store.isStreaming}
-            onSend={handlePanelSend}
-            onStop={() => store.stop()}
-          />
-        </div>
+          <div class="composer-wrap">
+            <Composer
+              bind:this={composer}
+              isStreaming={store.isStreaming}
+              onSend={handlePanelSend}
+              onStop={() => store.stop()}
+            />
+          </div>
+        {/if}
       </section>
     {/if}
   </div>
@@ -832,6 +988,207 @@
     opacity: 0.6;
     cursor: default;
   }
+  /* ── Inline contact prompt (email capture, in-thread) ───────────────────── */
+  .contact {
+    position: relative;
+    align-self: flex-start;
+    max-width: min(88%, 420px);
+    padding: 12px 14px;
+    border-radius: 16px;
+    border-bottom-left-radius: 6px;
+    border: 1px solid var(--pawbar-border);
+    background: var(--pawbar-assistant-bubble);
+  }
+  .contact-dismiss {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--pawbar-fg-muted);
+    cursor: pointer;
+  }
+  .contact-dismiss:hover {
+    color: var(--pawbar-fg);
+    background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
+  }
+  .contact-copy {
+    margin: 0 18px 9px 0;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .contact-form {
+    display: flex;
+    gap: 6px;
+  }
+  .contact-input {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--pawbar-border);
+    background: color-mix(in oklab, var(--pawbar-fg) 4%, transparent);
+    color: var(--pawbar-fg);
+    font: inherit;
+    font-size: 13px;
+  }
+  .contact-input::placeholder {
+    color: var(--pawbar-fg-muted);
+  }
+  .contact-input:focus {
+    outline: none;
+    border-color: color-mix(in oklab, var(--pawbar-accent) 55%, transparent);
+  }
+  .contact-input.invalid {
+    border-color: color-mix(in oklab, var(--pawbar-danger) 55%, transparent);
+  }
+  .contact-send {
+    flex: none;
+    padding: 7px 13px;
+    border: none;
+    border-radius: 999px;
+    background: var(--pawbar-accent);
+    color: var(--pawbar-accent-fg);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .contact-send:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .contact-err {
+    margin: 7px 0 0;
+    font-size: 12px;
+    color: var(--pawbar-danger);
+  }
+  .contact-sent {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    align-self: flex-start;
+    margin: 0;
+    padding: 0 4px;
+    font-size: 12px;
+    color: var(--pawbar-fg-muted);
+  }
+  .contact-sent .glow-dot {
+    width: 6px;
+    height: 6px;
+    box-shadow: 0 0 8px var(--pawbar-accent);
+  }
+
+  /* ── Articles view (panel body swap) ────────────────────────────────────── */
+  .articles {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .articles-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    align-self: flex-start;
+    margin: 10px 16px 0;
+    padding: 6px 12px 6px 9px;
+    border: none;
+    border-radius: 999px;
+    background: none;
+    color: var(--pawbar-fg-muted);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .articles-back:hover {
+    color: var(--pawbar-fg);
+    background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
+  }
+  .articles-state {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 24px;
+    text-align: center;
+  }
+  .dots {
+    display: inline-flex;
+    gap: 4px;
+  }
+  .dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--pawbar-fg-muted);
+    animation: pawbar-dots 1.2s infinite ease-in-out;
+  }
+  .dots span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .dots span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+  @keyframes pawbar-dots {
+    0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+    30% { opacity: 1; transform: translateY(-3px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dots span {
+      animation: none;
+    }
+  }
+  .articles-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px 16px;
+  }
+  .article-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 11px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--pawbar-border);
+    background: color-mix(in oklab, var(--pawbar-fg) 4%, transparent);
+    text-decoration: none;
+    color: var(--pawbar-fg);
+  }
+  .article-row:hover {
+    border-color: color-mix(in oklab, var(--pawbar-fg) 25%, transparent);
+    background: color-mix(in oklab, var(--pawbar-fg) 7%, transparent);
+  }
+  .article-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .article-snippet {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--pawbar-fg-muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .banner {
     margin: 8px 14px 0;
     padding: 7px 10px;
@@ -865,6 +1222,15 @@
     }
     .composer-wrap {
       padding: 10px;
+    }
+    .contact {
+      max-width: 100%;
+    }
+    .articles-back {
+      margin: 8px 12px 0;
+    }
+    .articles-list {
+      padding: 10px 12px 12px;
     }
   }
 </style>

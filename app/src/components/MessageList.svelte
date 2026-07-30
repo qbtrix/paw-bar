@@ -3,14 +3,19 @@
   Renders a MessageRow per turn and pins to the bottom as content streams in
   (only auto-scrolls when the user is already near the bottom, so reading
   scroll-back isn't yanked away). Shows a quiet greeting when empty.
+  2026-07-30 (email capture): optional `footer` snippet rendered inside the
+  scroller after the rows — the shell uses it for the inline contact prompt so
+  the bubble lives IN the thread, not pinned under it.
 -->
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import type { Message } from '../store/chat.svelte';
   import MessageRow from './MessageRow.svelte';
 
-  let { messages, greeting = "Hi — ask me anything about this site." }: {
+  let { messages, greeting = "Hi — ask me anything about this site.", footer }: {
     messages: Message[];
     greeting?: string;
+    footer?: Snippet;
   } = $props();
 
   let scroller: HTMLDivElement | null = $state(null);
@@ -37,6 +42,7 @@
     {#each messages as message (message.id)}
       <MessageRow {message} />
     {/each}
+    {#if footer}{@render footer()}{/if}
   {/if}
 </div>
 
