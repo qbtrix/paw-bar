@@ -7,19 +7,23 @@
   Svelte props only — no HTML injection, the DOMPurify markdown path is
   untouched. A malformed / stream-truncated card (parseCard → null) OR an unknown
   kind (isRenderable → false) renders a quiet muted "card unavailable" line, with
-  the raw fence stayed hidden. Product is the only v1 kind; future kinds (booking
-  form, gallery, contact) add a RENDERABLE_KINDS entry + a branch here without
-  touching the fence interceptor or the markdown core.
+  the raw fence stayed hidden. 2026-07-30 (form cards): kind "form" branches to
+  FormCard — the structured gated-action detail collector; product keeps its
+  branch. Future kinds (gallery, contact) add a RENDERABLE_KINDS entry + a
+  branch here without touching the fence interceptor or the markdown core.
 -->
 <script lang="ts">
   import { parseCard, isRenderable } from '../../lib/cards';
   import ProductCard from './ProductCard.svelte';
+  import FormCard from './FormCard.svelte';
 
   let { json }: { json: string } = $props();
   const card = $derived(parseCard(json));
 </script>
 
-{#if card && isRenderable(card)}
+{#if card && isRenderable(card) && card.kind === 'form'}
+  <FormCard {card} />
+{:else if card && isRenderable(card)}
   <ProductCard items={card.items} />
 {:else}
   <p class="card-fallback" role="status">Card unavailable</p>

@@ -11,6 +11,14 @@
 // C1/C2):
 //   {"kind":"product","items":[{"id","name","price_cents","currency",
 //    "image_url","actions":["add_to_cart"]}]}
+// 2026-07-30 (form cards): + kind "form" — the agent collects gated-action
+// details through a structured form instead of prose. Contract (frozen, mirrors
+// the concierge preamble):
+//   {"kind":"form","verb":"book_visit","title"?, "submit_label"?,
+//    "fields":[{"name","label","type": text|tel|email|number|textarea}]}
+// verb + every field name must match the widget's declared action args
+// (server-validated at execution time); fields are capped at MAX_FORM_FIELDS,
+// and any shape violation routes to the same quiet fallback.
 
 export interface CardItem {
   id: string;
@@ -23,9 +31,28 @@ export interface CardItem {
   actions: string[];
 }
 
+export const FORM_FIELD_TYPES = ['text', 'tel', 'email', 'number', 'textarea'] as const;
+export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
+
+/** One input in a kind:"form" card. `name` must be a declared arg of the
+ *  card's verb (the server rejects unknown args at execution time). */
+export interface FormField {
+  name: string;
+  label: string;
+  type: FormFieldType;
+}
+
+/** Hard cap on form inputs — an agent-authored card past this is malformed. */
+export const MAX_FORM_FIELDS = 8;
+
 export interface PawBarCard {
   kind: string;
   items: CardItem[];
+  /** kind:"form" only — the declared action verb the form submits. */
+  verb?: string;
+  title?: string;
+  submit_label?: string;
+  fields?: FormField[];
 }
 
 /** Validate + coerce an agent-authored card JSON string into a PawBarCard, or
@@ -41,6 +68,7 @@ export function parseCard(json: string): PawBarCard | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
   const kind = typeof obj.kind === 'string' && obj.kind ? obj.kind : 'product';
+  if (kind === 'form') return parseFormCard(obj);
   const rawItems = Array.isArray(obj.items) ? obj.items : [];
 
   const items: CardItem[] = [];
@@ -63,10 +91,44 @@ export function parseCard(json: string): PawBarCard | null {
   return { kind, items };
 }
 
+/** Strict validation for a kind:"form" card. Every shape violation (missing
+ *  verb, bad/empty fields, a field with a non-allowlisted type) returns null so
+ *  the block draws the quiet fallback — never a half-broken form. Fields past
+ *  MAX_FORM_FIELDS are dropped rather than failing the whole card. */
+function parseFormCard(obj: Record<string, unknown>): PawBarCard | null {
+  const verb = typeof obj.verb === 'string' ? obj.verb.trim() : '';
+  if (!verb) return null;
+  if (!Array.isArray(obj.fields)) return null;
+
+  const fields: FormField[] = [];
+  for (const entry of obj.fields) {
+    if (!entry || typeof entry !== 'object') return null;
+    const r = entry as Record<string, unknown>;
+    const name = typeof r.name === 'string' ? r.name.trim() : '';
+    const label = typeof r.label === 'string' ? r.label.trim() : '';
+    const type = typeof r.type === 'string' ? r.type : '';
+    if (!name || !label) return null;
+    if (!(FORM_FIELD_TYPES as readonly string[]).includes(type)) return null;
+    fields.push({ name, label, type: type as FormFieldType });
+  }
+  if (fields.length === 0) return null;
+  return {
+    kind: 'form',
+    items: [],
+    verb,
+    title: typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : undefined,
+    submit_label:
+      typeof obj.submit_label === 'string' && obj.submit_label.trim()
+        ? obj.submit_label.trim()
+        : undefined,
+    fields: fields.slice(0, MAX_FORM_FIELDS),
+  };
+}
+
 // Card kinds that have a native renderer in v1. An agent-supplied kind outside
 // this set renders the quiet fallback, never a mismatched card (a "booking"
 // must not draw as a product with an "Add to cart" CTA).
-export const RENDERABLE_KINDS = new Set(['product']);
+export const RENDERABLE_KINDS = new Set(['product', 'form']);
 
 /** True when a parsed card has a kind the app can actually render. Null (a
  *  malformed / truncated / itemless card) and unknown kinds both return false,

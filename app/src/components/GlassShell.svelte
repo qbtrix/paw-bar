@@ -31,6 +31,10 @@
   and the docked bar shows a compact count badge (opens the panel) when the cart
   is non-empty. Opening the panel triggers the store's one-shot cart hydrate.
 
+  2026-07-30 (form cards): also provides the ContactStore via context
+  (provideContact) so a gated FormCard submit can nudge the email-capture
+  prompt after it parks a pending decision.
+
   2026-07-16 (D4 greeting): takes an optional `greeting` prop (the owner's
   concierge greeting, threaded from readConfig via main.ts). When it's a
   non-empty string the panel's empty-transcript state shows it as the welcome
@@ -68,7 +72,7 @@
   import { untrack } from 'svelte';
   import type { ChatStore, ChatStoreConfig } from '../store/chat.svelte';
   import { type CartStore, provideCart } from '../store/cart.svelte';
-  import type { ContactStore } from '../store/contact.svelte';
+  import { type ContactStore, provideContact } from '../store/contact.svelte';
   import type { PawBarPoster } from '../lib/postmessage';
   import { fetchArticles, type Article } from '../lib/articles-client';
   import { serializeTranscript } from '../lib/transcript';
@@ -101,6 +105,10 @@
   // the store instance is created once in main.ts and never reassigned, so we
   // capture it at init without registering a reactive dependency.
   provideCart(untrack(() => cart));
+  // Same pattern for the contact prompt: a gated FormCard submit parks a
+  // pending decision, so the card nudges contact.maybeOffer() (self-guarded)
+  // and the email-capture prompt fires naturally.
+  provideContact(untrack(() => contact));
 
   type View = 'bar' | 'chip' | 'panel';
   const VIEW_KEY = '__pawbar_view_v1';

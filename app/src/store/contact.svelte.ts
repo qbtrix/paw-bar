@@ -12,7 +12,11 @@
 //     → dismiss quietly. The email lives ONLY in the component input and this
 //     request body — never in the transcript, the chat store, storage, or logs.
 //   * dismiss() — ✕: hide now and never re-offer this session.
+// 2026-07-30 (form cards): + provideContact/useContact context helpers (mirror
+// of cart.svelte's pair) so a nested FormCard can nudge maybeOffer() after a
+// gated form submit parks a pending decision — same self-guarded single poll.
 
+import { getContext, setContext } from 'svelte';
 import type { ConciergeChatConfig } from '../lib/chat-client';
 import { getCustomerRef } from '../lib/customer-ref';
 import {
@@ -28,6 +32,17 @@ export interface ContactStoreConfig {
   endpoint: string;
   widgetId: string;
   siteKey: string;
+}
+
+const CONTACT_KEY = Symbol('pawbar-contact');
+
+/** Called once in the shell so nested cards can reach the contact prompt. */
+export function provideContact(store: ContactStore): void {
+  setContext(CONTACT_KEY, store);
+}
+/** Undefined outside the shell tree (e.g. isolated component tests). */
+export function useContact(): ContactStore | undefined {
+  return getContext<ContactStore | undefined>(CONTACT_KEY);
 }
 
 export class ContactStore {
