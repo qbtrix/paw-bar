@@ -60,6 +60,14 @@
   rows open in a new tab, a back affordance (and Escape, peeled before the
   panel's own) returns to the conversation.
 
+  2026-07-30 (human takeover): a person from the site's team can join the
+  conversation. The shell drives the OperatorStore's poll from ONE $effect on
+  `view` — the loop runs only while the PANEL is open (the visitor is actually
+  watching), and stops on ✕ / Escape / minimize / outside click. While the
+  owner has taken over (store.botPaused, set by the poll and by the
+  human_replying SSE frame) a quiet "you're chatting with the team" chip sits
+  above the composer, so the visitor knows why the instant replies stopped.
+
   2026-07-30 paw-os design-language pass (captain: match ChatPill, esp. phone):
   the docked bar's accent dot became a circular paw MASCOT avatar (ChatPill's
   .mascot-avatar pattern — paw glyph in a 2px-bordered circle); the bar's inner
@@ -73,6 +81,7 @@
   import type { ChatStore, ChatStoreConfig } from '../store/chat.svelte';
   import { type CartStore, provideCart } from '../store/cart.svelte';
   import { type ContactStore, provideContact } from '../store/contact.svelte';
+  import type { OperatorStore } from '../store/operator.svelte';
   import type { PawBarPoster } from '../lib/postmessage';
   import { fetchArticles, type Article } from '../lib/articles-client';
   import { serializeTranscript } from '../lib/transcript';
@@ -84,6 +93,7 @@
     store,
     cart,
     contact,
+    operator,
     chatConfig,
     poster,
     theme = 'dark',
@@ -93,6 +103,7 @@
     store: ChatStore;
     cart: CartStore;
     contact: ContactStore;
+    operator: OperatorStore;
     chatConfig: ChatStoreConfig;
     poster: PawBarPoster;
     theme?: 'light' | 'dark';
@@ -194,6 +205,19 @@
     if (view === 'panel') closePanel();
     else if (view === 'bar') minimize();
   }
+
+  // ── Owner messages (poll while the panel is open) ─────────────────────────
+  // ONE lifecycle owner: the loop runs exactly while the visitor is looking at
+  // the panel. Every close path (✕, Escape, minimize, outside click, the
+  // host's pawbar:host-close) already routes through a `view` change, so this
+  // effect covers them all — and its teardown stops the loop when the app
+  // unmounts. The store itself skips polls while the tab is hidden and latches
+  // in-flight requests, so this stays a two-line wiring.
+  $effect(() => {
+    if (view === 'panel') operator.start();
+    else operator.stop();
+    return () => operator.stop();
+  });
 
   // ── Email capture (pending-decision contact prompt) ───────────────────────
   // After an assistant turn reaches a rest state, ask the ContactStore to run
@@ -667,6 +691,30 @@
           {/if}
 
           <div class="composer-wrap">
+            {#if store.botPaused}
+              <!-- Persistent while the owner has taken over: the visitor is
+                   talking to a person now, so instant replies stopping is the
+                   expected behaviour, not a broken widget. -->
+              <p class="paused-note" role="status">
+                <span class="paused-avatar" aria-hidden="true">
+                  <!-- lucide user-round -->
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="10"
+                    height="10"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="12" cy="8" r="5" />
+                    <path d="M20 21a8 8 0 0 0-16 0" />
+                  </svg>
+                </span>
+                <span>You're chatting with the team</span>
+              </p>
+            {/if}
             <Composer
               bind:this={composer}
               isStreaming={store.isStreaming}
@@ -1242,6 +1290,28 @@
   .composer-wrap {
     padding: 12px;
     border-top: 1px solid var(--pawbar-border);
+  }
+  /* Bot-paused state: quiet, persistent, and out of the way — it sits above
+     the composer rather than in the thread so it can't be scrolled past. */
+  .paused-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 8px;
+    padding: 0 4px;
+    font-size: 11.5px;
+    color: var(--pawbar-fg-muted);
+  }
+  .paused-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid color-mix(in oklab, var(--pawbar-accent) 60%, transparent);
+    color: var(--pawbar-accent);
   }
 
   /* Phone: the pill face tightens like ChatPill's mobile pass (smaller

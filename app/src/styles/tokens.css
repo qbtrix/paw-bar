@@ -22,9 +22,12 @@
   /* Accent — quiet authority blue (no green, per the billing/brand palette) */
   --pawbar-accent: oklch(0.62 0.19 258);
   --pawbar-accent-fg: oklch(0.99 0 0);
-  /* Bubbles */
+  /* Bubbles — the owner (a human from the site's team) is a THIRD speaker, so
+     it gets its own accent-tinted surface: not the visitor's solid accent, not
+     the bot's neutral grey. */
   --pawbar-user-bubble: oklch(0.62 0.19 258 / 0.92);
   --pawbar-assistant-bubble: oklch(1 0 0 / 0.05);
+  --pawbar-owner-bubble: oklch(0.62 0.19 258 / 0.16);
   /* Danger */
   --pawbar-danger: oklch(0.62 0.2 25);
   /* Shape + motion + type */
@@ -47,6 +50,7 @@
   --pawbar-accent-fg: oklch(0.99 0 0);
   --pawbar-user-bubble: oklch(0.58 0.2 258 / 0.95);
   --pawbar-assistant-bubble: oklch(0.2 0.02 260 / 0.05);
+  --pawbar-owner-bubble: oklch(0.58 0.2 258 / 0.1);
   --pawbar-danger: oklch(0.55 0.22 25);
   --pawbar-shadow: 0 24px 64px -16px oklch(0.2 0.02 260 / 0.25);
 }

@@ -25,8 +25,14 @@
 // source citations (titles + urls of PUBLIC pages — safe to store) and load
 // re-sanitizes them through lib/sources, so a tampered row can't smuggle a
 // non-http(s) href back into the DOM.
+// 2026-07-30 (human takeover): owner + system turns persist and restore on the
+// SAME terms as assistant turns — same cap, same TTL, same status coercion
+// (nothing rehydrates as 'streaming'). Their server timestamp (`at`) rides
+// along so the operator poll can resume from its high-water mark after a
+// reload instead of re-appending messages the visitor already has. Roles
+// outside the allowlist are dropped, so an edited row can't invent a speaker.
 
-import type { Message } from '../store/chat.svelte';
+import type { Message, MessageRole } from '../store/chat.svelte';
 import { sanitizeSources } from './sources';
 
 const KEY_PREFIX = 'pawbar.transcript.v1.';
@@ -35,8 +41,10 @@ export const TRANSCRIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface StoredTranscript {
   saved_at: number;
-  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status' | 'sources'>>;
+  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status' | 'sources' | 'at'>>;
 }
+
+const ROLES: readonly MessageRole[] = ['user', 'assistant', 'owner', 'system'];
 
 function key(widgetId: string): string {
   return `${KEY_PREFIX}${widgetId}`;
@@ -67,11 +75,13 @@ export function loadTranscript(widgetId: string): Message[] {
     const out: Message[] = [];
     for (const m of parsed.messages) {
       if (!m || typeof m !== 'object') continue;
-      const role = m.role === 'user' || m.role === 'assistant' ? m.role : null;
+      const role = ROLES.includes(m.role) ? m.role : null;
       const content = typeof m.content === 'string' ? m.content : '';
       if (!role || !content) continue;
       // Re-sanitize stored citations — never trust a row someone edited.
       const sources = role === 'assistant' ? sanitizeSources(m.sources) : [];
+      // The poll cursor only means anything for the human half of the thread.
+      const at = (role === 'owner' || role === 'system') && typeof m.at === 'string' ? m.at : '';
       out.push({
         id: typeof m.id === 'string' && m.id ? m.id : `m-restored-${out.length}`,
         role,
@@ -79,6 +89,7 @@ export function loadTranscript(widgetId: string): Message[] {
         // Never rehydrate 'streaming' — nothing is streaming after a reload.
         status: m.status === 'error' ? 'error' : 'done',
         ...(sources.length > 0 ? { sources } : {}),
+        ...(at ? { at } : {}),
       });
     }
     return out.slice(-TRANSCRIPT_CAP);
@@ -102,6 +113,7 @@ export function saveTranscript(widgetId: string, messages: Message[]): void {
       ...(m.sources && m.sources.length > 0
         ? { sources: m.sources.map((s) => ({ title: s.title, url: s.url })) }
         : {}),
+      ...(m.at ? { at: m.at } : {}),
     }));
   try {
     if (terminal.length === 0) {
@@ -124,15 +136,21 @@ export function clearTranscript(widgetId: string): void {
 }
 
 /** Plain-text export of the thread for the visitor's own records. One header
- *  line naming the concierge + the date, then "Visitor: …" / "Concierge: …"
- *  lines with a blank line after each concierge reply. Pure — no DOM, no
- *  storage — so the download action stays a thin Blob wrapper around it. */
+ *  line naming the concierge + the date, then "Visitor: …" / "Concierge: …" /
+ *  "Team: …" lines with a blank line after each reply; system notices export
+ *  as a bare "— …" line, since nobody said them. Pure — no DOM, no storage —
+ *  so the download action stays a thin Blob wrapper around it. */
 export function serializeTranscript(messages: Message[], title = 'Concierge', date = new Date()): string {
   let out = `${title} conversation — ${date.toISOString().slice(0, 10)}\n\n`;
   for (const m of messages) {
     if (!m.content) continue;
-    out += `${m.role === 'user' ? 'Visitor' : 'Concierge'}: ${m.content}\n`;
-    if (m.role === 'assistant') out += '\n';
+    if (m.role === 'system') {
+      out += `— ${m.content}\n\n`;
+      continue;
+    }
+    const speaker = m.role === 'user' ? 'Visitor' : m.role === 'owner' ? 'Team' : 'Concierge';
+    out += `${speaker}: ${m.content}\n`;
+    if (m.role !== 'user') out += '\n';
   }
   return out;
 }

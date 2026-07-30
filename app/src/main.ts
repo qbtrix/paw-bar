@@ -10,6 +10,10 @@
 // 2026-07-30 (email capture + articles): builds the ContactStore (pending-
 // decision email prompt) and threads the store config to the shell so the
 // articles view fetches against the same endpoint/widget/key.
+// 2026-07-30 (human takeover): builds the OperatorStore over the ChatStore —
+// the poll that delivers the site owner's own replies into the thread. It is
+// constructed AFTER the chat store so it seeds its `after` cursor from the
+// restored transcript; the shell starts/stops the loop with the panel.
 import { mount } from 'svelte';
 import './styles/tokens.css';
 import './styles/glass.css';
@@ -18,6 +22,7 @@ import { readConfig } from './config';
 import { ChatStore } from './store/chat.svelte';
 import { CartStore } from './store/cart.svelte';
 import { ContactStore } from './store/contact.svelte';
+import { OperatorStore } from './store/operator.svelte';
 import { createPoster } from './lib/postmessage';
 
 const config = readConfig();
@@ -41,6 +46,7 @@ const storeConfig = {
 const store = new ChatStore(storeConfig);
 const cart = new CartStore(storeConfig);
 const contact = new ContactStore(storeConfig);
+const operator = new OperatorStore(store, storeConfig);
 const poster = createPoster(config.parentOrigin);
 
 mount(GlassShell, {
@@ -49,6 +55,7 @@ mount(GlassShell, {
     store,
     cart,
     contact,
+    operator,
     chatConfig: storeConfig,
     poster,
     theme: config.theme,

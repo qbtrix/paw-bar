@@ -16,6 +16,13 @@
 //   lib/sources. Backends that never emit it change nothing — the frame is
 //   optional, the callback is optional, and unknown events still fall through
 //   to the ignore branch, so old backends stream exactly as before.
+// 2026-07-30 (human takeover): same treatment for `event: human_replying`
+//   ({"message":"…"}) — emitted INSTEAD of assistant content when the site
+//   owner has taken the conversation over. It is NOT terminal: stream_end
+//   still follows and still finalizes the turn. Belt and braces for a backend
+//   that hangs up without one, the reader now finalizes with onEnd({}) when
+//   the body ends without a terminal frame, so a paused-bot turn can never
+//   leave the composer stuck in its streaming state.
 
 import { createSseParser, type SseFrame } from './sse';
 import { sanitizeSources, type Source } from './sources';
@@ -37,6 +44,10 @@ export interface ChatCallbacks {
   // Optional: the reply's source citations (`sources` frame, before
   // stream_end). Absent frame or absent callback — nothing happens.
   onSources?: (sources: Source[]) => void;
+  // Optional: a human has taken over, so this turn carries no assistant text
+  // (`human_replying` frame). The line is customer-facing copy; '' when the
+  // frame omits it.
+  onHumanReplying?: (message: string) => void;
 }
 
 function chatUrl(endpoint: string): string {
@@ -92,6 +103,14 @@ export function dispatchFrame(frame: SseFrame, cb: ChatCallbacks): boolean {
       const data = safeParse(frame.data);
       const sources = sanitizeSources(data?.sources);
       if (sources.length > 0) cb.onSources?.(sources);
+      return true;
+    }
+    case 'human_replying': {
+      // The owner took the conversation over — the bot deliberately stays
+      // silent. Non-terminal: stream_end still closes the turn.
+      const data = safeParse(frame.data);
+      const message = data && typeof data.message === 'string' ? data.message.trim() : '';
+      cb.onHumanReplying?.(message);
       return true;
     }
     case 'interrupted':
@@ -151,6 +170,10 @@ export async function streamConciergeChat(
         if (!dispatchFrame(frame, callbacks)) return; // terminal frame — stop
       }
     }
+    // The body ended without a terminal frame (a proxy cutting the stream, a
+    // backend that just hangs up after human_replying). Finalize anyway —
+    // otherwise the composer stays stuck in its streaming state forever.
+    callbacks.onEnd({});
   } catch (err) {
     // stop() aborted mid-stream — keep whatever streamed and finalize as cancel.
     if (isAbort(err)) {
