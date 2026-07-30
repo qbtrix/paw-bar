@@ -4,7 +4,9 @@
 // capped + TTL'd) and every turn that reaches a rest state persists — the
 // iframe reloads on every host-page navigation, and before this the visitor
 // lost the whole conversation walking between pages (the continuity
-// Intercom/Crisp/Chatbase provide by default).
+// Intercom/Crisp/Chatbase provide by default). Same day (quick actions):
+// reset() — abort, wipe messages/error, and clear the persisted row — backs
+// the panel menu's "New conversation".
 // Created 2026-07-15 (A3 glass bar). Single source of truth for the panel:
 // messages[], isStreaming, error, and the anonymous customerRef. send(text)
 // appends the user turn + a streaming assistant turn, then streams deltas from
@@ -15,7 +17,7 @@
 
 import { streamConciergeChat, type ConciergeChatConfig } from '../lib/chat-client';
 import { getCustomerRef } from '../lib/customer-ref';
-import { loadTranscript, saveTranscript } from '../lib/transcript';
+import { clearTranscript, loadTranscript, saveTranscript } from '../lib/transcript';
 
 export type MessageStatus = 'streaming' | 'done' | 'error';
 export interface Message {
@@ -136,6 +138,20 @@ export class ChatStore {
     // Aborts the fetch/reader; chat-client routes the AbortError to onEnd,
     // which finalizes the assistant turn and clears isStreaming.
     this.#controller?.abort();
+  }
+
+  /** Start over: drop the thread AND its persisted row (quick actions "New
+   *  conversation"). Aborts any in-flight stream first; #controller is nulled
+   *  before the abort's async onEnd fires, so #finish's identity guard makes
+   *  the late callback a no-op against the fresh state. */
+  reset(): void {
+    const controller = this.#controller;
+    this.#controller = null;
+    controller?.abort();
+    this.messages = [];
+    this.error = null;
+    this.isStreaming = false;
+    clearTranscript(this.#config.widgetId);
   }
 
   #finish(controller: AbortController): void {

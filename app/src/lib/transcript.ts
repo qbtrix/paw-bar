@@ -17,6 +17,10 @@
 //     to session-only chat — identical to the customer-ref fallback.
 //   * Loaded turns are coerced to terminal statuses ('done' / 'error'); a
 //     'streaming' status must never be rehydrated (nothing is streaming).
+//
+// 2026-07-30 (quick actions): serializeTranscript — the pure text export the
+// panel's "Download transcript" action feeds into a Blob download. Lives here
+// (not in the component) so it tests without DOM.
 
 import type { Message } from '../store/chat.svelte';
 
@@ -101,4 +105,18 @@ export function clearTranscript(widgetId: string): void {
   } catch {
     // ignore
   }
+}
+
+/** Plain-text export of the thread for the visitor's own records. One header
+ *  line naming the concierge + the date, then "Visitor: …" / "Concierge: …"
+ *  lines with a blank line after each concierge reply. Pure — no DOM, no
+ *  storage — so the download action stays a thin Blob wrapper around it. */
+export function serializeTranscript(messages: Message[], title = 'Concierge', date = new Date()): string {
+  let out = `${title} conversation — ${date.toISOString().slice(0, 10)}\n\n`;
+  for (const m of messages) {
+    if (!m.content) continue;
+    out += `${m.role === 'user' ? 'Visitor' : 'Concierge'}: ${m.content}\n`;
+    if (m.role === 'assistant') out += '\n';
+  }
+  return out;
 }

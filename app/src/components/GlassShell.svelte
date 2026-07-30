@@ -36,6 +36,14 @@
   non-empty string the panel's empty-transcript state shows it as the welcome
   message; when blank it keeps the default "Ask about this site" copy.
 
+  2026-07-30 quick actions (Crisp parity): the panel header grew a chevron menu
+  next to ✕ — New conversation (store.reset() wipes thread + persisted row),
+  Download transcript (serializeTranscript → Blob → a.download, no network),
+  Minimize (the EXISTING minimize() → chip, no second state machine). The menu
+  closes on Escape (before the panel does), outside pointerdown, and any view
+  transition. Same design language: icon-btn trigger, glass surface, inlined
+  lucide stroke glyphs.
+
   2026-07-30 paw-os design-language pass (captain: match ChatPill, esp. phone):
   the docked bar's accent dot became a circular paw MASCOT avatar (ChatPill's
   .mascot-avatar pattern — paw glyph in a 2px-bordered circle); the bar's inner
@@ -49,6 +57,7 @@
   import type { ChatStore } from '../store/chat.svelte';
   import { type CartStore, provideCart } from '../store/cart.svelte';
   import type { PawBarPoster } from '../lib/postmessage';
+  import { serializeTranscript } from '../lib/transcript';
   import MessageList from './MessageList.svelte';
   import Composer from './Composer.svelte';
   import CartBadge from './CartBadge.svelte';
@@ -108,6 +117,7 @@
 
   function openPanel() {
     view = 'panel';
+    menuOpen = false;
     poster.open();
     // Initial cart hydrate on the first open (one-shot inside the store).
     void cart.load();
@@ -115,12 +125,14 @@
   }
   function closePanel() {
     view = 'bar';
+    menuOpen = false;
     poster.view('bar');
     persistDock('bar');
     queueMicrotask(() => composer?.focus());
   }
   function minimize() {
     view = 'chip';
+    menuOpen = false;
     poster.view('chip');
     persistDock('chip');
   }
@@ -142,8 +154,40 @@
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape' || drag) return;
+    // The quick-actions menu is the innermost layer — Escape peels it first.
+    if (menuOpen) {
+      menuOpen = false;
+      return;
+    }
     if (view === 'panel') closePanel();
     else if (view === 'bar') minimize();
+  }
+
+  // ── Quick actions (panel header menu) ─────────────────────────────────────
+  let menuOpen = $state(false);
+  let menuWrapEl: HTMLDivElement | null = $state(null);
+
+  function onWindowPointerDown(e: PointerEvent) {
+    if (!menuOpen) return;
+    if (menuWrapEl && !menuWrapEl.contains(e.target as Node)) menuOpen = false;
+  }
+
+  function newConversation() {
+    menuOpen = false;
+    store.reset();
+    queueMicrotask(() => composer?.focus());
+  }
+
+  // Client-side only: serialize the thread and hand the visitor a .txt file.
+  function downloadTranscript() {
+    menuOpen = false;
+    const text = serializeTranscript(store.messages);
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'conversation.txt';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   // ── Drag protocol (bar only) ──────────────────────────────────────────────
@@ -233,7 +277,7 @@
   });
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onpointerdown={onWindowPointerDown} />
 
 <div
   class="pawbar-root"
@@ -351,6 +395,64 @@
           </div>
           <div class="head-actions">
             <CartBadge />
+            <div class="menu-wrap" bind:this={menuWrapEl}>
+              <button
+                type="button"
+                class="icon-btn"
+                onclick={() => (menuOpen = !menuOpen)}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label="Conversation options"
+              >
+                <!-- lucide chevron-down -->
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              {#if menuOpen}
+                <div class="menu" role="menu" aria-label="Conversation options">
+                  <button type="button" class="menu-item" role="menuitem" onclick={newConversation}>
+                    <!-- lucide plus -->
+                    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                      <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+                    </svg>
+                    <span>New conversation</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="menu-item"
+                    role="menuitem"
+                    onclick={downloadTranscript}
+                    disabled={store.messages.length === 0}
+                  >
+                    <!-- lucide download -->
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 3v12" />
+                      <path d="M7 10l5 5 5-5" />
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    </svg>
+                    <span>Download transcript</span>
+                  </button>
+                  <button type="button" class="menu-item" role="menuitem" onclick={minimize}>
+                    <!-- lucide minus (the bar's minimize glyph) -->
+                    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                      <path d="M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+                    </svg>
+                    <span>Minimize</span>
+                  </button>
+                </div>
+              {/if}
+            </div>
             <button type="button" class="icon-btn" onclick={closePanel} aria-label="Close">
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                 <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
@@ -677,6 +779,58 @@
   .icon-btn:hover {
     color: var(--pawbar-fg);
     background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
+  }
+  /* ── Quick actions menu (header) ────────────────────────────────────────── */
+  .menu-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  .icon-btn[aria-expanded='true'] {
+    color: var(--pawbar-fg);
+    background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
+  }
+  .menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    min-width: 190px;
+    padding: 5px;
+    border-radius: 12px;
+    border: 1px solid var(--pawbar-border);
+    background: var(--pawbar-surface-strong);
+    -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
+    backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.08), var(--pawbar-shadow);
+  }
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 9px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: var(--pawbar-fg);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .menu-item svg {
+    flex: none;
+    color: var(--pawbar-fg-muted);
+  }
+  .menu-item:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
+  }
+  .menu-item:disabled {
+    color: var(--pawbar-fg-muted);
+    opacity: 0.6;
+    cursor: default;
   }
   .banner {
     margin: 8px 14px 0;
