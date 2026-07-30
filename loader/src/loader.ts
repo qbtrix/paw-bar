@@ -189,6 +189,13 @@ type LoaderWindow = Window &
         }
         break;
       }
+      case 'pawbar:dead':
+        // The frame declined to render (concierge disabled / unusable
+        // allowlist): remove the iframe entirely so the site shows NOTHING —
+        // a declined frame's body is a blank shell, but even its invisible
+        // dock sliver shouldn't linger over the page.
+        iframe.remove();
+        break;
       case 'pawbar:open':
         overlay = true;
         goFullscreen();
