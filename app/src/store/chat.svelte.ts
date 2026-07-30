@@ -1,4 +1,10 @@
 // chat.svelte.ts — Svelte 5 runes store over the concierge SSE contract.
+// Updated 2026-07-30 (conversation continuity): the constructor rehydrates the
+// visitor's persisted thread from lib/transcript (localStorage, per-widget,
+// capped + TTL'd) and every turn that reaches a rest state persists — the
+// iframe reloads on every host-page navigation, and before this the visitor
+// lost the whole conversation walking between pages (the continuity
+// Intercom/Crisp/Chatbase provide by default).
 // Created 2026-07-15 (A3 glass bar). Single source of truth for the panel:
 // messages[], isStreaming, error, and the anonymous customerRef. send(text)
 // appends the user turn + a streaming assistant turn, then streams deltas from
@@ -9,6 +15,7 @@
 
 import { streamConciergeChat, type ConciergeChatConfig } from '../lib/chat-client';
 import { getCustomerRef } from '../lib/customer-ref';
+import { loadTranscript, saveTranscript } from '../lib/transcript';
 
 export type MessageStatus = 'streaming' | 'done' | 'error';
 export interface Message {
@@ -39,6 +46,15 @@ export class ChatStore {
 
   constructor(config: ChatStoreConfig) {
     this.#config = config;
+    // Continuity across iframe reloads (every host-page navigation reloads the
+    // frame): rehydrate the visitor's persisted thread — the Intercom/Crisp
+    // pattern. Statuses come back terminal; nothing resumes streaming.
+    this.messages = loadTranscript(config.widgetId);
+  }
+
+  /** Persist the terminal turns — called whenever a turn reaches a rest state. */
+  #persist(): void {
+    saveTranscript(this.#config.widgetId, this.messages);
   }
 
   async #resolveCustomerRef(): Promise<string> {
@@ -60,6 +76,9 @@ export class ChatStore {
     this.messages.push({ id: newId(), role: 'user', content: message, status: 'done' });
     this.messages.push({ id: assistantId, role: 'assistant', content: '', status: 'streaming' });
     this.isStreaming = true;
+    // Persist the user turn immediately — a navigation mid-stream keeps the
+    // question even when the answer is lost.
+    this.#persist();
 
     const controller = new AbortController();
     this.#controller = controller;
@@ -93,12 +112,14 @@ export class ChatStore {
             }
           }
           this.#finish(controller);
+          this.#persist();
         },
         onError: (msg) => {
           const m = this.#assistant(assistantId);
           if (m) m.status = 'error';
           this.error = msg;
           this.#finish(controller);
+          this.#persist();
         },
       },
       controller.signal,

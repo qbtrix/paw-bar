@@ -279,7 +279,13 @@
             <circle cx="7" cy="13" r="1.3" fill="currentColor" />
           </svg>
         </button>
-        <span class="mascot" aria-hidden="true">
+        <button
+          type="button"
+          class="mascot"
+          onclick={openPanel}
+          aria-label="Open conversation"
+          title="Open conversation"
+        >
           <!-- lucide paw-print glyph (inlined — no icon dep in the widget) -->
           <svg
             viewBox="0 0 24 24"
@@ -298,7 +304,7 @@
               d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"
             />
           </svg>
-        </span>
+        </button>
         <div class="bar-composer">
           <Composer
             bind:this={composer}
@@ -476,7 +482,9 @@
     flex: 1;
     min-width: 0;
   }
-  /* Circular paw mascot — ChatPill's .mascot-avatar language, bar-sized. */
+  /* Circular paw mascot — ChatPill's .mascot-avatar language, bar-sized.
+     A BUTTON: clicking it opens the panel (the returning visitor's way back
+     into a restored conversation — Intercom's launcher affordance). */
   .mascot {
     flex: none;
     display: inline-flex;
@@ -484,10 +492,18 @@
     justify-content: center;
     width: 30px;
     height: 30px;
+    padding: 0;
     border-radius: 50%;
     border: 2px solid color-mix(in oklab, var(--pawbar-fg) 55%, transparent);
+    background: none;
     color: color-mix(in oklab, var(--pawbar-fg) 72%, transparent);
     box-shadow: 0 2px 8px oklch(0 0 0 / 0.25);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .mascot:hover {
+    color: var(--pawbar-fg);
+    border-color: color-mix(in oklab, var(--pawbar-fg) 75%, transparent);
   }
   /* The bar IS the composer chrome — strip the inner composer's own shell. */
   .bar-composer :global(form) {
