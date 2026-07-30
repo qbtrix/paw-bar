@@ -1236,16 +1236,20 @@
     border-top: 1px solid var(--pawbar-border);
   }
 
-  /* Phone: drag is a desktop affordance; the pill face tightens like
-     ChatPill's mobile pass (smaller mascot, no grip, tighter gaps). Lives at
-     the END of the sheet so it wins the same-specificity cascade against the
-     component base rules above. */
+  /* Phone: the pill face tightens like ChatPill's mobile pass (smaller
+     mascot, hidden BAR grip, tighter gaps). Lives at the END of the sheet so
+     it wins the same-specificity cascade against the component base rules.
+     CAUTION — the media query sees the IFRAME's width, not the device's: the
+     bar iframe is ~viewport-wide so ≤640px really means "phone" there, but
+     the CHIP iframe shrinks to content (~100px) and matches ALWAYS. Hiding a
+     bare `.grip` here removed the chip's drag handle on every desktop (the
+     captain's 2026-07-30 report), so the hide is scoped to the bar's grip. */
   @media (max-width: 640px) {
     .bar {
       gap: 6px;
       padding: 6px 8px;
     }
-    .grip {
+    .bar .grip {
       display: none;
     }
     .mascot {
