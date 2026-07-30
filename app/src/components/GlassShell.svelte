@@ -272,7 +272,11 @@
   let grabY = 0;
 
   function onGripDown(e: PointerEvent) {
-    if (view !== 'bar' || drag || awaitingBox) return;
+    // Draggable while DOCKED (bar or minimized chip) — the drag protocol and
+    // the fixed-position ghost are view-agnostic; the loader sizes the dock
+    // box per view and the anchor is shared, so a chip dropped somewhere
+    // restores the bar there too.
+    if ((view !== 'bar' && view !== 'chip') || drag || awaitingBox) return;
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     grabX = e.clientX;
@@ -404,10 +408,30 @@
       : ''}
   >
     {#if view === 'chip'}
-      <button type="button" class="chip" onclick={restoreBar} aria-expanded="false" aria-label="Open concierge bar">
-        <span class="glow-dot"></span>
-        <span>Ask</span>
-      </button>
+      <div class="chip-row">
+        <button
+          type="button"
+          class="grip chip-grip"
+          aria-label="Move concierge chip"
+          onpointerdown={onGripDown}
+          onpointermove={onGripMove}
+          onpointerup={onGripUp}
+          onpointercancel={onGripUp}
+        >
+          <svg viewBox="0 0 10 16" width="8" height="13" aria-hidden="true">
+            <circle cx="3" cy="3" r="1.3" fill="currentColor" />
+            <circle cx="3" cy="8" r="1.3" fill="currentColor" />
+            <circle cx="3" cy="13" r="1.3" fill="currentColor" />
+            <circle cx="7" cy="3" r="1.3" fill="currentColor" />
+            <circle cx="7" cy="8" r="1.3" fill="currentColor" />
+            <circle cx="7" cy="13" r="1.3" fill="currentColor" />
+          </svg>
+        </button>
+        <button type="button" class="chip" onclick={restoreBar} aria-expanded="false" aria-label="Open concierge bar">
+          <span class="glow-dot"></span>
+          <span>Ask</span>
+        </button>
+      </div>
     {:else if view === 'bar'}
       <div class="bar">
         <button
@@ -814,6 +838,15 @@
   }
 
   /* ── Minimized chip ─────────────────────────────────────────────────────── */
+  .chip-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .chip-grip {
+    width: 18px;
+    height: 30px;
+  }
   .chip {
     display: inline-flex;
     align-items: center;
