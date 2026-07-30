@@ -10,8 +10,15 @@
 //   via stop(); an aborted fetch/read is finalized as onEnd({cancelled:true})
 //   rather than surfacing as an error. Request body + SSE frames match the
 //   source of truth ee/pocketpaw_ee/paw_bar/router.py::concierge_chat.
+// 2026-07-30 (sources on replies): dispatchFrame routes the OPTIONAL
+//   `event: sources` frame ({"sources":[{title,url}…]}, sent before
+//   stream_end) to the new optional onSources callback, sanitized through
+//   lib/sources. Backends that never emit it change nothing — the frame is
+//   optional, the callback is optional, and unknown events still fall through
+//   to the ignore branch, so old backends stream exactly as before.
 
 import { createSseParser, type SseFrame } from './sse';
+import { sanitizeSources, type Source } from './sources';
 
 export interface ConciergeChatConfig {
   endpoint: string;
@@ -27,6 +34,9 @@ export interface ChatCallbacks {
   onEnd: (info: { assistant_message_id?: string; cancelled?: boolean }) => void;
   // A transport/network/HTTP error, or a server `error`/`interrupted` frame.
   onError: (message: string) => void;
+  // Optional: the reply's source citations (`sources` frame, before
+  // stream_end). Absent frame or absent callback — nothing happens.
+  onSources?: (sources: Source[]) => void;
 }
 
 function chatUrl(endpoint: string): string {
@@ -75,6 +85,14 @@ export function dispatchFrame(frame: SseFrame, cb: ChatCallbacks): boolean {
       const message = data && typeof data.message === 'string' ? data.message : 'stream error';
       cb.onError(message);
       return false;
+    }
+    case 'sources': {
+      // Optional citations for the current reply. Sanitized (strings only,
+      // http(s) only, capped) — a malformed frame degrades to no sources.
+      const data = safeParse(frame.data);
+      const sources = sanitizeSources(data?.sources);
+      if (sources.length > 0) cb.onSources?.(sources);
+      return true;
     }
     case 'interrupted':
       cb.onError('The reply was interrupted.');

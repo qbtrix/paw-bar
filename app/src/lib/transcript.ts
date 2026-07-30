@@ -21,8 +21,13 @@
 // 2026-07-30 (quick actions): serializeTranscript — the pure text export the
 // panel's "Download transcript" action feeds into a Blob download. Lives here
 // (not in the component) so it tests without DOM.
+// 2026-07-30 (sources on replies): rows persist an assistant turn's optional
+// source citations (titles + urls of PUBLIC pages — safe to store) and load
+// re-sanitizes them through lib/sources, so a tampered row can't smuggle a
+// non-http(s) href back into the DOM.
 
 import type { Message } from '../store/chat.svelte';
+import { sanitizeSources } from './sources';
 
 const KEY_PREFIX = 'pawbar.transcript.v1.';
 export const TRANSCRIPT_CAP = 60;
@@ -30,7 +35,7 @@ export const TRANSCRIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface StoredTranscript {
   saved_at: number;
-  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status'>>;
+  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status' | 'sources'>>;
 }
 
 function key(widgetId: string): string {
@@ -65,12 +70,15 @@ export function loadTranscript(widgetId: string): Message[] {
       const role = m.role === 'user' || m.role === 'assistant' ? m.role : null;
       const content = typeof m.content === 'string' ? m.content : '';
       if (!role || !content) continue;
+      // Re-sanitize stored citations — never trust a row someone edited.
+      const sources = role === 'assistant' ? sanitizeSources(m.sources) : [];
       out.push({
         id: typeof m.id === 'string' && m.id ? m.id : `m-restored-${out.length}`,
         role,
         content,
         // Never rehydrate 'streaming' — nothing is streaming after a reload.
         status: m.status === 'error' ? 'error' : 'done',
+        ...(sources.length > 0 ? { sources } : {}),
       });
     }
     return out.slice(-TRANSCRIPT_CAP);
@@ -86,7 +94,15 @@ export function saveTranscript(widgetId: string, messages: Message[]): void {
   const terminal = messages
     .filter((m) => m.status !== 'streaming' && m.content)
     .slice(-TRANSCRIPT_CAP)
-    .map((m) => ({ id: m.id, role: m.role, content: m.content, status: m.status }));
+    .map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      status: m.status,
+      ...(m.sources && m.sources.length > 0
+        ? { sources: m.sources.map((s) => ({ title: s.title, url: s.url })) }
+        : {}),
+    }));
   try {
     if (terminal.length === 0) {
       window.localStorage.removeItem(key(widgetId));

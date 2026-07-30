@@ -5,6 +5,10 @@
   copy, a thumbs rate, and a provenance line ("grounded in this site's
   knowledge") — the provenance sells the no-hallucination trust story. The
   footer only shows once the turn is done (not mid-stream) and never on errors.
+  2026-07-30 (sources on replies): when the reply carries sanitized source
+  citations, a "Sources ›" toggle sits beside the provenance badge and expands
+  to link chips (new tab, noopener). Titles bind as TEXT; hrefs are pre-vetted
+  http(s) urls (lib/sources gates both the SSE frame and the restored row).
 -->
 <script lang="ts">
   import type { Message } from '../store/chat.svelte';
@@ -14,9 +18,11 @@
 
   let copied = $state(false);
   let rating = $state<'up' | 'down' | null>(null);
+  let sourcesOpen = $state(false);
 
   const isAssistant = $derived(message.role === 'assistant');
   const showFooter = $derived(isAssistant && message.status === 'done' && message.content.length > 0);
+  const sources = $derived(showFooter && message.sources ? message.sources : []);
 
   async function copy() {
     try {
@@ -53,6 +59,22 @@
   {#if showFooter}
     <div class="footer">
       <span class="provenance">Grounded in this site's knowledge</span>
+      {#if sources.length > 0}
+        <button
+          type="button"
+          class="sources-toggle"
+          class:open={sourcesOpen}
+          onclick={() => (sourcesOpen = !sourcesOpen)}
+          aria-expanded={sourcesOpen}
+          aria-label={sourcesOpen ? 'Hide sources' : 'Show sources'}
+        >
+          <span>Sources</span>
+          <!-- lucide chevron-right, rotates when open -->
+          <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+            <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      {/if}
       <div class="actions">
         <button type="button" onclick={copy} aria-label="Copy reply">{copied ? 'Copied' : 'Copy'}</button>
         <button
@@ -69,6 +91,13 @@
           aria-pressed={rating === 'down'}>No</button>
       </div>
     </div>
+    {#if sourcesOpen && sources.length > 0}
+      <div class="source-chips">
+        {#each sources as source (source.url)}
+          <a class="source-chip" href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a>
+        {/each}
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -135,6 +164,57 @@
     height: 6px;
     border-radius: 50%;
     background: var(--pawbar-accent);
+  }
+  .sources-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font: inherit;
+    font-size: 11px;
+    color: var(--pawbar-fg-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 7px;
+    border-radius: 7px;
+  }
+  .sources-toggle svg {
+    transition: transform 0.15s ease;
+  }
+  .sources-toggle.open svg {
+    transform: rotate(90deg);
+  }
+  .sources-toggle:hover,
+  .sources-toggle.open {
+    color: var(--pawbar-fg);
+    background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
+  }
+  .source-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 4px;
+    max-width: min(88%, 640px);
+  }
+  .source-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--pawbar-border);
+    background: color-mix(in oklab, var(--pawbar-fg) 5%, transparent);
+    color: var(--pawbar-fg-muted);
+    font-size: 11px;
+    line-height: 1.4;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .source-chip:hover {
+    color: var(--pawbar-fg);
+    border-color: color-mix(in oklab, var(--pawbar-fg) 25%, transparent);
   }
   .actions {
     display: flex;

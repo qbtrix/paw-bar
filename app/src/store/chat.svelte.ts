@@ -6,7 +6,10 @@
 // lost the whole conversation walking between pages (the continuity
 // Intercom/Crisp/Chatbase provide by default). Same day (quick actions):
 // reset() — abort, wipe messages/error, and clear the persisted row — backs
-// the panel menu's "New conversation".
+// the panel menu's "New conversation". Same day (sources on replies): Message
+// grew an optional `sources` list; the `sources` SSE frame (arrives before
+// stream_end) attaches sanitized {title,url} citations to the streaming
+// assistant turn, and they persist/restore with the transcript.
 // Created 2026-07-15 (A3 glass bar). Single source of truth for the panel:
 // messages[], isStreaming, error, and the anonymous customerRef. send(text)
 // appends the user turn + a streaming assistant turn, then streams deltas from
@@ -17,6 +20,7 @@
 
 import { streamConciergeChat, type ConciergeChatConfig } from '../lib/chat-client';
 import { getCustomerRef } from '../lib/customer-ref';
+import type { Source } from '../lib/sources';
 import { clearTranscript, loadTranscript, saveTranscript } from '../lib/transcript';
 
 export type MessageStatus = 'streaming' | 'done' | 'error';
@@ -25,6 +29,9 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   status: MessageStatus;
+  // Optional source citations for an assistant reply (public page titles +
+  // urls, already sanitized). Absent when the backend sends none.
+  sources?: Source[];
 }
 
 export interface ChatStoreConfig {
@@ -100,6 +107,11 @@ export class ChatStore {
         onChunk: (delta) => {
           const m = this.#assistant(assistantId);
           if (m) m.content += delta;
+        },
+        onSources: (sources) => {
+          // Arrives (at most once) before stream_end; persisted by onEnd.
+          const m = this.#assistant(assistantId);
+          if (m) m.sources = sources;
         },
         onEnd: (info) => {
           // Keep whatever streamed. If nothing streamed: a user stop() drops the
