@@ -35,6 +35,14 @@
   concierge greeting, threaded from readConfig via main.ts). When it's a
   non-empty string the panel's empty-transcript state shows it as the welcome
   message; when blank it keeps the default "Ask about this site" copy.
+
+  2026-07-30 paw-os design-language pass (captain: match ChatPill, esp. phone):
+  the docked bar's accent dot became a circular paw MASCOT avatar (ChatPill's
+  .mascot-avatar pattern — paw glyph in a 2px-bordered circle); the bar's inner
+  Composer is now variant="bare" so the pill is the ONLY chrome (the boxed
+  composer inside the pill bar read as double chrome); ≤640px the drag grip is
+  hidden (drag is a desktop affordance), paddings tighten, and the mascot
+  shrinks — the loader already caps bar width to the viewport.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -271,11 +279,31 @@
             <circle cx="7" cy="13" r="1.3" fill="currentColor" />
           </svg>
         </button>
-        <span class="glow-dot"></span>
+        <span class="mascot" aria-hidden="true">
+          <!-- lucide paw-print glyph (inlined — no icon dep in the widget) -->
+          <svg
+            viewBox="0 0 24 24"
+            width="15"
+            height="15"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="11" cy="4" r="2" />
+            <circle cx="18" cy="8" r="2" />
+            <circle cx="20" cy="16" r="2" />
+            <path
+              d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"
+            />
+          </svg>
+        </span>
         <div class="bar-composer">
           <Composer
             bind:this={composer}
             isStreaming={store.isStreaming}
+            variant="bare"
             onSend={handleBarSend}
             onStop={() => store.stop()}
           />
@@ -447,6 +475,19 @@
   .bar-composer {
     flex: 1;
     min-width: 0;
+  }
+  /* Circular paw mascot — ChatPill's .mascot-avatar language, bar-sized. */
+  .mascot {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in oklab, var(--pawbar-fg) 55%, transparent);
+    color: color-mix(in oklab, var(--pawbar-fg) 72%, transparent);
+    box-shadow: 0 2px 8px oklch(0 0 0 / 0.25);
   }
   /* The bar IS the composer chrome — strip the inner composer's own shell. */
   .bar-composer :global(form) {
@@ -633,5 +674,27 @@
   .composer-wrap {
     padding: 12px;
     border-top: 1px solid var(--pawbar-border);
+  }
+
+  /* Phone: drag is a desktop affordance; the pill face tightens like
+     ChatPill's mobile pass (smaller mascot, no grip, tighter gaps). Lives at
+     the END of the sheet so it wins the same-specificity cascade against the
+     component base rules above. */
+  @media (max-width: 640px) {
+    .bar {
+      gap: 6px;
+      padding: 6px 8px;
+    }
+    .grip {
+      display: none;
+    }
+    .mascot {
+      width: 26px;
+      height: 26px;
+      border-width: 1.5px;
+    }
+    .composer-wrap {
+      padding: 10px;
+    }
   }
 </style>

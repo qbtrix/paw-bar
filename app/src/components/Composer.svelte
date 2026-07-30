@@ -7,6 +7,11 @@
   owner-mode later — out of scope for the concierge visitor face.
   2026-07-15 polish: 15px type, roomier padding, 36px send, softer focus ring
   (45% ring mix — the full-strength ring read as a harsh outline).
+  2026-07-30 paw-os design-language pass: send button is now a CIRCLE with the
+  lucide ArrowUp stroke glyph (matching ChatPill / ChatInput's rounded-full +
+  ArrowUp) — the old left-pointing filled play-glyph read as "back". Mobile
+  (≤640px): 32px send, 16px textarea type so iOS Safari doesn't auto-zoom on
+  focus.
 -->
 <script lang="ts">
   import { autosize } from '../lib/composer/autosize';
@@ -15,11 +20,16 @@
   let {
     isStreaming = false,
     placeholder = 'Ask about this site…',
+    variant = 'panel',
     onSend,
     onStop,
   }: {
     isStreaming?: boolean;
     placeholder?: string;
+    /** 'panel' draws its own boxed surface; 'bare' is chromeless for hosts
+     *  that already ARE the surface (the docked pill bar — ChatPill's face
+     *  pattern: the pill is the chrome, the input inside it draws none). */
+    variant?: 'panel' | 'bare';
     onSend: (text: string) => void;
     onStop: () => void;
   } = $props();
@@ -56,7 +66,7 @@
   }
 </script>
 
-<form class="composer" onsubmit={(e) => { e.preventDefault(); submit(); }}>
+<form class="composer" class:bare={variant === 'bare'} onsubmit={(e) => { e.preventDefault(); submit(); }}>
   <textarea
     bind:this={el}
     bind:value
@@ -73,8 +83,20 @@
     </button>
   {:else}
     <button type="submit" class="send" disabled={!canSend} aria-label="Send">
-      <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-        <path d="M4 12l15-7-6 7 6 7-15-7z" fill="currentColor" />
+      <!-- ArrowUp — the paw-os send affordance (matches ChatPill / ChatInput). -->
+      <svg
+        viewBox="0 0 24 24"
+        width="17"
+        height="17"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.25"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="m5 12 7-7 7 7" />
+        <path d="M12 19V5" />
       </svg>
     </button>
   {/if}
@@ -93,6 +115,14 @@
   .composer:focus-within {
     border-color: var(--pawbar-ring);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--pawbar-ring) 45%, transparent);
+  }
+  /* Chromeless variant: the host (the docked pill bar) is the surface. */
+  .composer.bare,
+  .composer.bare:focus-within {
+    border: none;
+    background: none;
+    box-shadow: none;
+    padding: 4px 2px;
   }
   textarea {
     flex: 1;
@@ -118,11 +148,21 @@
     align-items: center;
     justify-content: center;
     border: none;
-    border-radius: 12px;
+    /* paw-os language: send is a CIRCLE (ChatPill / ChatInput rounded-full). */
+    border-radius: 50%;
     cursor: pointer;
     background: var(--pawbar-accent);
     color: var(--pawbar-accent-fg);
     transition: opacity 0.15s ease;
+  }
+  @media (max-width: 640px) {
+    .send {
+      width: 32px;
+      height: 32px;
+    }
+    textarea {
+      font-size: 16px; /* 16px stops iOS Safari's focus auto-zoom */
+    }
   }
   .send:disabled {
     opacity: 0.4;
