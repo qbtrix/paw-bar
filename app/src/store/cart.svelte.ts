@@ -55,7 +55,7 @@ export class CartStore {
   }
 
   async #actionConfig(): Promise<ActionConfig> {
-    if (!this.#customerRef) this.#customerRef = await getCustomerRef();
+    if (!this.#customerRef) this.#customerRef = await getCustomerRef(this.#config.widgetId);
     return {
       endpoint: this.#config.endpoint,
       widgetId: this.#config.widgetId,

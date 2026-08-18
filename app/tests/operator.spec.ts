@@ -272,7 +272,7 @@ describe('transcript persistence for owner + system turns', () => {
 
   it('never rehydrates a streaming owner turn and drops an unknown role', () => {
     window.localStorage.setItem(
-      'pawbar.transcript.v1.w1',
+      'pawbar.transcript.v2.w1.active',
       JSON.stringify({
         saved_at: Date.now(),
         messages: [

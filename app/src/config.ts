@@ -21,6 +21,46 @@ export interface PawBarConfig {
   tokens: Record<string, string>;
   theme: 'light' | 'dark';
   greeting: string;
+  /** Conversation starters from the bound agent (capped 4 server-side). The
+   *  frame has emitted these since E3; nothing read them until the Home tab
+   *  had somewhere to put them. */
+  starters: string[];
+  /** Who the visitor is talking to. The backend emits "" for these until the
+   *  appearance model ships, so every one has a working default — a widget on
+   *  an older backend reads as a considered generic concierge rather than as a
+   *  half-rendered one. */
+  agentName: string;
+  agentAvatar: string;
+  agentSubtitle: string;
+  /** Team faces for the Home tab's ask card. Empty renders an arrow instead. */
+  avatars: string[];
+}
+
+/** Read a string array off the boot config, dropping anything that isn't a
+ *  non-empty string and capping the length. The frame is server-authored, but
+ *  this file's whole job is to be the boundary that doesn't assume that. */
+function readStrings(value: unknown, cap: number): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (trimmed) out.push(trimmed);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+/** Only an http(s) or data URL may become an <img src>. A javascript: or
+ *  vbscript: value in a boot config must never reach the DOM. */
+function readImageUrl(value: unknown): string {
+  if (typeof value !== 'string' || !value) return '';
+  try {
+    const proto = new URL(value, window.location.href).protocol;
+    return proto === 'http:' || proto === 'https:' || proto === 'data:' ? value : '';
+  } catch {
+    return '';
+  }
 }
 
 function devParentOrigin(): string {
@@ -46,5 +86,13 @@ export function readConfig(): PawBarConfig {
     theme: boot?.theme ?? 'dark',
     // Defensive: only a real string survives; a number/null/malformed value → ''.
     greeting: typeof boot?.greeting === 'string' ? boot.greeting : '',
+    starters: readStrings(boot?.starters, 4),
+    agentName: typeof boot?.agentName === 'string' && boot.agentName ? boot.agentName : 'Concierge',
+    agentAvatar: readImageUrl(boot?.agentAvatar),
+    agentSubtitle:
+      typeof boot?.agentSubtitle === 'string' && boot.agentSubtitle
+        ? boot.agentSubtitle
+        : 'The team can also help',
+    avatars: readStrings(boot?.avatars, 3).map(readImageUrl).filter(Boolean),
   };
 }

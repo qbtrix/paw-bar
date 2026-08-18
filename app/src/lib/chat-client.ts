@@ -32,6 +32,11 @@ export interface ConciergeChatConfig {
   widgetId: string;
   signedKey: string;
   customerRef: string;
+  /** Which of this visitor's conversations the turn belongs to (2026-08-19).
+   *  Omitted or "" means "the one in progress", which the server resolves — the
+   *  same thing a widget bundle built before conversations had identities
+   *  sends, so the field stays optional on the wire too. */
+  conversationId?: string;
 }
 
 export interface ChatCallbacks {
@@ -142,6 +147,7 @@ export async function streamConciergeChat(
         signed_key: config.signedKey,
         customer_ref: config.customerRef,
         message,
+        ...(config.conversationId ? { conversation_id: config.conversationId } : {}),
       }),
     });
   } catch (err) {

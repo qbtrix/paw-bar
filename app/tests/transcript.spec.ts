@@ -79,13 +79,13 @@ describe('transcript persistence', () => {
     saveTranscript('w1', [msg()]);
     vi.setSystemTime(Date.now() + TRANSCRIPT_TTL_MS + 1000);
     expect(loadTranscript('w1')).toEqual([]);
-    expect(window.localStorage.getItem('pawbar.transcript.v1.w1')).toBeNull();
+    expect(window.localStorage.getItem('pawbar.transcript.v2.w1.active')).toBeNull();
   });
 
   it('deletes a malformed row instead of throwing', () => {
-    window.localStorage.setItem('pawbar.transcript.v1.w1', '{not json');
+    window.localStorage.setItem('pawbar.transcript.v2.w1.active', '{not json');
     expect(loadTranscript('w1')).toEqual([]);
-    expect(window.localStorage.getItem('pawbar.transcript.v1.w1')).toBeNull();
+    expect(window.localStorage.getItem('pawbar.transcript.v2.w1.active')).toBeNull();
   });
 
   it('clearTranscript removes the row', () => {

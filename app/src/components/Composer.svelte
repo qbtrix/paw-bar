@@ -42,6 +42,22 @@
     el?.focus();
   }
 
+  /** Hand the visitor a starting sentence without sending it (2026-08-19).
+   *  Used when a Home starter or an unanswered Help search opens the
+   *  conversation: the point is to save typing, so it must stay editable and
+   *  must never overwrite something they have already begun writing. */
+  export function prefill(text: string) {
+    if (!text || value.trim()) return;
+    value = text;
+    queueMicrotask(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    });
+  }
+
   function submit() {
     if (!canSend) return;
     onSend(value.trim());

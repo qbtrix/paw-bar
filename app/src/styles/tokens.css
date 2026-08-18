@@ -1,10 +1,19 @@
-/* tokens.css — The ~15 --pawbar-* custom properties that make the glass
-   concierge a white-label headless surface. Created 2026-07-15 (A3 glass bar).
-   Defaults are quiet-authority glass (dark). Style is driven by a
-   data-pawbar-theme attribute on the app root + this CSS-var scale (the cmdk
-   pattern), so a light/dark flip is one attribute and a full re-skin is
-   window.__PAWBAR__.tokens injected inline on the root (see main.ts). All
-   colors are oklch (wide-gamut, matches the paw-enterprise design system). */
+/* tokens.css — The --pawbar-* custom properties that make the glass concierge a
+   white-label headless surface. Created 2026-07-15 (A3 glass bar). Defaults are
+   quiet-authority glass (dark). Style is driven by a data-pawbar-theme attribute
+   on the app root + this CSS-var scale (the cmdk pattern), so a light/dark flip
+   is one attribute and a full re-skin is window.__PAWBAR__.tokens injected
+   inline on the root (see main.ts). All colors are oklch (wide-gamut, matches
+   the paw-enterprise design system).
+
+   2026-08-19 (Messenger): the scale grew to cover the surfaces the tabbed panel
+   introduced — a hero, a tab bar, a conversation list, an unread peek — plus a
+   real MOTION scale. Motion is expressed as tokens rather than hard-coded
+   durations for the same reason color is: the owner sets a motion preset in
+   paw-enterprise and it arrives here as var overrides, so "calmer" is a
+   setting rather than a fork. Every duration resolves to 0.01ms under
+   prefers-reduced-motion (bottom of this file), which is why animations may
+   reference these vars freely. */
 
 .pawbar-root {
   /* Surfaces — translucent because we sit in an iframe over an unknown host bg;
@@ -13,9 +22,17 @@
      instead of reading frosted. */
   --pawbar-surface: oklch(0.17 0.015 260 / 0.8);
   --pawbar-surface-strong: oklch(0.2 0.02 260 / 0.92);
+  /* One step up from surface-strong, for elements that sit ON the panel and
+     must read as raised without a border: the home cards, the composer well,
+     a conversation row on hover. */
+  --pawbar-surface-raised: oklch(0.26 0.02 260 / 0.9);
   /* Text */
   --pawbar-fg: oklch(0.98 0 0 / 0.92);
-  --pawbar-fg-muted: oklch(0.98 0 0 / 0.55);
+  --pawbar-fg-muted: oklch(0.98 0 0 / 0.62);
+  /* The dimmest text that still clears 4.5:1 on --pawbar-surface. Used for
+     timestamps and row metadata; never for anything a visitor must read to
+     complete a task. */
+  --pawbar-fg-subtle: oklch(0.98 0 0 / 0.48);
   /* Lines + focus */
   --pawbar-border: oklch(1 0 0 / 0.12);
   --pawbar-ring: oklch(0.62 0.19 258 / 0.55);
@@ -28,13 +45,51 @@
   --pawbar-user-bubble: oklch(0.62 0.19 258 / 0.92);
   --pawbar-assistant-bubble: oklch(1 0 0 / 0.05);
   --pawbar-owner-bubble: oklch(0.62 0.19 258 / 0.16);
-  /* Danger */
+  /* Danger + the unread signal. Notification counts are their own token: they
+     must stay legible when an owner re-skins the accent to something that would
+     read as "everything is fine". */
   --pawbar-danger: oklch(0.62 0.2 25);
-  /* Shape + motion + type */
+  --pawbar-unread: oklch(0.62 0.22 25);
+  --pawbar-unread-fg: oklch(0.99 0 0);
+
+  /* Hero — the panel's opening field. Defaults to a two-stop wash of the accent
+     so a widget with no owner artwork still opens with a considered surface
+     rather than a flat header. An owner image replaces it via --pawbar-hero-image. */
+  --pawbar-hero-from: oklch(0.46 0.14 262);
+  --pawbar-hero-to: oklch(0.19 0.03 262);
+  --pawbar-hero-fg: oklch(0.99 0 0 / 0.96);
+  --pawbar-hero-height: 200px;
+
+  /* Tab bar */
+  --pawbar-tabbar-bg: oklch(0.14 0.012 260 / 0.94);
+  --pawbar-tab-fg: oklch(0.98 0 0 / 0.55);
+  --pawbar-tab-fg-active: oklch(0.98 0 0 / 0.98);
+
+  /* Shape + type */
   --pawbar-radius: 20px;
+  --pawbar-radius-sm: 12px;
   --pawbar-blur: 28px;
+  /* Offset + soft blur, never a zero-offset halo: this reads as a panel resting
+     above the host page rather than as a glow drawn around it. */
   --pawbar-shadow: 0 24px 64px -16px oklch(0 0 0 / 0.55);
+  --pawbar-shadow-sm: 0 4px 14px -4px oklch(0 0 0 / 0.4);
   --pawbar-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* Motion. Exponential ease-out from an already-visible resting state, so a
+     failed animation leaves a finished page rather than an invisible one.
+     --pawbar-ease-emphasis is the liveliest curve we ship and it is still a
+     pure deceleration. An overshoot ("ease-out-back") was here first and was
+     wrong for this surface: real objects decelerate, a support widget renders
+     on someone else's site where a bouncing panel reads as a toy, and the
+     visitor came to ask a question rather than watch the chrome arrive. */
+  --pawbar-duration-fast: 120ms;
+  --pawbar-duration: 240ms;
+  --pawbar-duration-slow: 420ms;
+  --pawbar-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --pawbar-ease-emphasis: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Scaled by the owner's motion preset: 0 disables travel while leaving
+     opacity transitions intact, which keeps state changes legible. */
+  --pawbar-motion-scale: 1;
 }
 
 /* Light quiet-authority glass — same var names, re-tuned. Selected by
@@ -42,8 +97,10 @@
 .pawbar-root[data-pawbar-theme='light'] {
   --pawbar-surface: oklch(0.99 0.003 260 / 0.72);
   --pawbar-surface-strong: oklch(1 0 0 / 0.9);
+  --pawbar-surface-raised: oklch(1 0 0 / 0.98);
   --pawbar-fg: oklch(0.22 0.01 260 / 0.95);
-  --pawbar-fg-muted: oklch(0.22 0.01 260 / 0.6);
+  --pawbar-fg-muted: oklch(0.22 0.01 260 / 0.68);
+  --pawbar-fg-subtle: oklch(0.22 0.01 260 / 0.55);
   --pawbar-border: oklch(0.2 0.02 260 / 0.12);
   --pawbar-ring: oklch(0.62 0.19 258 / 0.45);
   --pawbar-accent: oklch(0.58 0.2 258);
@@ -52,5 +109,25 @@
   --pawbar-assistant-bubble: oklch(0.2 0.02 260 / 0.05);
   --pawbar-owner-bubble: oklch(0.58 0.2 258 / 0.1);
   --pawbar-danger: oklch(0.55 0.22 25);
+  --pawbar-unread: oklch(0.55 0.22 25);
   --pawbar-shadow: 0 24px 64px -16px oklch(0.2 0.02 260 / 0.25);
+  --pawbar-shadow-sm: 0 4px 14px -4px oklch(0.2 0.02 260 / 0.18);
+  --pawbar-hero-from: oklch(0.72 0.13 262);
+  --pawbar-hero-to: oklch(0.99 0.003 260);
+  --pawbar-hero-fg: oklch(1 0 0 / 0.98);
+  --pawbar-tabbar-bg: oklch(1 0 0 / 0.94);
+  --pawbar-tab-fg: oklch(0.22 0.01 260 / 0.58);
+  --pawbar-tab-fg-active: oklch(0.22 0.01 260 / 0.98);
+}
+
+/* The visitor's OS setting wins over the owner's motion preset, always. Every
+   duration collapses and travel goes to zero; opacity still resolves, so state
+   changes stay visible rather than disappearing along with the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .pawbar-root {
+    --pawbar-duration-fast: 0.01ms;
+    --pawbar-duration: 0.01ms;
+    --pawbar-duration-slow: 0.01ms;
+    --pawbar-motion-scale: 0;
+  }
 }

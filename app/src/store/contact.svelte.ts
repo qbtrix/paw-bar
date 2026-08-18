@@ -63,7 +63,7 @@ export class ContactStore {
       endpoint: this.#config.endpoint,
       widgetId: this.#config.widgetId,
       signedKey: this.#config.siteKey,
-      customerRef: await getCustomerRef(),
+      customerRef: await getCustomerRef(this.#config.widgetId),
     };
   }
 

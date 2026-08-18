@@ -116,7 +116,7 @@ export class OperatorStore {
   }
 
   async #clientConfig(): Promise<ConciergeChatConfig> {
-    if (!this.#customerRef) this.#customerRef = await getCustomerRef();
+    if (!this.#customerRef) this.#customerRef = await getCustomerRef(this.#config.widgetId);
     return {
       endpoint: this.#config.endpoint,
       widgetId: this.#config.widgetId,

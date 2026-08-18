@@ -10,6 +10,10 @@
 // 2026-07-30 (email capture + articles): builds the ContactStore (pending-
 // decision email prompt) and threads the store config to the shell so the
 // articles view fetches against the same endpoint/widget/key.
+// 2026-08-19 (Messenger): builds the ConversationsStore — the visitor's own
+// conversation list, which the Messages tab reads. It could not exist before
+// the backend gave conversations real identities; until then a visitor had
+// exactly one per widget, forever, and there was nothing to list.
 // 2026-07-30 (human takeover): builds the OperatorStore over the ChatStore —
 // the poll that delivers the site owner's own replies into the thread. It is
 // constructed AFTER the chat store so it seeds its `after` cursor from the
@@ -20,6 +24,7 @@ import './styles/glass.css';
 import GlassShell from './components/GlassShell.svelte';
 import { readConfig } from './config';
 import { ChatStore } from './store/chat.svelte';
+import { ConversationsStore } from './store/conversations.svelte';
 import { CartStore } from './store/cart.svelte';
 import { ContactStore } from './store/contact.svelte';
 import { OperatorStore } from './store/operator.svelte';
@@ -47,6 +52,10 @@ const store = new ChatStore(storeConfig);
 const cart = new CartStore(storeConfig);
 const contact = new ContactStore(storeConfig);
 const operator = new OperatorStore(store, storeConfig);
+// The visitor's own conversation list (2026-08-19, Messenger). Built after the
+// chat store so the panel can reconcile "which conversation am I in" against a
+// thread that has already rehydrated from localStorage.
+const conversations = new ConversationsStore(storeConfig);
 const poster = createPoster(config.parentOrigin);
 
 mount(GlassShell, {
@@ -56,10 +65,16 @@ mount(GlassShell, {
     cart,
     contact,
     operator,
+    conversations,
     chatConfig: storeConfig,
     poster,
     theme: config.theme,
     greeting: config.greeting,
+    starters: config.starters,
+    agentName: config.agentName,
+    agentAvatar: config.agentAvatar,
+    agentSubtitle: config.agentSubtitle,
+    avatars: config.avatars,
     // Lets the shell validate inbound loader messages (drag box, host intents)
     // against the same origin the poster pins outbound messages to.
     parentOrigin: config.parentOrigin,
