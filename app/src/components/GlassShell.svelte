@@ -988,8 +988,10 @@
     background: var(--pawbar-surface);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
     backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
-    /* Inset top highlight = the light edge that sells frosted glass. */
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), var(--pawbar-shadow);
+    /* Inset top highlight = the light edge that sells frosted glass. It is the
+       only box-shadow left on this element: the drop shadow that used to sit
+       beside it reached 2px and read as a second border (see tokens.css). */
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
     transition: border-color var(--pawbar-duration-fast) var(--pawbar-ease),
       box-shadow var(--pawbar-duration-fast) var(--pawbar-ease);
   }
@@ -1000,9 +1002,8 @@
   .bar:focus-within {
     border-color: color-mix(in oklab, var(--pawbar-ring) 70%, transparent);
     box-shadow:
-      inset 0 1px 0 oklch(1 0 0 / 0.1),
-      0 0 0 3px color-mix(in oklab, var(--pawbar-ring) 28%, transparent),
-      var(--pawbar-shadow);
+      inset 0 1px 0 var(--pawbar-wash-strong),
+      0 0 0 3px color-mix(in oklab, var(--pawbar-ring) 28%, transparent);
   }
   /* Open and expanded, the bar follows the same reading column as the
      transcript above it. Without this the composer stretched the full 1256px
@@ -1033,7 +1034,6 @@
     border: 2px solid color-mix(in oklab, var(--pawbar-fg) 55%, transparent);
     background: none;
     color: color-mix(in oklab, var(--pawbar-fg) 72%, transparent);
-    box-shadow: 0 2px 8px oklch(0 0 0 / 0.25);
     cursor: pointer;
     transition: color 0.15s ease, border-color 0.15s ease;
   }
@@ -1116,7 +1116,7 @@
     background: var(--pawbar-surface);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
     backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), var(--pawbar-shadow);
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
     color: var(--pawbar-fg);
     font: inherit;
     font-size: 14px;
@@ -1142,7 +1142,7 @@
     background: var(--pawbar-surface);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.6);
     backdrop-filter: blur(var(--pawbar-blur)) saturate(1.6);
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.09), var(--pawbar-shadow);
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
     overflow: hidden;
   }
 
@@ -1181,7 +1181,7 @@
     background: var(--pawbar-surface-strong);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
     backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.08), var(--pawbar-shadow);
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
   }
   .menu-item {
     display: flex;

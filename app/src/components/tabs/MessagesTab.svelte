@@ -168,7 +168,7 @@
   }
 
   .row:hover {
-    background: oklch(1 0 0 / 0.05);
+    background: var(--pawbar-wash);
   }
 
   .row:focus-visible {
@@ -296,7 +296,6 @@
     border-radius: 999px;
     background: var(--pawbar-accent);
     color: var(--pawbar-accent-fg);
-    box-shadow: var(--pawbar-shadow-sm);
     font: inherit;
     font-size: 13.5px;
     font-weight: 600;
@@ -330,7 +329,7 @@
 
   .skeleton {
     display: block;
-    background: oklch(1 0 0 / 0.07);
+    background: var(--pawbar-wash-strong);
     border-radius: 6px;
     animation: pulse 1.6s var(--pawbar-ease) infinite;
   }

@@ -14,18 +14,43 @@
    with it the data-pawbar-theme attribute and the `theme` boot field. It was a
    second palette nobody could select: the backend never emitted `theme`, so the
    widget's `?? 'dark'` fallback won on every site that has ever run this, and
-   the light block was 24 declarations of untested surface that no visitor had
-   seen. Shipping one palette means the contrast pairs below are the ones that
-   were actually designed against each other, and an owner who wants a lighter
-   surface overrides --pawbar-surface — the white-label path, which is real and
-   tested (tests/tokens.spec.ts), rather than a fork of the whole scale.
+   the light block was 24 declarations of untested surface no visitor had seen.
 
-   THE CONTRACT FOR OVERRIDES: every value here is independently overridable,
-   so nothing below may derive a color from another token in a way that breaks
-   when only one of the pair is replaced. Where a value must track another, it
-   uses color-mix at the USE site against the token the owner would set. */
+   ── THE OVERRIDE CONTRACT, AND WHY IT HAD TO CHANGE ─────────────────────────
+   Having removed the light block, this file claimed "an owner who wants a
+   lighter surface overrides --pawbar-surface — the white-label path, which is
+   real and tested". THAT WAS FALSE. Every foreground and line value was
+   hard-coded to white at some alpha, and thirteen component rules painted
+   literal `oklch(1 0 0 / n)` washes on top. Setting a light surface and nothing
+   else produced white text on a white panel: no cards, no articles, no
+   composer. Screenshotted 2026-08-19, following this file's own instructions.
+
+   So the scale now has ONE INPUT for which way round it goes: --pawbar-ink, the
+   colour of type and lines. Everything textual and every hairline derives from
+   it, and the component washes reference --pawbar-wash rather than inventing
+   their own white. A light widget is five tokens, all of them obvious:
+
+       --pawbar-ink              dark
+       --pawbar-surface          light          (the panel ground)
+       --pawbar-surface-strong   light, opaque  (popovers, which must occlude)
+       --pawbar-surface-raised   lighter        (cards standing ON the panel)
+       --pawbar-surface-sunken   slightly dark  (wells carved INTO it)
+
+   The four surfaces stay independent because "raised" means lighter-than-panel
+   on a dark theme and whiter-than-panel on a light one — the direction flips,
+   so no single derivation expresses both. Everything else follows from ink.
+   There is a working example in app/demo.html (`?state=light`), which is also
+   how the claim above stopped being something this file merely asserts.
+
+   Still ONE shipped palette, per the captain's direction. What changed is that
+   the second one is reachable by an owner instead of by a fork. */
 
 .pawbar-root {
+  /* ── Ink: type, lines, and every wash ────────────────────────────────────
+     The one token that decides whether this widget reads light or dark. Set it
+     dark and set the surfaces light, and the whole scale follows. */
+  --pawbar-ink: oklch(0.98 0 0);
+
   /* ── Surfaces ────────────────────────────────────────────────────────────
      Translucent because we sit in an iframe over an unknown host bg; the blur
      is applied on the panel element, not here. The alpha floor is high enough
@@ -34,7 +59,7 @@
   --pawbar-surface: oklch(0.165 0.014 264 / 0.86);
   --pawbar-surface-strong: oklch(0.2 0.018 264 / 0.94);
   /* One step up, for elements that sit ON the panel and must read as raised
-     without a border: the home cards, the composer well, a hovered row. */
+     without a border: the home cards, the active nav pill, a hovered row. */
   --pawbar-surface-raised: oklch(0.255 0.02 264 / 0.92);
   /* One step DOWN — a recessed well. The nav track and the composer field are
      the two places the surface should read as carved into the panel rather
@@ -43,18 +68,26 @@
   --pawbar-surface-sunken: oklch(0.12 0.012 264 / 0.55);
 
   /* ── Text ───────────────────────────────────────────────────────────────── */
-  --pawbar-fg: oklch(0.98 0 0 / 0.93);
-  --pawbar-fg-muted: oklch(0.98 0 0 / 0.64);
+  --pawbar-fg: color-mix(in oklab, var(--pawbar-ink) 93%, transparent);
+  --pawbar-fg-muted: color-mix(in oklab, var(--pawbar-ink) 64%, transparent);
   /* The dimmest text that still clears 4.5:1 on --pawbar-surface. Used for
      timestamps and row metadata; never for anything a visitor must read to
      complete a task. */
-  --pawbar-fg-subtle: oklch(0.98 0 0 / 0.5);
+  --pawbar-fg-subtle: color-mix(in oklab, var(--pawbar-ink) 50%, transparent);
+
+  /* ── Washes ──────────────────────────────────────────────────────────────
+     Hover grounds and hairline fills. These are tokens because the components
+     used to spell them as literal white, which goes invisible the moment an
+     owner sets a light surface — the single largest reason the override path
+     did not work. */
+  --pawbar-wash: color-mix(in oklab, var(--pawbar-ink) 5%, transparent);
+  --pawbar-wash-strong: color-mix(in oklab, var(--pawbar-ink) 8%, transparent);
 
   /* ── Lines + focus ──────────────────────────────────────────────────────── */
-  --pawbar-border: oklch(1 0 0 / 0.11);
+  --pawbar-border: color-mix(in oklab, var(--pawbar-ink) 11%, transparent);
   /* A touch brighter, for an edge that has to survive sitting on a raised
      surface rather than on the panel ground. */
-  --pawbar-border-strong: oklch(1 0 0 / 0.17);
+  --pawbar-border-strong: color-mix(in oklab, var(--pawbar-ink) 17%, transparent);
   --pawbar-ring: oklch(0.62 0.19 258 / 0.55);
 
   /* ── Accent — quiet authority blue (no green, per the billing/brand palette) */
@@ -66,7 +99,7 @@
      own accent-tinted surface: not the visitor's solid accent, not the bot's
      neutral. */
   --pawbar-user-bubble: oklch(0.62 0.19 258 / 0.95);
-  --pawbar-assistant-bubble: oklch(1 0 0 / 0.062);
+  --pawbar-assistant-bubble: color-mix(in oklab, var(--pawbar-ink) 6%, transparent);
   --pawbar-owner-bubble: oklch(0.62 0.19 258 / 0.16);
 
   /* ── Danger + the unread signal ──────────────────────────────────────────
@@ -79,10 +112,13 @@
   /* ── Hero — the panel's opening field ────────────────────────────────────
      Defaults to a two-stop wash of the accent so a widget with no owner artwork
      still opens with a considered surface rather than a flat header. An owner
-     image replaces it via --pawbar-hero-image. */
+     image replaces it via --pawbar-hero-image. Its foreground is deliberately
+     NOT derived from ink: the hero is a coloured field or a photograph in both
+     themes, so its type stays light whichever way round the rest goes. */
   --pawbar-hero-from: oklch(0.46 0.14 262);
   --pawbar-hero-to: oklch(0.19 0.03 262);
   --pawbar-hero-fg: oklch(0.99 0 0 / 0.96);
+  --pawbar-hero-fg-quiet: oklch(1 0 0 / 0.62);
   --pawbar-hero-height: 168px;
 
   /* ── Top nav (segmented pills) ───────────────────────────────────────────
@@ -90,11 +126,12 @@
      WorkspaceTabs language, which is where the captain asked this to land. The
      active pill is a SURFACE change, not just a color change, so "which section
      am I in" survives a re-skinned accent and a visitor who cannot separate
-     these two greys. */
+     these two greys. Both reference the surface scale rather than restating a
+     colour, so a light re-skin carries the nav with it. */
   --pawbar-nav-track: var(--pawbar-surface-sunken);
-  --pawbar-nav-fg: oklch(0.98 0 0 / 0.58);
-  --pawbar-nav-fg-active: oklch(0.98 0 0 / 0.98);
-  --pawbar-nav-active-bg: oklch(0.32 0.022 264 / 0.95);
+  --pawbar-nav-fg: color-mix(in oklab, var(--pawbar-ink) 58%, transparent);
+  --pawbar-nav-fg-active: color-mix(in oklab, var(--pawbar-ink) 98%, transparent);
+  --pawbar-nav-active-bg: var(--pawbar-surface-raised);
 
   /* The reading column. The panel is 400px wide docked, so this only bites once
      the visitor expands to the big surface — at which point the transcript and
@@ -107,19 +144,28 @@
   --pawbar-radius: 20px;
   --pawbar-radius-sm: 12px;
   --pawbar-blur: 28px;
-  /* Offset + soft blur, never a zero-offset halo: this reads as a panel resting
-     above the host page rather than as a glow drawn around it.
-
-     AND IT MUST FIT INSIDE THE ROOT'S 12px GUTTER. The loader sizes the
-     iframe to the content plus that padding, so anything the shadow paints
-     beyond it is CLIPPED at the frame edge — which draws a hard-edged grey
-     rectangle around the widget on any light-coloured site. It is invisible on
-     a dark page, which is how a 64px blur survived here.
-     Extent of `0 Ypx Bpx Spx` is B/2 + S horizontally, B/2 + S + Y below.
-     For 24px blur / -10px spread / 8px offset: 2px sides, 10px below. Fits. */
-  --pawbar-shadow: 0 8px 24px -10px oklch(0 0 0 / 0.6);
-  --pawbar-shadow-sm: 0 3px 10px -4px oklch(0 0 0 / 0.45);
   --pawbar-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* ── Elevation: REMOVED 2026-08-19 (captain direction) ───────────────────
+     --pawbar-shadow / --pawbar-shadow-sm are gone, and the measurement agreed
+     with the instinct. The shadow was `0 8px 24px -10px`: a 24px blur pulled
+     back by a 10px spread, so it reached about 2px to the sides and 10px below.
+     A pixel diff of the open widget with and without it, over both a white and
+     a near-black host page, put every changed pixel INSIDE the panel's own
+     bounding box — a thin rim down each edge and a band under the bottom. Not
+     elevation. A second border, drawn expensively, on elements that already
+     have one.
+
+     It also carried a standing hazard, documented right here: the shadow MUST
+     fit inside the root's 12px gutter, because the loader sizes the iframe to
+     content plus that padding and anything painted past it is CLIPPED at the
+     frame edge — a hard grey rectangle around the widget on a light site. That
+     constraint left with the shadow that needed it.
+
+     What remains, and is NOT elevation: the 1px inset top highlight that sells
+     frosted glass, the focus rings, and the 2px ring that cuts the unread badge
+     out of the glyph behind it. A blanket "no box-shadow" would have taken the
+     focus rings with it. */
 
   /* ── Motion ─────────────────────────────────────────────────────────────
      Exponential ease-out from an already-visible resting state, so a failed

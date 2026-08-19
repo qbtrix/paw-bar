@@ -366,7 +366,7 @@
   }
 
   .icon-btn:hover {
-    background: oklch(1 0 0 / 0.08);
+    background: var(--pawbar-wash-strong);
     color: var(--pawbar-fg);
   }
 

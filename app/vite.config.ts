@@ -43,5 +43,10 @@ export default defineConfig(({ mode }) => ({
     // in tests/setup.ts for why that distinction decides whether the tests of
     // those components mean anything.
     setupFiles: ['tests/setup.ts'],
+    // Vitest disables CSS processing by default, which makes every stylesheet
+    // read as an empty string — `?raw`, `?inline` and a plain import alike. The
+    // white-label guard in tests/theming.spec.ts asserts on tokens.css, and
+    // without this it would have passed by reading nothing at all.
+    css: true,
   },
 }));

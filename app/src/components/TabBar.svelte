@@ -201,7 +201,7 @@
 
   .tab:hover:not(.active) {
     color: var(--pawbar-nav-fg-active);
-    background: oklch(1 0 0 / 0.05);
+    background: var(--pawbar-wash);
   }
 
   .tab:focus-visible {
@@ -216,7 +216,6 @@
     color: var(--pawbar-nav-fg-active);
     background: var(--pawbar-nav-active-bg);
     border-color: var(--pawbar-border-strong);
-    box-shadow: var(--pawbar-shadow-sm);
     font-weight: 620;
   }
 

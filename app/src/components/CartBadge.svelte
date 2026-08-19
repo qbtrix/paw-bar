@@ -147,7 +147,7 @@
     background: var(--pawbar-surface-strong);
     -webkit-backdrop-filter: blur(var(--pawbar-blur));
     backdrop-filter: blur(var(--pawbar-blur));
-    box-shadow: var(--pawbar-shadow);
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
   }
   .lines {
     list-style: none;

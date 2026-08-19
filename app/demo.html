@@ -22,7 +22,10 @@
   panel's interior without the frame around it.
 
   `?state=` seeds the widget: `?state=thread` opens straight into a populated
-  conversation, `?state=cart` adds items so the checkout affordances appear.
+  conversation, `?state=cart` adds items so the checkout affordances appear, and
+  `?state=light` applies the five-token light re-skin from tokens.css so the
+  override contract is something you can look at rather than something that file
+  claims. It used to claim it and be wrong.
 -->
 <html lang="en">
   <head>
@@ -57,6 +60,26 @@
         agentSubtitle: 'The team can also help',
         launcherLabel: 'Ask about Ocean Supply',
         starters: ['Where is my order?', 'Do you ship to Portugal?', 'How do returns work?'],
+        // The LIGHT RE-SKIN, exactly as an owner would send it: five tokens
+        // through the existing white-label path (window.__PAWBAR__.tokens →
+        // main.ts → inline custom properties on .pawbar-root). No second theme
+        // block, no attribute — ink decides which way round the scale goes and
+        // the four surfaces say what the ground is.
+        //
+        // This is here to be RUN. The same five overrides used to produce white
+        // text on a white panel, because every foreground was hard-coded white
+        // and thirteen component rules painted literal white washes.
+        ...(wants('light')
+          ? {
+              tokens: {
+                ink: 'oklch(0.24 0.012 264)',
+                surface: 'oklch(0.99 0.002 264 / 0.88)',
+                'surface-strong': 'oklch(1 0 0 / 0.96)',
+                'surface-raised': 'oklch(1 0 0 / 0.94)',
+                'surface-sunken': 'oklch(0.94 0.004 264 / 0.9)',
+              },
+            }
+          : {}),
       };
 
       // ── the fake router ────────────────────────────────────────────────────
