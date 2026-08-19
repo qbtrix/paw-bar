@@ -35,12 +35,23 @@ const config = readConfig();
 const target = document.getElementById('pawbar-app') ?? document.body;
 
 // White-label overrides: window.__PAWBAR__.tokens maps a --pawbar-* var to a
-// value. We set them on the mount target so they cascade to .pawbar-root. Keys
-// are normalized to the --pawbar- prefix; values are set via the typed CSSOM
-// API (setProperty), never string-concatenated into a style attribute.
-for (const [rawKey, rawValue] of Object.entries(config.tokens)) {
-  const key = rawKey.startsWith('--') ? rawKey : `--pawbar-${rawKey.replace(/^pawbar-/, '')}`;
-  if (typeof rawValue === 'string') target.style.setProperty(key, rawValue);
+// value. Keys are normalized to the --pawbar- prefix; values go through the
+// typed CSSOM API (setProperty), never string-concatenated into a style
+// attribute.
+//
+// These MUST land on .pawbar-root ITSELF, not on the mount target above it.
+// They used to be set on the parent and left to cascade down, which cannot
+// work: tokens.css declares the whole --pawbar-* scale ON .pawbar-root, and a
+// declaration on an element always beats a value inherited from its parent. So
+// every owner override was silently discarded and the stylesheet defaults won.
+// The customization path looked wired end to end and did nothing — and it went
+// unnoticed because the backend answered `"tokens": {}` for exactly as long,
+// so there was never a value there to lose. See tests/tokens.spec.ts.
+function applyTokens(root: HTMLElement): void {
+  for (const [rawKey, rawValue] of Object.entries(config.tokens)) {
+    const key = rawKey.startsWith('--') ? rawKey : `--pawbar-${rawKey.replace(/^pawbar-/, '')}`;
+    if (typeof rawValue === 'string') root.style.setProperty(key, rawValue);
+  }
 }
 
 const storeConfig = {
@@ -81,3 +92,10 @@ mount(GlassShell, {
     parentOrigin: config.parentOrigin,
   },
 });
+
+// The root exists only once Svelte has drawn it, so the owner's overrides are
+// applied here rather than before mount. Synchronous — mount() has already
+// rendered by the time it returns — so the first painted frame is the styled
+// one and no visitor watches a default palette flip to the owner's.
+const root = target.querySelector<HTMLElement>('.pawbar-root');
+if (root) applyTokens(root);
