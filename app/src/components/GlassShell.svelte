@@ -109,6 +109,7 @@
   import type { PawBarPoster } from '../lib/postmessage';
   import { fetchArticles, type Article } from '../lib/articles-client';
   import { dockSize } from '../lib/dock-size';
+  import { resolveScheme, type Scheme, type SchemeSetting } from '../lib/scheme';
   import { serializeTranscript } from '../lib/transcript';
   import Composer from './Composer.svelte';
   import Icon from './Icon.svelte';
@@ -123,6 +124,8 @@
     conversations,
     chatConfig,
     poster,
+    scheme = 'auto',
+    hostScheme = '',
     greeting = '',
     starters = [],
     agentName = 'Concierge',
@@ -139,6 +142,10 @@
     conversations: ConversationsStore;
     chatConfig: ChatStoreConfig;
     poster: PawBarPoster;
+    /** Owner's light/dark/auto choice; 'auto' follows the host page. */
+    scheme?: SchemeSetting;
+    /** What the loader read off the host page ('l' | 'd'), via the frame URL. */
+    hostScheme?: string;
     greeting?: string;
     starters?: string[];
     agentName?: string;
@@ -164,6 +171,35 @@
   // pending decision, so the card nudges contact.maybeOffer() (self-guarded)
   // and the email-capture prompt fires naturally.
   provideContact(untrack(() => contact));
+
+  // ── Light or dark ─────────────────────────────────────────────────────────
+  // The widget used to ship dark only, which put a dark slab on the corner of
+  // every light storefront. It cannot see the page it sits on — cross-origin
+  // frame — so the loader reads the host and hands the answer over on the frame
+  // URL, and lib/scheme decides the precedence: owner → host page → the
+  // visitor's OS → dark.
+  let prefersDark = $state(
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : true,
+  );
+  // Re-resolved live, because people change their OS theme with the page open
+  // and a widget that only follows it at boot is a widget that looks broken
+  // until reload. Only reaches the outcome when nothing more specific won.
+  $effect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const q = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => (prefersDark = e.matches);
+    q.addEventListener('change', onChange);
+    return () => q.removeEventListener('change', onChange);
+  });
+
+  // The loader re-reads the HOST page on the same OS change and posts the
+  // result, which is what keeps a site that follows the OS in step with us.
+  let liveHostScheme = $state('');
+  const activeScheme: Scheme = $derived(
+    resolveScheme({ owner: scheme, host: liveHostScheme || hostScheme, prefersDark }),
+  );
 
   type View = 'bar' | 'chip' | 'panel';
   const VIEW_KEY = '__pawbar_view_v1';
@@ -514,6 +550,13 @@
         case 'pawbar:host-close':
           if (view === 'panel') closePanel();
           break;
+        case 'pawbar:scheme': {
+          // The host page changed under us (the visitor switched their OS and
+          // the site follows it). The loader re-read the page; adopt it.
+          const next = (data as { s?: unknown }).s;
+          if (next === 'l' || next === 'd') liveHostScheme = next;
+          break;
+        }
         case 'pawbar:host-pointerdown':
           // The visitor clicked the site itself. Same outcome as clicking
           // outside the menu inside the frame — the two used to disagree,
@@ -668,6 +711,7 @@
 
 <div
   class="pawbar-root"
+  data-pawbar-scheme={activeScheme}
   data-pawbar-view={view}
   data-pawbar-dragging={drag ? 'true' : undefined}
   role="region"

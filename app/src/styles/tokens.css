@@ -185,6 +185,28 @@
   --pawbar-motion-scale: 1;
 }
 
+/* ── The light palette ──────────────────────────────────────────────────────
+   Five declarations, which is the whole point of the ink derivation above: with
+   every foreground, line and wash routed through --pawbar-ink, a second palette
+   is the ground plus which way round the type goes. The old light block was 24
+   declarations of independently-drifting colour, and nothing could select it.
+
+   `data-pawbar-scheme` is written by the app, which resolves owner setting →
+   host page (the loader reads it and passes `?s=` on the frame URL) → the
+   visitor's OS → dark. Resolved in JS so this block exists ONCE; keying it on
+   both an attribute and a `prefers-color-scheme` media query would mean two
+   copies of a palette, and two copies drift.
+
+   Owner tokens still win over all of it: they land as inline custom properties
+   on this same element, and an inline style beats a stylesheet rule. */
+.pawbar-root[data-pawbar-scheme='light'] {
+  --pawbar-ink: oklch(0.24 0.012 264);
+  --pawbar-surface: oklch(0.99 0.002 264 / 0.88);
+  --pawbar-surface-strong: oklch(1 0 0 / 0.96);
+  --pawbar-surface-raised: oklch(1 0 0 / 0.94);
+  --pawbar-surface-sunken: oklch(0.94 0.004 264 / 0.9);
+}
+
 /* The visitor's OS setting wins over the owner's motion preset, always. Every
    duration collapses and travel goes to zero; opacity still resolves, so state
    changes stay visible rather than disappearing along with the animation. */

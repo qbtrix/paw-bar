@@ -106,13 +106,32 @@ describe('white-label scale', () => {
     }
   });
 
-  it('--pawbar-ink is declared once, as a plain colour', () => {
+  it('--pawbar-ink is always a literal colour, never derived', () => {
     const decls = tokens()
       .split('\n')
       .filter((line) => line.trim().startsWith('--pawbar-ink:'));
-    expect(decls).toHaveLength(1);
-    // It is the root of the derivation, so it cannot itself be derived.
-    expect(decls[0]).not.toContain('var(');
+    // One per palette: the dark default, and the light block.
+    expect(decls.length).toBeGreaterThanOrEqual(1);
+    // It is the ROOT of the derivation. An ink referencing another token would
+    // make the whole scale circular.
+    for (const d of decls) expect(d).not.toContain('var(');
+  });
+
+  it('the light palette sets every ground it needs to', () => {
+    // A PARTIAL light block is the white-on-white bug in a new place: miss the
+    // ink and the type stays light on a light panel, miss a surface and one
+    // slab stays dark. Five is the whole palette — see the header in tokens.css.
+    const block = tokens().match(/\[data-pawbar-scheme='light'\]\s*\{([\s\S]*?)\}/);
+    expect(block, 'the light block exists').toBeTruthy();
+    for (const name of [
+      '--pawbar-ink',
+      '--pawbar-surface',
+      '--pawbar-surface-strong',
+      '--pawbar-surface-raised',
+      '--pawbar-surface-sunken',
+    ]) {
+      expect(block![1], `light sets ${name}`).toContain(`${name}:`);
+    }
   });
 
   it('the nav follows the surface scale rather than restating a colour', () => {

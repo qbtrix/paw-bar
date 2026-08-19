@@ -81,9 +81,29 @@
       // without a backend running. Everything else about the harness is
       // identical, which is the point: the states differ, the frame does not.
       const demo = new URLSearchParams(location.search);
+      // Mirrors loader.ts hostScheme(): the frame cannot see this page, so the
+      // page tells it which way round it reads. Without this the harness would
+      // show a widget that ignores its host, which is the bug the real loader
+      // was changed to fix.
+      const hostScheme = () => {
+        const declared = getComputedStyle(document.documentElement).colorScheme || '';
+        const d = declared.includes('dark'), l = declared.includes('light');
+        if (d !== l) return d ? 'd' : 'l';
+        for (const el of [document.body, document.documentElement]) {
+          const p = getComputedStyle(el).backgroundColor.match(/[\d.]+/g);
+          if (!p || p.length < 3 || (p.length > 3 && +p[3] < 0.5)) continue;
+          return (0.2126 * +p[0] + 0.7152 * +p[1] + 0.0722 * +p[2]) / 255 < 0.5 ? 'd' : 'l';
+        }
+        return matchMedia('(prefers-color-scheme: dark)').matches ? 'd' : 'l';
+      };
+      const frameQuery = (extra) => {
+        const q = new URLSearchParams(extra || {});
+        q.set('s', hostScheme());
+        return '?' + q.toString();
+      };
       frame.src = demo.has('demo')
-        ? '/demo.html' + (demo.get('state') ? '?state=' + encodeURIComponent(demo.get('state')) : '')
-        : '/index.html';
+        ? '/demo.html' + frameQuery(demo.get('state') ? { state: demo.get('state') } : {})
+        : '/index.html' + frameQuery();
       frame.title = 'Site concierge';
       frame.style.cssText =
         'position:fixed;border:0;background:transparent;color-scheme:normal;z-index:2147483000;';

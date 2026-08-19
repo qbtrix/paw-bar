@@ -79,6 +79,8 @@ mount(GlassShell, {
     conversations,
     chatConfig: storeConfig,
     poster,
+    scheme: config.scheme,
+    hostScheme: config.hostScheme,
     greeting: config.greeting,
     starters: config.starters,
     agentName: config.agentName,

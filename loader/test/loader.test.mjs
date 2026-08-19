@@ -21,13 +21,42 @@ const API_ENDPOINT = 'https://api.pawbar.dev/api/v1';
 const FRAME_ORIGIN = 'https://api.pawbar.dev';
 
 // Boot a jsdom host page and run the loader IIFE off a <script> carrying config.
-function mount({ endpoint = API_ENDPOINT, siteKey = 'sk_live_123', widgetId = 'w_abc' } = {}) {
-  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
-    url: HOST_ORIGIN + '/products',
-    runScripts: 'dangerously',
-    pretendToBeVisual: true,
-  });
+function mount({
+  endpoint = API_ENDPOINT,
+  siteKey = 'sk_live_123',
+  widgetId = 'w_abc',
+  // The host page's own styling, which is what the colour-scheme detector reads.
+  hostStyle = '',
+  prefersDark = false,
+} = {}) {
+  const dom = new JSDOM(
+    `<!doctype html><html><head><style>${hostStyle}</style></head><body></body></html>`,
+    {
+      url: HOST_ORIGIN + '/products',
+      runScripts: 'dangerously',
+      pretendToBeVisual: true,
+    },
+  );
   const { window } = dom;
+  // jsdom has no real matchMedia; the detector's last resort needs one.
+  // Drivable, so the OS-change path below is reachable: a stub with a no-op
+  // addEventListener would let the loader mount and quietly make that test
+  // impossible to write.
+  window.__schemeListeners = [];
+  window.__prefersDark = prefersDark;
+  window.matchMedia = (q) => {
+    const isScheme = /prefers-color-scheme:\s*dark/.test(q);
+    return {
+      get matches() {
+        return isScheme ? window.__prefersDark : false;
+      },
+      media: q,
+      addEventListener(_type, fn) {
+        if (isScheme) window.__schemeListeners.push(fn);
+      },
+      removeEventListener() {},
+    };
+  };
   appendLoader(window, { endpoint, siteKey, widgetId });
   return window;
 }
@@ -481,4 +510,111 @@ test('a spoofed overlay declaration installs nothing', () => {
     new window.PointerEvent('pointerdown', { bubbles: true }),
   );
   assert.equal(posts.length, 0);
+});
+
+
+// ── Host colour scheme (2026-08-19) ─────────────────────────────────────────
+// "i see dark mode only" — the widget shipped one dark palette and wore it on
+// light storefronts. The frame is cross-origin and can see nothing of the page
+// around it, so THIS is the only code that can answer the question. It rides on
+// the frame URL rather than a postMessage so the answer is there for the first
+// paint; sent after boot, every visitor on a light site would watch the widget
+// flip.
+function schemeOf(window) {
+  return new URL(onlyIframe(window).src).searchParams.get('s');
+}
+
+test('a light host page asks for a light widget', () => {
+  assert.equal(schemeOf(mount({ hostStyle: 'body { background: #ffffff }' })), 'l');
+});
+
+test('a dark host page asks for a dark widget', () => {
+  assert.equal(schemeOf(mount({ hostStyle: 'body { background: #0e1117 }' })), 'd');
+});
+
+test("an explicit color-scheme on the host beats its own background", () => {
+  // A site that declares `color-scheme` is STATING which it is, and that is
+  // better evidence than a colour we inferred — a dark site mid-repaint, or one
+  // whose body is white while the real ground is painted by a wrapper.
+  assert.equal(
+    schemeOf(mount({ hostStyle: ':root { color-scheme: dark } body { background: #ffffff }' })),
+    'd',
+  );
+  assert.equal(
+    schemeOf(mount({ hostStyle: ':root { color-scheme: light } body { background: #000000 }' })),
+    'l',
+  );
+});
+
+test('`color-scheme: light dark` states nothing, so the background decides', () => {
+  // The both-supported declaration is a capability, not a choice.
+  assert.equal(
+    schemeOf(mount({ hostStyle: ':root { color-scheme: light dark } body { background: #101014 }' })),
+    'd',
+  );
+});
+
+test('a transparent page falls through to the visitor', () => {
+  // Nothing to measure: no declared scheme, and a body with no background of
+  // its own. The visitor's OS is the last thing we know.
+  assert.equal(schemeOf(mount({ prefersDark: true })), 'd');
+  assert.equal(schemeOf(mount({ prefersDark: false })), 'l');
+});
+
+test('luminance decides mid-tones, not hue', () => {
+  // A saturated but BRIGHT brand colour is a light page. Picking on hue, or on
+  // a single channel, gets this backwards.
+  assert.equal(schemeOf(mount({ hostStyle: 'body { background: rgb(255, 214, 10) }' })), 'l');
+  // ...and a saturated dark one is a dark page.
+  assert.equal(schemeOf(mount({ hostStyle: 'body { background: rgb(40, 10, 60) }' })), 'd');
+});
+
+test('the scheme rides alongside the other frame params, not instead of them', () => {
+  const url = new URL(onlyIframe(mount({ hostStyle: 'body { background: #fff }' })).src);
+  assert.equal(url.searchParams.get('key'), 'sk_live_123');
+  assert.equal(url.searchParams.get('w'), 'w_abc');
+  assert.equal(url.searchParams.get('po'), HOST_ORIGIN);
+  assert.equal(url.searchParams.get('s'), 'l');
+});
+
+test('an OS theme change re-reads the host and tells the frame', () => {
+  // A site that follows the OS changes underneath us with the page still open.
+  // The frame cannot see that; this is the only signal it gets. A page with its
+  // OWN in-page toggle still needs a reload — see hostScheme() for why that is
+  // not worth a MutationObserver on a customer's document.
+  const window = mount({ prefersDark: false });
+  const iframe = onlyIframe(window);
+  const posts = [];
+  Object.defineProperty(iframe.contentWindow, 'postMessage', {
+    value: (data, targetOrigin) => posts.push({ data, targetOrigin }),
+    configurable: true,
+  });
+
+  assert.equal(new URL(iframe.src).searchParams.get('s'), 'l', 'booted light');
+
+  window.__prefersDark = true;
+  window.__schemeListeners.forEach((fn) => fn({ matches: true }));
+
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].data.type, 'pawbar:scheme');
+  assert.equal(posts[0].data.s, 'd');
+  assert.equal(posts[0].targetOrigin, FRAME_ORIGIN); // pinned, never "*"
+});
+
+test('an OS change on a page that states its own scheme changes nothing', () => {
+  // The host declared `color-scheme: light`. It is light whatever the visitor's
+  // desktop is doing, so the re-read has to come back light too.
+  const window = mount({ hostStyle: ':root { color-scheme: light }', prefersDark: false });
+  const iframe = onlyIframe(window);
+  const posts = [];
+  Object.defineProperty(iframe.contentWindow, 'postMessage', {
+    value: (data) => posts.push(data),
+    configurable: true,
+  });
+
+  window.__prefersDark = true;
+  window.__schemeListeners.forEach((fn) => fn({ matches: true }));
+
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].s, 'l');
 });
