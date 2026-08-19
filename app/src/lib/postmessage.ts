@@ -8,7 +8,11 @@
 // BAR that minimizes to a CHIP (captain direction). New messages —
 //   {type:"pawbar:resize", h, w}      size of the docked content (w matters for chip)
 //   {type:"pawbar:view", view}        dock view flip: "bar" | "chip"
-//   {type:"pawbar:open"}              panel open → loader goes full-viewport
+//   {type:"pawbar:open"}              panel open → loader docks the COLUMN
+//     (2026-08-19: this used to make the iframe full-viewport, which meant the
+//     host page could not be clicked while the bar was open — a modal in all
+//     but name. The loader now sizes the box to the column itself.)
+//   {type:"pawbar:expand", on}        opt-in big reading surface (full-viewport)
 //   {type:"pawbar:close"}             panel closed → loader re-docks
 //   {type:"pawbar:drag", phase,x,y}   move protocol: "start" → loader goes
 //     full-viewport and replies {type:"pawbar:box",x,y,w,h} so the app can track
@@ -18,6 +22,10 @@ export interface PawBarPoster {
   resize(height: number, width?: number): void;
   view(view: 'bar' | 'chip'): void;
   open(): void;
+  /** Ask the loader for the big reading surface (true) or the docked column
+   *  (false). Separate from open/close so collapsing an expanded panel returns
+   *  to the column rather than shutting the conversation. */
+  expand(on: boolean): void;
   close(): void;
   dragStart(): void;
   dragEnd(x: number, y: number): void;
@@ -53,6 +61,9 @@ export function createPoster(parentOrigin: string): PawBarPoster {
     },
     open() {
       post({ type: 'pawbar:open' });
+    },
+    expand(on: boolean) {
+      post({ type: 'pawbar:expand', on });
     },
     close() {
       post({ type: 'pawbar:close' });

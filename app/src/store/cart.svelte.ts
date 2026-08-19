@@ -44,7 +44,7 @@ export class CartStore {
   }
 
   get count(): number {
-    return this.cart ? this.cart.items.reduce((n, i) => n + (i.qty ?? 1), 0) : 0;
+    return this.cart?.items?.reduce((n, i) => n + (i.qty ?? 1), 0) ?? 0;
   }
 
   /** The server-rendered checkout link (cart_ref already filled), or null. Only

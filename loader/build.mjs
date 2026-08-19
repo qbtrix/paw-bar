@@ -7,8 +7,15 @@
 import { build } from 'esbuild';
 import { gzipSync } from 'node:zlib';
 import { readFileSync, mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+// fileURLToPath, NOT url.pathname: on Windows the latter yields a path with a
+// leading slash (/D:/repo/...), and Node resolves that slash against the
+// current drive, so every path here doubled the drive letter and the build
+// died in mkdir. This script had therefore never run on Windows — which also
+// meant the loader's own test suite could not run, since it reads the bundle
+// this produces.
+const here = fileURLToPath(new URL('.', import.meta.url));
 
 mkdirSync(here + 'dist', { recursive: true });
 

@@ -30,6 +30,8 @@ interface PawBarBootConfig {
   agentAvatar?: string;
   agentSubtitle?: string;
   avatars?: string[];
+  /** The resting pill's copy, e.g. "Ask about Ocean Supply". */
+  launcherLabel?: string;
 }
 
 interface Window {

@@ -70,9 +70,17 @@
   --pawbar-radius-sm: 12px;
   --pawbar-blur: 28px;
   /* Offset + soft blur, never a zero-offset halo: this reads as a panel resting
-     above the host page rather than as a glow drawn around it. */
-  --pawbar-shadow: 0 24px 64px -16px oklch(0 0 0 / 0.55);
-  --pawbar-shadow-sm: 0 4px 14px -4px oklch(0 0 0 / 0.4);
+     above the host page rather than as a glow drawn around it.
+
+     AND IT MUST FIT INSIDE THE ROOT'S 12px GUTTER. The loader sizes the
+     iframe to the content plus that padding, so anything the shadow paints
+     beyond it is CLIPPED at the frame edge — which draws a hard-edged grey
+     rectangle around the widget on any light-coloured site. It is invisible on
+     a dark page, which is how a 64px blur survived here.
+     Extent of `0 Ypx Bpx Spx` is B/2 + S horizontally, B/2 + S + Y below.
+     For 24px blur / -10px spread / 8px offset: 2px sides, 10px below. Fits. */
+  --pawbar-shadow: 0 8px 24px -10px oklch(0 0 0 / 0.6);
+  --pawbar-shadow-sm: 0 3px 10px -4px oklch(0 0 0 / 0.45);
   --pawbar-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 
   /* Motion. Exponential ease-out from an already-visible resting state, so a
@@ -110,8 +118,8 @@
   --pawbar-owner-bubble: oklch(0.58 0.2 258 / 0.1);
   --pawbar-danger: oklch(0.55 0.22 25);
   --pawbar-unread: oklch(0.55 0.22 25);
-  --pawbar-shadow: 0 24px 64px -16px oklch(0.2 0.02 260 / 0.25);
-  --pawbar-shadow-sm: 0 4px 14px -4px oklch(0.2 0.02 260 / 0.18);
+  --pawbar-shadow: 0 8px 24px -10px oklch(0.2 0.02 260 / 0.3);
+  --pawbar-shadow-sm: 0 3px 10px -4px oklch(0.2 0.02 260 / 0.2);
   --pawbar-hero-from: oklch(0.72 0.13 262);
   --pawbar-hero-to: oklch(0.99 0.003 260);
   --pawbar-hero-fg: oklch(1 0 0 / 0.98);

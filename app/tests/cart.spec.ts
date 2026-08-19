@@ -72,6 +72,34 @@ describe('getCart', () => {
     expect(url.searchParams.get('customer_ref')).toBe('cref-abc');
     expect(cart?.total_cents).toBe(700);
   });
+
+  // The regression this pins: `as Cart` is a compile-time claim, not a runtime
+  // one. A 200 carrying anything else used to become a Cart with no `items`,
+  // and the first read of cart.count threw inside the shell's render — taking
+  // the whole widget down on a customer's site because a response was shaped
+  // wrong. Anything that is not a cart is now "no cart".
+  it.each([
+    ['an empty object', {}],
+    ['a proxy error envelope', { error: 'upstream unavailable' }],
+    ['items of the wrong type', { items: 'two things' }],
+    ['a bare array', []],
+    ['null', null],
+  ])('treats %s as no cart rather than a broken one', async (_label, body) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonRes(body)));
+
+    expect(await getCart(actionConfig)).toBeNull();
+  });
+
+  it('leaves the count at zero when the cart never parsed', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonRes({})));
+    const store = new CartStore(config);
+
+    await store.load();
+
+    // Reading count is what crashed. It is read on every render of the docked
+    // bar, which now sits beside the open panel.
+    expect(store.count).toBe(0);
+  });
 });
 
 describe('CartStore', () => {

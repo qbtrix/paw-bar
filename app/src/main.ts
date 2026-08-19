@@ -75,6 +75,7 @@ mount(GlassShell, {
     agentAvatar: config.agentAvatar,
     agentSubtitle: config.agentSubtitle,
     avatars: config.avatars,
+    launcherLabel: config.launcherLabel,
     // Lets the shell validate inbound loader messages (drag box, host intents)
     // against the same origin the poster pins outbound messages to.
     parentOrigin: config.parentOrigin,

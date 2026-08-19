@@ -3,7 +3,7 @@
 
      Split out of GlassShell's panel body so the tabbed surface has something to
      push onto and pop off of. The transcript and composer are the EXISTING
-     MessageList / Composer components, unchanged — this is the frame around
+     MessageList component, unchanged — this is the frame around
      them, not a reimplementation.
 
      The header states who is answering and that a human can take over. That
@@ -13,9 +13,14 @@
 
      The back affordance always goes to the Messages list rather than to
      "wherever you came from". A back button whose destination depends on route
-     history is the thing that makes people stop trusting back buttons. -->
+     history is the thing that makes people stop trusting back buttons.
+
+     2026-08-19: the composer LEFT this component. It lives in the shell's
+     docked bar below the panel now, so it is the same input in the same place
+     whichever surface is showing — which is what the comp draws, and what
+     stops the widget owning two different text boxes depending on where the
+     visitor happens to be standing. -->
 <script lang="ts">
-  import Composer from './Composer.svelte';
   import Icon from './Icon.svelte';
   import MessageList from './MessageList.svelte';
   import type { Snippet } from 'svelte';
@@ -27,43 +32,30 @@
     agentAvatar,
     subtitle,
     greeting,
-    seed = '',
     menuOpen = false,
     footer,
     menu,
+    expanded = false,
     onback,
     onclose,
     onmenu,
+    onexpand,
   }: {
     store: ChatStore;
     agentName: string;
     agentAvatar: string;
     subtitle: string;
     greeting: string;
-    /** Prefills the composer — a Home starter or a Help query the visitor gave
-     *  up on. Handed over rather than sent, so they can still edit it. */
-    seed?: string;
     menuOpen?: boolean;
     footer?: Snippet;
     menu?: Snippet;
+    expanded?: boolean;
     onback: () => void;
     onclose: () => void;
     onmenu: () => void;
+    onexpand: () => void;
   } = $props();
 
-  let composer: ReturnType<typeof Composer> | null = $state(null);
-
-  export function focus() {
-    composer?.focus();
-  }
-
-  export function prefill(text: string) {
-    composer?.prefill(text);
-  }
-
-  $effect(() => {
-    if (seed) composer?.prefill(seed);
-  });
 </script>
 
 <div class="conversation">
@@ -98,6 +90,18 @@
         </button>
         {#if menu}{@render menu()}{/if}
       </div>
+      <!-- A long answer with cards is genuinely cramped in a 400px column, so
+           the reading surface can grow. Opt-in and reversible — which is the
+           difference between this and opening as a modal in the first place. -->
+      <button
+        type="button"
+        class="icon-btn"
+        onclick={onexpand}
+        aria-label={expanded ? 'Shrink conversation' : 'Expand conversation'}
+        aria-pressed={expanded}
+      >
+        <Icon name={expanded ? 'shrink' : 'expand'} />
+      </button>
       <button type="button" class="icon-btn" onclick={onclose} aria-label="Close concierge">
         <Icon name="close" />
       </button>
@@ -125,15 +129,6 @@
     </p>
   {/if}
 
-  <div class="composer-well">
-    <Composer
-      bind:this={composer}
-      isStreaming={store.isStreaming}
-      placeholder="Ask a question…"
-      onSend={(text) => store.send(text)}
-      onStop={() => store.stop()}
-    />
-  </div>
 </div>
 
 <style>
@@ -267,8 +262,4 @@
     background: var(--pawbar-accent);
   }
 
-  .composer-well {
-    flex: none;
-    padding: 0 12px 12px;
-  }
 </style>

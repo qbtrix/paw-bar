@@ -26,6 +26,8 @@
     | 'emoji'
     | 'mic'
     | 'chevron-down'
+    | 'expand'
+    | 'shrink'
     | 'chat';
 
   // 24x24 grid, stroke-only. Kept as data so the markup below stays one <svg>
@@ -45,6 +47,10 @@
     emoji: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9 10v.01M15 10v.01M8.5 14.5a4.5 4.5 0 0 0 7 0',
     mic: 'M12 3.5a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-5 0V6A2.5 2.5 0 0 1 12 3.5ZM6 11a6 6 0 0 0 12 0M12 17v3.5',
     'chevron-down': 'M6 9.5 12 15l6-5.5',
+    // Corner brackets, not arrows: the panel grows in place rather than moving,
+    // and four arrows would promise a drag handle it does not have.
+    expand: 'M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5',
+    shrink: 'M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5',
     chat: 'M4 5.5h16v11H9l-4 3.5v-3.5H4z',
   };
 

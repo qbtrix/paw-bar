@@ -43,7 +43,27 @@ const DEFAULT_CHIP = { w: 240, h: 72 };
 const MIN_H = 48;
 const VIEWPORT_MARGIN = 24; // keep the dock off the very edge on small screens
 
-type DockView = 'bar' | 'chip';
+// The OPEN messenger is a column the size of itself, not a sheet over the page.
+// This is the whole difference between a messenger and a modal, and it lives
+// here rather than in the app: a full-viewport iframe swallows every click on
+// the host page whether or not the app paints a backdrop, because
+// `pointer-events` inside a frame cannot hand a click back to the document
+// underneath it. Sizing the box to the column is the only way the rest of the
+// site stays usable while the bar is open.
+//
+// Both dimensions are loader POLICY here, unlike the docked bar and chip which
+// report their own. The app cannot know the host viewport from inside a 96px
+// bar at the moment it opens, and a height that tracked content would resize
+// the iframe on every streamed token.
+const PANEL_W = 400;
+const PANEL_MAX_H = 720;
+// Under this there is no room for a column beside the page, so the messenger
+// takes the screen. That is the ordinary mobile sheet — the one place where
+// covering the page is right, because there is no "beside" on a phone.
+const PANEL_MIN_VW = 460;
+const PANEL_MIN_VH = 620;
+
+type DockView = 'bar' | 'chip' | 'panel';
 
 interface PawBarApi {
   open(): void;
@@ -117,17 +137,43 @@ type LoaderWindow = Window &
   // is the box snapshot at drag start, for the no-move guard and coordinate
   // conversion at drag end.
   let view: DockView = 'bar';
+  // Which resting view to fall back to when the panel closes. Without it,
+  // `pawbar:close` left `view` at 'panel' and the box stayed panel-sized — the
+  // app happens to post an explicit `pawbar:view` too, so this only broke for a
+  // host calling PawBar.close() directly. Restoring it here means the loader is
+  // correct on its own rather than correct because the app compensates.
+  let dockView: 'bar' | 'chip' = 'bar';
   let overlay = false;
+  // The visitor asked for the big reading surface (the panel's expand control).
+  // Separate from `overlay`, which is the transient drag state, so a window
+  // resize mid-expand re-applies fullscreen instead of collapsing the panel.
+  let expanded = false;
   let anchor: { cx: number; by: number } | null = readAnchor(win);
   let dragFrom: { x: number; y: number; w: number; h: number } | null = null;
-  const size = { bar: { h: DEFAULT_BAR_H }, chip: { w: DEFAULT_CHIP.w, h: DEFAULT_CHIP.h } };
+  const size = {
+    bar: { w: BAR_MAX_W, h: DEFAULT_BAR_H },
+    chip: { w: DEFAULT_CHIP.w, h: DEFAULT_CHIP.h },
+    panel: { w: PANEL_W, h: PANEL_MAX_H },
+  };
+
+  /** A viewport too small to hold the column beside the page. */
+  function panelIsSheet(): boolean {
+    const vw = win.innerWidth || 0;
+    const vh = win.innerHeight || 0;
+    return view === 'panel' && (vw < PANEL_MIN_VW || vh < PANEL_MIN_VH);
+  }
 
   function dockBox(): { x: number; y: number; w: number; h: number } {
     const vw = win.innerWidth || 0;
     const vh = win.innerHeight || 0;
     const maxW = vw ? vw - VIEWPORT_MARGIN : BAR_MAX_W;
-    const w = view === 'bar' ? Math.min(BAR_MAX_W, maxW) : Math.min(size.chip.w, maxW);
-    const h = vh ? clamp(size[view].h, MIN_H, vh - VIEWPORT_MARGIN) : Math.max(MIN_H, size[view].h);
+    // The bar reports its own width now (it rests as a compact pill and widens
+    // on hover), so an invisible 720px box no longer sits across the page
+    // eating clicks either side of it. BAR_MAX_W stays as the ceiling.
+    const wantW = view === 'bar' ? Math.min(size.bar.w, BAR_MAX_W) : size[view].w;
+    const w = Math.min(wantW, maxW);
+    const wantH = view === 'panel' ? PANEL_MAX_H : size[view].h;
+    const h = vh ? clamp(wantH, MIN_H, vh - VIEWPORT_MARGIN) : Math.max(MIN_H, wantH);
     // Derive this box's top-left from the center-bottom anchor so bar and chip
     // stay visually anchored to the same spot despite their different sizes.
     const cx = anchor ? anchor.cx : (vw || w) / 2;
@@ -138,6 +184,12 @@ type LoaderWindow = Window &
   }
 
   function applyDock(): void {
+    // Expanded on request, or a viewport with no room for a column beside the
+    // page. Checked here so a window resize re-decides on every reflow.
+    if (expanded || panelIsSheet()) {
+      goFullscreen();
+      return;
+    }
     const b = dockBox();
     iframe.style.left = b.x + 'px';
     iframe.style.top = b.y + 'px';
@@ -167,24 +219,39 @@ type LoaderWindow = Window &
     if (ev.origin !== frameOrigin) return;
     if (ev.source !== iframe.contentWindow) return;
     const data = ev.data as
-      | { type?: string; h?: unknown; w?: unknown; view?: unknown; phase?: unknown; x?: unknown; y?: unknown }
+      | {
+          type?: string;
+          h?: unknown;
+          w?: unknown;
+          view?: unknown;
+          phase?: unknown;
+          x?: unknown;
+          y?: unknown;
+          on?: unknown;
+        }
       | null;
     if (!data || typeof data !== 'object') return;
     switch (data.type) {
       case 'pawbar:resize': {
-        if (overlay) break; // the overlay is viewport-sized; dock reports wait
+        if (overlay) break; // mid-drag the frame is viewport-sized; reports wait
+        // The open panel is sized by policy above. Ignoring its reports is what
+        // keeps a streaming reply from resizing the iframe on every token.
+        if (view === 'panel') break;
         const h = Number(data.h);
         if (Number.isFinite(h)) size[view].h = h;
         const w = Number(data.w);
-        // Width is honoured for the chip only — the bar width is loader policy.
-        if (view === 'chip' && Number.isFinite(w) && w > 0) size.chip.w = w;
+        if (Number.isFinite(w) && w > 0) size[view].w = w;
         applyDock();
         break;
       }
       case 'pawbar:view': {
-        if (data.view === 'bar' || data.view === 'chip') {
+        if (data.view === 'bar' || data.view === 'chip' || data.view === 'panel') {
           view = data.view;
           overlay = false;
+          if (data.view !== 'panel') {
+            dockView = data.view;
+            expanded = false;
+          }
           applyDock();
         }
         break;
@@ -197,11 +264,20 @@ type LoaderWindow = Window &
         iframe.remove();
         break;
       case 'pawbar:open':
-        overlay = true;
-        goFullscreen();
+        // Not goFullscreen() any more. The open messenger is a docked column,
+        // so the host page keeps its clicks everywhere the column is not.
+        view = 'panel';
+        overlay = false;
+        applyDock();
+        break;
+      case 'pawbar:expand':
+        expanded = data.on === true;
+        applyDock();
         break;
       case 'pawbar:close':
+        view = dockView;
         overlay = false;
+        expanded = false;
         applyDock();
         break;
       case 'pawbar:drag': {

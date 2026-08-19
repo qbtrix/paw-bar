@@ -78,6 +78,8 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { fly } from 'svelte/transition';
+  import { duration, travel, expoOut } from '../lib/motion';
   import type { ChatStore, ChatStoreConfig } from '../store/chat.svelte';
   import { type CartStore, provideCart } from '../store/cart.svelte';
   import { type ContactStore, provideContact } from '../store/contact.svelte';
@@ -105,6 +107,7 @@
     agentAvatar = '',
     agentSubtitle = 'The team can also help',
     avatars = [],
+    launcherLabel = '',
     parentOrigin = '',
   }: {
     store: ChatStore;
@@ -121,8 +124,15 @@
     agentAvatar?: string;
     agentSubtitle?: string;
     avatars?: string[];
+    /** What the resting pill says. The owner's word for their own site beats
+     *  ours ("Ask about Ocean Supply" reads as theirs; "Ask about this site"
+     *  reads as a widget), so this is an appearance field with a default that
+     *  works when they never set one. */
+    launcherLabel?: string;
     parentOrigin?: string;
   } = $props();
+
+  const label = $derived(launcherLabel.trim() || 'Ask about this site');
 
   // Expose the cart to descendant card CTAs (Markdown → CardBlock → ProductCard)
   // + the header badge without prop-drilling through the transcript. untrack:
@@ -153,6 +163,18 @@
   }
 
   let view = $state<View>(readInitialView());
+  let expanded = $state(false);
+
+  // The bar rests as a compact labelled pill and widens into the composer on
+  // hover — the whole point being that a widget on somebody else's site should
+  // not park a text input across the bottom of their page.
+  //
+  // Hover is an ENHANCEMENT, never the only way in: a touch device fires no
+  // pointerenter, so the pill is also a button that opens the panel, and
+  // focusing it by keyboard widens it the same way hovering does.
+  let barHover = $state(false);
+  let barFocus = $state(false);
+  const barOpen = $derived(view === 'panel' || barHover || barFocus);
   let contentEl: HTMLDivElement | null = $state(null);
   let composer: ReturnType<typeof Composer> | null = $state(null);
 
@@ -181,9 +203,22 @@
   function closePanel() {
     view = 'bar';
     menuOpen = false;
+    expanded = false;
+    poster.expand(false);
     poster.view('bar');
     persistDock('bar');
-    queueMicrotask(() => composer?.focus());
+    // Back to the resting pill, so do NOT pull focus into the composer — that
+    // would re-open the bar the visitor just closed and read as the widget
+    // refusing to go away.
+    barHover = false;
+  }
+
+  /** The big reading surface. A long answer with cards is genuinely cramped in
+   *  a 400px column, so the expand control exists — but it is opt-in and
+   *  reversible, which is the difference between it and opening as a modal. */
+  function toggleExpand() {
+    expanded = !expanded;
+    poster.expand(expanded);
   }
   function minimize() {
     view = 'chip';
@@ -214,6 +249,10 @@
     // layer at a time is what keeps it from feeling like a trapdoor.
     if (menuOpen) {
       menuOpen = false;
+      return;
+    }
+    if (expanded) {
+      toggleExpand();
       return;
     }
     if (view === 'panel' && inConversation) {
@@ -298,6 +337,16 @@
    *  worse than the site does and strand the visitor away from its navigation. */
   function openArticle(article: Article) {
     window.open(article.url, '_blank', 'noopener,noreferrer');
+  }
+
+  /** The composer lives in the bar, so a starter tapped on Home or a query
+   *  abandoned in Help is handed here rather than pushed into the panel.
+   *  Prefilled, never sent: the visitor gets to edit it first. */
+  function seedComposer(text: string) {
+    queueMicrotask(() => {
+      if (text) composer?.prefill(text);
+      composer?.focus();
+    });
   }
 
   /** Walk into one of the visitor's earlier conversations. */
@@ -505,10 +554,6 @@
   role="region"
   aria-label="Site concierge"
 >
-  {#if view === 'panel'}
-    <button type="button" class="backdrop" onclick={closePanel} aria-label="Close concierge" tabindex="-1"></button>
-  {/if}
-
   <div
     class="pawbar-content"
     bind:this={contentEl}
@@ -541,8 +586,61 @@
           <span>Ask</span>
         </button>
       </div>
-    {:else if view === 'bar'}
-      <div class="bar">
+    {:else}
+      {#if view === 'panel'}
+        <!-- NOT role="dialog"/aria-modal. The page behind is live and clickable, so
+           claiming a modal would tell a screen-reader user the rest of the site is
+           inert when it is not. It is a complementary region that can be left by
+           any means, which is what it now actually is.
+
+           `fly` rather than a CSS keyframe because the panel LEAVES the DOM on
+           close, and CSS cannot animate that. Distance and duration come from
+           motion.ts, so the owner's preset and the visitor's reduced-motion
+           setting both reach it. -->
+      <section
+        class="panel"
+        aria-label="Site concierge"
+        transition:fly={{ y: travel(14), duration: duration(), easing: expoOut }}
+      >
+        <Messenger
+          bind:tab={messengerTab}
+          bind:inConversation
+          {store}
+          conversations={conversations.items}
+          conversationsLoading={conversations.loading}
+          {articles}
+          {articlesLoading}
+          {greeting}
+          {starters}
+          {agentName}
+          {agentAvatar}
+          {agentSubtitle}
+          {avatars}
+          {menuOpen}
+          footer={contactPrompt}
+          menu={quickMenu}
+          onopenConversation={openExistingConversation}
+          onnewConversation={newConversation}
+          onarticle={openArticle}
+          onclose={closePanel}
+          onmenu={() => (menuOpen = !menuOpen)}
+          onseed={seedComposer}
+          {expanded}
+          onexpand={toggleExpand}
+        />
+      </section>
+      {/if}
+
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="bar"
+        class:open={barOpen}
+        class:docked={view !== 'panel'}
+        onpointerenter={() => (barHover = true)}
+        onpointerleave={() => (barHover = false)}
+        onfocusin={() => (barFocus = true)}
+        onfocusout={() => (barFocus = false)}
+      >
         <button
           type="button"
           class="grip"
@@ -587,14 +685,25 @@
             />
           </svg>
         </button>
-        <div class="bar-composer">
-          <Composer
-            bind:this={composer}
-            isStreaming={store.isStreaming}
-            variant="bare"
-            onSend={handleBarSend}
-            onStop={() => store.stop()}
-          />
+        <!-- Both live in one grid cell so the pill can WIDEN into the composer
+             rather than swap for it. A swap would jump the bar's width in one
+             frame; sharing the cell lets the width animate while the label
+             fades out under the caret. The label is a real button, so a touch
+             device with no hover still has an obvious way in. -->
+        <div class="bar-slot">
+          <button type="button" class="bar-label" onclick={openPanel} tabindex={barOpen ? -1 : 0}>
+            {label}
+          </button>
+          <div class="bar-composer" aria-hidden={!barOpen}>
+            <Composer
+              bind:this={composer}
+              isStreaming={store.isStreaming}
+              variant="bare"
+              placeholder={label}
+              onSend={handleBarSend}
+              onStop={() => store.stop()}
+            />
+          </div>
         </div>
         {#if cart.count > 0}
           <button
@@ -618,38 +727,31 @@
             <span>{cart.count}</span>
           </button>
         {/if}
-        <button type="button" class="icon-btn" onclick={minimize} aria-label="Minimize">
+        <!-- One control, two truths: while the column is open this collapses it,
+             while the bar rests it minimises to the chip. Same place, same
+             gesture, and never both buttons competing for the corner. -->
+        <button
+          type="button"
+          class="icon-btn"
+          onclick={view === 'panel' ? closePanel : minimize}
+          aria-label={view === 'panel' ? 'Collapse conversation' : 'Minimize'}
+        >
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path d="M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+            {#if view === 'panel'}
+              <path
+                d="M6 9l6 6 6-6"
+                stroke="currentColor"
+                stroke-width="2"
+                fill="none"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            {:else}
+              <path d="M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+            {/if}
           </svg>
         </button>
       </div>
-    {:else}
-      <section class="panel" role="dialog" aria-modal="true" aria-label="Site concierge">
-        <Messenger
-          bind:tab={messengerTab}
-          bind:inConversation
-          {store}
-          conversations={conversations.items}
-          conversationsLoading={conversations.loading}
-          {articles}
-          {articlesLoading}
-          {greeting}
-          {starters}
-          {agentName}
-          {agentAvatar}
-          {agentSubtitle}
-          {avatars}
-          {menuOpen}
-          footer={contactPrompt}
-          menu={quickMenu}
-          onopenConversation={openExistingConversation}
-          onnewConversation={newConversation}
-          onarticle={openArticle}
-          onclose={closePanel}
-          onmenu={() => (menuOpen = !menuOpen)}
-        />
-      </section>
     {/if}
   </div>
 </div>
@@ -669,30 +771,18 @@
        backdrop and content wrapper below should catch clicks. */
     pointer-events: none;
   }
-  /* Open = centered command palette (the loader makes the iframe full-viewport). */
+  /* Open = a column standing on the dock anchor: messenger above, composer
+     below, the host page live and clickable everywhere else. The loader sizes
+     the iframe to exactly this column (see loader.ts PANEL_W) — that, not a
+     transparent backdrop, is what makes it not a modal. */
   .pawbar-root[data-pawbar-view='panel'] {
-    justify-content: center;
-    align-items: center;
-    padding: clamp(16px, 4vh, 40px);
+    justify-content: flex-end;
+    gap: 10px;
   }
   /* Mid-drag the content wrapper is fixed-positioned inline; kill the padding
      so the wrapper's coords map 1:1 to the posted box. */
   .pawbar-root[data-pawbar-dragging='true'] {
     padding: 0;
-  }
-
-  /* Outside-click catcher + page dim. A real button (keyboard story stays Esc /
-     the header X; tabindex -1 keeps it out of the tab order). */
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    border: none;
-    padding: 0;
-    background: oklch(0.13 0.01 260 / 0.34);
-    -webkit-backdrop-filter: blur(2px);
-    backdrop-filter: blur(2px);
-    pointer-events: auto;
-    cursor: default;
   }
 
   /* The measured content box: bar, chip, or panel. Kept separate from
@@ -706,16 +796,22 @@
     min-height: 0;
     max-height: 100%;
   }
-  /* The chip hugs its content so the reported width shrinks the iframe box. */
-  .pawbar-root[data-pawbar-view='chip'] .pawbar-content {
+  /* The chip AND the resting bar hug their content, so the width the
+     ResizeObserver reports shrinks the iframe box to the pill. This is what
+     stops an invisible 720px-wide frame sitting across the bottom of the host
+     page swallowing clicks either side of a 130px pill. */
+  .pawbar-root[data-pawbar-view='chip'] .pawbar-content,
+  .pawbar-root[data-pawbar-view='bar'] .pawbar-content {
     align-self: center;
     width: fit-content;
   }
-  /* Palette proportions from the genesis mockup (~969×737 on a 16" frame). */
+  /* Fill the box the loader gave us. Both dimensions are its policy while
+     open, so a streaming reply cannot resize the iframe under the visitor. */
   .pawbar-root[data-pawbar-view='panel'] .pawbar-content {
     position: relative;
-    width: min(940px, 100%);
-    height: min(720px, 100%);
+    width: 100%;
+    height: 100%;
+    gap: 10px;
   }
 
   /* ── Shared accent dot ──────────────────────────────────────────────────── */
@@ -742,9 +838,67 @@
     /* Inset top highlight = the light edge that sells frosted glass. */
     box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), var(--pawbar-shadow);
   }
+  /* One cell, two occupants. Width is the animated property (not a swap), so
+     the pill grows into the composer instead of jumping to it. */
+  .bar-slot {
+    display: grid;
+    min-width: 0;
+    transition: width var(--pawbar-duration) var(--pawbar-ease-emphasis);
+  }
+  .bar-slot > * {
+    grid-area: 1 / 1;
+    min-width: 0;
+  }
+
+  /* Resting width: enough for the owner's label and no more. */
+  .bar.docked .bar-slot {
+    width: 148px;
+  }
+  .bar.docked.open .bar-slot {
+    width: 296px;
+  }
+  /* Open, the column is one width and the composer simply fills the row. */
+  .bar:not(.docked) .bar-slot {
+    width: auto;
+    flex: 1;
+  }
+
+  .bar-label {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--pawbar-fg-muted);
+    font: inherit;
+    font-size: 13.5px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: opacity var(--pawbar-duration-fast) var(--pawbar-ease);
+  }
+  .bar.open .bar-label {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .bar-label:focus-visible {
+    outline: 2px solid var(--pawbar-ring);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
   .bar-composer {
     flex: 1;
     min-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--pawbar-duration-fast) var(--pawbar-ease);
+  }
+  .bar.open .bar-composer {
+    opacity: 1;
+    pointer-events: auto;
   }
   /* Circular paw mascot — ChatPill's .mascot-avatar language, bar-sized.
      A BUTTON: clicking it opens the panel (the returning visitor's way back
@@ -857,8 +1011,9 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    max-height: 100%;
-    height: 100%;
+    /* Takes what the column has left after the composer, rather than 100% —
+       the bar below is a sibling now, not something the panel contains. */
+    flex: 1;
     border-radius: var(--pawbar-radius);
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface);

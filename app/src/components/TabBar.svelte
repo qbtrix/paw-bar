@@ -7,15 +7,16 @@
      already learned. `tabs` is passed in, so the fourth appears the day it has
      something to show.
 
-     Operate mode: the active tab is carried by THREE signals at once — a moving
-     indicator, a weight change, and a fill on the glyph. Redundant on purpose.
-     Colour alone fails for the visitor who cannot distinguish it and for the
-     one whose owner re-skinned the accent to something low-contrast, and "which
-     tab am I on" is not a question this surface may leave ambiguous.
+     Operate mode: the active tab is carried by THREE signals at once — colour,
+     a weight change, and a fill on the glyph. Redundant on purpose. Colour
+     alone fails for the visitor who cannot distinguish it and for the one whose
+     owner re-skinned the accent to something low-contrast, and "which tab am I
+     on" is not a question this surface may leave ambiguous.
 
-     The indicator travels between tabs rather than cutting, which is the one
-     place motion carries information here: it says the tabs are one row you
-     move along, not four separate buttons. -->
+     2026-08-19: a sliding slab used to sit behind the active tab as a fourth
+     signal. At the panel's real width it was a rounded rect a third of the bar
+     wide, which read as a button rather than a state — and the comp has no such
+     thing. Weight and fill say it without drawing furniture. -->
 <script module lang="ts">
   import { type IconName } from './Icon.svelte';
 
@@ -39,15 +40,9 @@
     onselect,
   }: { tabs: Tab[]; active: string; onselect: (id: string) => void } = $props();
 
-  const activeIndex = $derived(Math.max(0, tabs.findIndex((t) => t.id === active)));
 </script>
 
 <nav class="tabbar" aria-label="Concierge sections">
-  <div
-    class="indicator"
-    style="--count:{tabs.length}; --index:{activeIndex}"
-    aria-hidden="true"
-  ></div>
   {#each tabs as tab (tab.id)}
     {@const isActive = tab.id === active}
     <button
@@ -90,30 +85,6 @@
     -webkit-backdrop-filter: blur(var(--pawbar-blur));
   }
 
-  /* Sits behind the active tab and slides between slots. Width is a fraction of
-     the row so it stays correct whether three or four tabs are passed. */
-  .indicator {
-    position: absolute;
-    top: 4px;
-    left: 4px;
-    width: calc((100% - 8px) / var(--count));
-    height: calc(100% - 8px - env(safe-area-inset-bottom, 0px));
-    border-radius: var(--pawbar-radius-sm);
-    background: oklch(1 0 0 / 0.06);
-    transform: translateX(calc(var(--index) * 100% * var(--pawbar-motion-scale)));
-    transition: transform var(--pawbar-duration) var(--pawbar-ease);
-  }
-
-  /* With motion off the indicator would sit under the first tab forever and
-     actively mislead, so it stops being a moving object and becomes a static
-     one drawn in the right slot. */
-  @media (prefers-reduced-motion: reduce) {
-    .indicator {
-      left: calc(4px + var(--index) * ((100% - 8px) / var(--count)));
-      transform: none;
-    }
-  }
-
   .tab {
     position: relative;
     display: flex;
@@ -144,6 +115,12 @@
 
   .tab.active {
     color: var(--pawbar-tab-fg-active);
+  }
+
+  /* Weight is the second signal. Colour alone fails for anyone who cannot
+     separate these two greys. */
+  .tab.active .label {
+    font-weight: 650;
   }
 
   .label {

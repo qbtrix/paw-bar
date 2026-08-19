@@ -34,6 +34,9 @@ export interface PawBarConfig {
   agentSubtitle: string;
   /** Team faces for the Home tab's ask card. Empty renders an arrow instead. */
   avatars: string[];
+  /** What the resting pill says. Owner-set ("Ask about Ocean Supply"); empty
+   *  falls back to our generic copy in the shell rather than rendering blank. */
+  launcherLabel: string;
 }
 
 /** Read a string array off the boot config, dropping anything that isn't a
@@ -94,5 +97,9 @@ export function readConfig(): PawBarConfig {
         ? boot.agentSubtitle
         : 'The team can also help',
     avatars: readStrings(boot?.avatars, 3).map(readImageUrl).filter(Boolean),
+    // Capped to match the server's own bound (LauncherAppearance.label) so a
+    // long value cannot stretch the resting pill across the host's page.
+    launcherLabel:
+      typeof boot?.launcherLabel === 'string' ? boot.launcherLabel.trim().slice(0, 40) : '',
   };
 }
