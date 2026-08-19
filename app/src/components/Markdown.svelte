@@ -5,6 +5,17 @@
   renderMarkdown() against the pinned ALLOWED_TAGS allowlist (see lib/markdown.ts
   + the drift-guard test). Everything else is a text binding.
 
+  MEASURED 2026-08-19, because "every delta re-parses the whole message, so it
+  is quadratic in reply length" is true on paper and was carried as an open
+  worry: streaming a 7,332-character reply (roughly six times a real concierge
+  answer, with a table, a fenced block and a card) held p50 5ms / p95 7.7ms /
+  p99 10.6ms per frame, ONE frame over 16ms and none over 50ms — and the mean
+  frame cost in the last quarter of the stream (5.1ms) matched the first
+  (5.0ms). The growth is there; it is nowhere near the frame budget, so parsing
+  only the trailing block would be complexity bought for nothing. Measured on a
+  desktop: a low-end phone is several times slower, so the headroom is smaller
+  there, not absent. Re-measure before believing otherwise.
+
   2026-07-15 (C2): a `card` segment carries a raw ``pawbar-card`` JSON string.
   CardBlock validates it and renders native glass components via Svelte props
   only — no HTML injection, the DOMPurify path is untouched. A malformed /

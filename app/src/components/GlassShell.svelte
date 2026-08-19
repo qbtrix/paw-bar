@@ -540,6 +540,21 @@
   // well as the laid-out box — see the note there for the deadlock that
   // motivates it (a cap on this element silently pinned the frame forever).
   const ROOT_PAD = DOCK_PAD * 2;
+
+  /** The root's real vertical gutter. Normally DOCK_PAD top and bottom, but on
+   *  a phone the bottom grows to clear the home indicator — and the box we ask
+   *  for has to include that, or the frame is short by exactly the inset and
+   *  clips the composer it was widened to protect. Read from the element rather
+   *  than assumed, because `env()` is only resolvable at layout time. */
+  function verticalPad(el: HTMLElement): number {
+    const root = el.parentElement;
+    if (!root) return ROOT_PAD;
+    const cs = getComputedStyle(root);
+    const top = parseFloat(cs.paddingTop) || 0;
+    const bottom = parseFloat(cs.paddingBottom) || 0;
+    return top + bottom || ROOT_PAD;
+  }
+
   $effect(() => {
     if (!contentEl) return;
     const ro = new ResizeObserver((entries) => {
@@ -550,7 +565,9 @@
         { rect, scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight },
         ROOT_PAD,
       );
-      poster.resize(h, w);
+      // Width keeps the symmetric gutter; height takes whatever the root
+      // actually reserves, which is larger than ROOT_PAD on an inset device.
+      poster.resize(h - ROOT_PAD + verticalPad(el), w);
     });
     ro.observe(contentEl);
     return () => ro.disconnect();
@@ -860,6 +877,13 @@
     justify-content: flex-end;
     align-items: stretch;
     padding: 12px;
+    /* The composer sits at the bottom of the frame, and on a phone the bottom
+       of the frame is where the home indicator lives. 12px puts the send button
+       under it, so the gutter grows to clear it where there is one and stays
+       12px everywhere else. The old bottom tab bar carried this inset; moving
+       the nav to the top took it away with it, and the composer inherited the
+       problem the nav used to own. */
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
     font-family: var(--pawbar-font);
     color: var(--pawbar-fg);
     /* The root spans the whole iframe but is transparent chrome — only the
@@ -979,6 +1003,16 @@
       inset 0 1px 0 oklch(1 0 0 / 0.1),
       0 0 0 3px color-mix(in oklab, var(--pawbar-ring) 28%, transparent),
       var(--pawbar-shadow);
+  }
+  /* Open and expanded, the bar follows the same reading column as the
+     transcript above it. Without this the composer stretched the full 1256px
+     of an expanded viewport: a caret at the far left, a send button a foot
+     away, and no relationship to the answer it sits under. Docked, and in the
+     400px column, the cap is never reached and this changes nothing. */
+  .pawbar-root[data-pawbar-view='panel'] .bar {
+    width: 100%;
+    max-width: var(--pawbar-read-col);
+    align-self: center;
   }
   .bar-slot {
     flex: 1;

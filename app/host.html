@@ -76,7 +76,14 @@
       const PANEL_W = 400, PANEL_MAX_H = 720, BAR_W = 384, MARGIN = 24;
       const PANEL_MIN_VW = 460, PANEL_MIN_VH = 620;
       const frame = document.createElement('iframe');
-      frame.src = '/index.html';
+      // ?demo swaps in the fake-backend page, so the harness can show a
+      // populated messenger — a streamed reply, a conversation list, a cart —
+      // without a backend running. Everything else about the harness is
+      // identical, which is the point: the states differ, the frame does not.
+      const demo = new URLSearchParams(location.search);
+      frame.src = demo.has('demo')
+        ? '/demo.html' + (demo.get('state') ? '?state=' + encodeURIComponent(demo.get('state')) : '')
+        : '/index.html';
       frame.title = 'Site concierge';
       frame.style.cssText =
         'position:fixed;border:0;background:transparent;color-scheme:normal;z-index:2147483000;';

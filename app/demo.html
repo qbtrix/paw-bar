@@ -1,0 +1,215 @@
+<!doctype html>
+<!--
+  demo.html — the widget with a FAKE BACKEND behind it.
+  Created 2026-08-19.
+
+  `index.html` renders the app against a real backend on localhost:8888. With
+  no backend running — which is most of the time — every list is empty, every
+  reply fails, and the panel shows three empty states. That is the wrong thing
+  to design against: the surfaces that need the most care (a streamed reply
+  with a code fence and citations, a conversation list, a cart, an owner
+  reply) are exactly the ones you cannot see.
+
+  So this page stubs `fetch` before the app boots and serves the shapes the
+  router really returns — SSE frames included, delivered a chunk at a time so
+  streaming looks like streaming. Nothing here ships: vite's build entry is
+  `index.html`, so this file is dev-only by construction, and the app itself
+  cannot tell the difference between this and a server.
+
+  Open `/host.html?demo` to get it inside the real host harness (a page with
+  its own content, the loader's box protocol, and a click counter proving the
+  page underneath stays live). Open `/demo.html` on its own to work on the
+  panel's interior without the frame around it.
+
+  `?state=` seeds the widget: `?state=thread` opens straight into a populated
+  conversation, `?state=cart` adds items so the checkout affordances appear.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Paw Bar — demo (fake backend)</title>
+    <style>
+      html.embedded body { background: none; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(1200px 800px at 12% 18%, #2a3f6b 0%, transparent 55%),
+          radial-gradient(900px 700px at 88% 82%, #6b2a52 0%, transparent 55%),
+          linear-gradient(135deg, #0d1018, #161a24);
+      }
+    </style>
+    <script>
+      if (window.parent !== window) document.documentElement.classList.add('embedded');
+
+      const params = new URLSearchParams(location.search);
+      const wants = (name) => (params.get('state') || '').split(',').includes(name);
+
+      window.__PAWBAR__ = {
+        siteKey: 'demo-site-key',
+        widgetId: 'demo-widget',
+        endpoint: 'https://demo.invalid/api/v1',
+        parentOrigin: window.location.origin,
+        mode: 'concierge',
+        greeting: 'Hello there. How can we help?',
+        agentName: 'Ocean Supply',
+        agentSubtitle: 'The team can also help',
+        launcherLabel: 'Ask about Ocean Supply',
+        starters: ['Where is my order?', 'Do you ship to Portugal?', 'How do returns work?'],
+      };
+
+      // ── the fake router ────────────────────────────────────────────────────
+      const ARTICLES = [
+        { title: 'Shipping and delivery times', url: 'https://ocean.example/shipping', snippet: 'Orders leave the warehouse within one working day. Europe is 2-4 days, everywhere else 5-9.' },
+        { title: 'Returns and exchanges', url: 'https://ocean.example/returns', snippet: 'Thirty days, free, no questions. Wetsuits have to be dry.' },
+        { title: 'Wetsuit sizing guide', url: 'https://ocean.example/sizing', snippet: 'Measure your chest, not your t-shirt size. A suit should feel tight on land.' },
+        { title: 'Board fin compatibility', url: 'https://ocean.example/fins', snippet: 'FCS II boxes take FCS I fins with the tab removed. Futures do not.' },
+      ];
+
+      const iso = (minsAgo) => new Date(Date.now() - minsAgo * 60000).toISOString();
+      const CONVERSATIONS = [
+        { id: 'ppc_live', state: 'open', preview: 'Is the 4/3 back in stock in medium?', last_message_at: iso(2), active: true },
+        { id: 'ppc_old1', state: 'open', preview: 'Thanks — that arrived this morning, all good.', last_message_at: iso(190) },
+        { id: 'ppc_old2', state: 'open', preview: 'Do you post to the Azores?', last_message_at: iso(3 * 24 * 60) },
+      ];
+
+      const CART = {
+        items: [
+          { id: 'l1', product_id: 'wetsuit-43', name: 'Winter 4/3 Wetsuit', qty: 1, price_cents: 32900, line_total_cents: 32900 },
+          { id: 'l2', product_id: 'wax-cool', name: 'Cool-water wax (3 pack)', qty: 3, price_cents: 450, line_total_cents: 1350 },
+        ],
+        total_cents: 34250,
+        currency: 'EUR',
+        checkout_url: 'https://ocean.example/checkout',
+      };
+
+      // A reply that exercises the parts of the renderer that are easy to get
+      // wrong: prose, a list, an inline code span, a fenced block, a table, and
+      // an action card — plus citations, including a REPEATED url, because that
+      // combination is what used to take the widget down.
+      const REPLY = [
+        'Yes — the **4/3 Winter** is back in medium.\n\n',
+        'A few things worth knowing before you order:\n\n',
+        '- Free returns for thirty days, as long as the suit is dry\n',
+        '- Europe is 2-4 working days; the Azores go by the `island` rate\n',
+        '- Sizing runs true to chest measurement, not t-shirt size\n\n',
+        'Here is the size table:\n\n',
+        '| Size | Chest | Height |\n|---|---|---|\n| S | 88-94cm | 168-175cm |\n| M | 96-102cm | 175-182cm |\n| L | 104-110cm | 180-188cm |\n\n',
+        'If you want to check the seams yourself:\n\n',
+        '```bash\ncurl -s https://ocean.example/api/stock/wetsuit-43 \\\n  | jq \'.sizes[] | select(.available)\'\n```\n\n',
+        'I can add it to your cart now if you like.\n\n',
+        '```pawbar-card\n{"kind":"product","items":[{"id":"wetsuit-43","name":"Winter 4/3 Wetsuit","price_cents":32900,"currency":"EUR","image_url":"https://ocean.example/missing.png","actions":["add_to_cart","checkout"]}]}\n```\n',
+      ];
+
+      // ?state=long streams the same reply many times over, for measuring what
+      // a pathological answer costs: the renderer re-parses the WHOLE
+      // accumulated message on every delta, so the cost grows with reply length
+      // and only a long one shows the shape of it.
+      const REPLY_STREAM = wants('long')
+        ? Array.from({ length: 12 }, () => REPLY).flat()
+        : REPLY;
+
+      const sse = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+
+      function jsonResponse(body, status = 200) {
+        return new Response(JSON.stringify(body), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+
+      const realFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+        const path = url.pathname;
+        // Anything that is not the fake router still goes to the network, so
+        // the vite client and HMR keep working.
+        if (!path.includes('/paw-bar/')) return realFetch(input, init);
+
+        await new Promise((r) => setTimeout(r, 220)); // enough to see a skeleton
+
+        if (path.endsWith('/paw-bar/articles')) return jsonResponse({ articles: ARTICLES });
+        if (path.endsWith('/paw-bar/conversations')) {
+          if ((init?.method || 'GET').toUpperCase() === 'POST') {
+            const fresh = { id: 'ppc_' + Math.random().toString(36).slice(2, 8), state: 'open', preview: '', last_message_at: new Date().toISOString(), active: true };
+            CONVERSATIONS.unshift(fresh);
+            return jsonResponse(fresh);
+          }
+          return jsonResponse({ conversations: CONVERSATIONS });
+        }
+        if (path.includes('/paw-bar/messages/')) return jsonResponse({ messages: [] });
+        if (path.endsWith('/paw-bar/cart')) {
+          return jsonResponse(wants('cart') ? CART : { items: [], total_cents: 0, currency: 'EUR' });
+        }
+        if (path.endsWith('/paw-bar/action')) {
+          CART.items.push({ id: 'l3', product_id: 'wetsuit-43', name: 'Winter 4/3 Wetsuit', qty: 1, price_cents: 32900, line_total_cents: 32900 });
+          CART.total_cents += 32900;
+          return jsonResponse({ ok: true, cart: CART });
+        }
+        if (path.endsWith('/paw-bar/chat')) {
+          const stream = new ReadableStream({
+            async start(controller) {
+              const enc = new TextEncoder();
+              for (const part of REPLY_STREAM) {
+                await new Promise((r) => setTimeout(r, wants('long') ? 25 : 90));
+                controller.enqueue(enc.encode(sse('chunk', { type: 'text', content: part })));
+              }
+              controller.enqueue(
+                enc.encode(
+                  sse('sources', {
+                    sources: [
+                      { title: 'Wetsuit sizing guide', url: 'https://ocean.example/sizing' },
+                      // The same page twice. Ordinary RAG output, and the exact
+                      // payload that used to throw each_key_duplicate.
+                      { title: 'Sizing (2026 revision)', url: 'https://ocean.example/sizing' },
+                      { title: 'Shipping and delivery times', url: 'https://ocean.example/shipping' },
+                    ],
+                  }),
+                ),
+              );
+              controller.enqueue(enc.encode(sse('stream_end', { assistant_message_id: 'am_demo' })));
+              controller.close();
+            },
+          });
+          return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        }
+        return jsonResponse({ detail: 'not found in the demo router' }, 404);
+      };
+
+      // Seed a populated transcript so the conversation surface can be reviewed
+      // without typing. Written to the same localStorage key the app restores
+      // from, which is also a real test of that restore path.
+      if (wants('thread')) {
+        const t = (role, content, extra = {}) => ({ id: 'seed_' + Math.random().toString(36).slice(2), role, content, status: 'done', ...extra });
+        // The exact keys and row shape lib/transcript.ts reads (v2 prefix,
+        // `${widgetId}.${conversationId}`, `saved_at` + `messages`), so seeding
+        // exercises the real restore path rather than a parallel one.
+        localStorage.setItem(
+          'pawbar.transcript.v2.demo-widget.ppc_live',
+          JSON.stringify({
+            saved_at: Date.now(),
+            messages: [
+              t('user', 'Is the 4/3 back in stock in medium?'),
+              t('assistant', REPLY.join(''), { sources: [{ title: 'Wetsuit sizing guide', url: 'https://ocean.example/sizing' }, { title: 'Shipping and delivery times', url: 'https://ocean.example/shipping' }] }),
+              t('system', 'A member of the team joined the conversation.'),
+              t('owner', "Hi! Sam here — I've just put one aside for you. It'll go out today if you order in the next hour."),
+              t('user', 'Amazing, thank you. Ordering now.'),
+            ],
+          }),
+        );
+        localStorage.setItem('pawbar.active.v1.demo-widget', 'ppc_live');
+      } else {
+        // A clean slate otherwise, so ?state= is the whole truth about what the
+        // page shows and a previous run cannot leak into this one.
+        for (const k of Object.keys(localStorage)) {
+          if (k.startsWith('pawbar.') || k.startsWith('__pawbar')) localStorage.removeItem(k);
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="pawbar-app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -170,8 +170,17 @@
     max-height: 160px;
     padding: 7px 4px 7px 10px;
   }
+  /* A placeholder NEVER wraps. autosize grows the textarea for its VALUE, not
+     for its placeholder, so a label too long for the line wrapped to a second
+     one the textarea then clipped in half — "Ask about Ocean / Suppl". It is
+     the owner's label and it can be 40 characters, so this is ordinary input,
+     not an edge case. Truncating reads as a normal chat input; a sliced
+     descender reads as a broken widget on their own site. */
   textarea::placeholder {
     color: var(--pawbar-fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .send {
     flex: none;

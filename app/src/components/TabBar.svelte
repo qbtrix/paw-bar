@@ -56,6 +56,40 @@
   } = $props();
 
   let buttons: HTMLButtonElement[] = $state([]);
+  let navEl: HTMLElement | null = $state(null);
+  let trackEl: HTMLElement | null = $state(null);
+
+  // ── Do the labels fit? ────────────────────────────────────────────────────
+  // MEASURED, not guessed. A CSS threshold — media or container query — encodes
+  // how much room the labels NEED as a hard-coded number, and that number is
+  // wrong the moment a fourth tab ships or a site is localized ("Nachrichten"
+  // is half again as wide as "Messages"). It was also wrong on day one: the
+  // guess said hide below 258px and the labels actually needed 253.
+  //
+  // So the track measures its own full width once, and compares. `fullWidth` is
+  // only ever re-measured while the labels ARE showing, which is what stops the
+  // obvious oscillation — hiding labels shrinks the track, a naive re-measure
+  // would then say they fit, and they would flicker on and off forever.
+  let compact = $state(false);
+  let fullWidth = 0;
+
+  $effect(() => {
+    const nav = navEl;
+    const track = trackEl;
+    if (!nav || !track) return;
+    const measure = () => {
+      if (!compact) fullWidth = track.scrollWidth;
+      const available = nav.clientWidth;
+      // 1px of slack: sub-pixel layout can make a track that fits report a
+      // scrollWidth one larger than the box it fits in.
+      if (fullWidth > 0) compact = available + 1 < fullWidth;
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(nav);
+    ro.observe(track);
+    return () => ro.disconnect();
+  });
 
   /** Arrow keys move selection AND focus together — automatic activation, which
    *  is right here because every pane is already mounted and switching costs
@@ -77,8 +111,8 @@
   }
 </script>
 
-<div class="navbar">
-  <div class="track" role="tablist" aria-label="Concierge sections">
+<div class="navbar" bind:this={navEl}>
+  <div class="track" class:compact role="tablist" aria-label="Concierge sections" bind:this={trackEl}>
     {#each tabs as tab, i (tab.id)}
       {@const isActive = tab.id === active}
       <button
@@ -115,7 +149,6 @@
 
 <style>
   .navbar {
-    flex: none;
     display: flex;
     align-items: center;
     min-width: 0;
@@ -225,15 +258,33 @@
     border-radius: 50%;
   }
 
-  /* Under ~330px of panel the labels stop fitting three-wide. The glyph plus
-     the accessible name carries it — losing the label is better than a track
-     that scrolls sideways on the widest surface most visitors ever see. */
-  @media (max-width: 330px) {
-    .label {
-      display: none;
+  /* When the nav is squeezed — a cart badge in the header, a fourth tab, a
+     long localized label — the labels go before anything else does. The glyph
+     plus the accessible name still carries the tab, and losing a label is
+     better than a track that scrolls sideways or an action button pushed off
+     the header entirely. Driven by the measurement above, not by a breakpoint. */
+  .track.compact .label {
+    display: none;
+  }
+
+  .track.compact .tab {
+    padding: 7px 10px;
+  }
+
+  /* All three of the active tab's signals are colour or surface, and forced
+     colors discards both — leaving three identically-bordered pills and no way
+     to see which section you are on. Verified under emulated forced-colors:
+     the selected tab was indistinguishable. Highlight/HighlightText are system
+     colours, so they survive where our own tokens do not, and they are what the
+     platform itself uses to mean "this one is selected". */
+  @media (forced-colors: active) {
+    .tab.active {
+      background: Highlight;
+      color: HighlightText;
+      forced-color-adjust: none;
     }
-    .tab {
-      padding: 7px 10px;
+    .tab.active :global(svg) {
+      stroke: HighlightText;
     }
   }
 

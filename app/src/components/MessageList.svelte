@@ -96,6 +96,14 @@
     padding: 18px 16px 20px;
     flex: 1;
     min-height: 0;
+    /* A READING COLUMN, not a full-bleed row. In the 400px panel this resolves
+       to the plain 16px gutter and nothing changes. Expanded to a 1280px
+       viewport it centres the turns instead of throwing the visitor's bubble
+       against the right edge and the answer against the left — half a metre
+       apart, which is not a conversation, it is two columns of unrelated text.
+       Capping the bubbles alone (they stop at 640px) never fixed that: the cap
+       controls line length, and this controls where the lines sit. */
+    padding-inline: max(16px, calc((100% - var(--pawbar-read-col)) / 2));
   }
   .greeting {
     margin: auto 0;

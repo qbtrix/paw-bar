@@ -195,15 +195,29 @@
           <!-- Renders nothing until the visitor has items, so this is a header
                control on a shopping conversation and invisible on every other. -->
           <CartBadge />
-          <button
-            type="button"
-            class="icon-btn"
-            onclick={onexpand}
-            aria-label={expanded ? 'Shrink concierge' : 'Expand concierge'}
-            aria-pressed={expanded}
-          >
-            <Icon name={expanded ? 'shrink' : 'expand'} />
-          </button>
+          <!-- Expand does not live here; SHRINK does, and only while expanded.
+               Expanding is a READING affordance — you grow the surface because
+               an answer is long — and answers live in a conversation, which has
+               its own control. Carrying the button on all four surfaces cost
+               32px of a 400px header, and with a cart badge present that was
+               the difference between labelled tabs and three anonymous glyphs.
+
+               But leaving a conversation while expanded used to strand the
+               visitor full-screen with no visible way back (Escape worked;
+               nothing said so). So the way OUT appears exactly when there is
+               something to get out of — and at that point the header is a
+               viewport wide, so it costs nothing. -->
+          {#if expanded}
+            <button
+              type="button"
+              class="icon-btn"
+              onclick={onexpand}
+              aria-label="Shrink concierge"
+              aria-pressed="true"
+            >
+              <Icon name="shrink" />
+            </button>
+          {/if}
           <button type="button" class="icon-btn" onclick={onclose} aria-label="Close concierge">
             <Icon name="close" />
           </button>
@@ -306,15 +320,30 @@
     flex: none;
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
     min-width: 0;
     padding: 10px 10px 10px 12px;
     border-bottom: 1px solid var(--pawbar-border);
   }
 
+  /* THE CONTROLS NEVER YIELD; THE NAV DOES. Both sides were `flex: none`, so
+     with a cart badge in the header the intrinsic width came to 413px inside a
+     374px header and the CLOSE BUTTON was pushed 29px past the right edge and
+     clipped away — a visitor with items in their cart had no way to close the
+     panel except Escape. Measured in the demo harness, which is the only place
+     a populated cart and a full nav have ever been on screen together.
+
+     Giving the nav `min-width: 0` lets it shrink, and TabBar drops its labels
+     to glyphs when it gets tight (a container query on .navbar), so the nav
+     degrades gracefully instead of the close button disappearing. */
+  .head > :global(.navbar) {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
   .head-actions {
     flex: none;
+    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 2px;

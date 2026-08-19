@@ -38,5 +38,10 @@ export default defineConfig(({ mode }) => ({
     // a component test can hold $state props and drive a real prop update the
     // way the app does. Plain .spec.ts cannot — runes are a compiler feature.
     include: ['tests/**/*.spec.ts', 'tests/**/*.spec.svelte.ts'],
+    // jsdom has no ResizeObserver, and both size-sensitive components need one
+    // to mount at all. The stub is drivable rather than a no-op — see the note
+    // in tests/setup.ts for why that distinction decides whether the tests of
+    // those components mean anything.
+    setupFiles: ['tests/setup.ts'],
   },
 }));

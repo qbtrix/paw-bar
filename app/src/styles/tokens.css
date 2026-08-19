@@ -96,6 +96,13 @@
   --pawbar-nav-fg-active: oklch(0.98 0 0 / 0.98);
   --pawbar-nav-active-bg: oklch(0.32 0.022 264 / 0.95);
 
+  /* The reading column. The panel is 400px wide docked, so this only bites once
+     the visitor expands to the big surface — at which point the transcript and
+     the composer both centre on it instead of spanning a 1280px viewport.
+     Sized for measure: bubbles cap at 640px, and the rest is the left/right
+     gutter that makes an exchange read as an exchange. */
+  --pawbar-read-col: 760px;
+
   /* ── Shape + type ───────────────────────────────────────────────────────── */
   --pawbar-radius: 20px;
   --pawbar-radius-sm: 12px;

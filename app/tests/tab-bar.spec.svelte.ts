@@ -12,6 +12,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import TabBar, { type Tab } from '../src/components/TabBar.svelte';
+import { resizeObservers } from './setup';
 
 const TABS: Tab[] = [
   { id: 'home', label: 'Home', icon: 'home' },
@@ -116,5 +117,66 @@ describe('TabBar keyboard contract', () => {
     // "Messages, 2 unread" rather than a stranded "2" beside the label.
     expect(messages.textContent).toContain('Messages');
     expect(messages.querySelector('.sr-only')?.textContent).toBe('2 unread');
+  });
+});
+
+describe('TabBar label fit', () => {
+  // The labels drop to glyphs when the nav is squeezed — a cart badge in the
+  // header, a fourth tab, a longer localization. This was a CSS breakpoint at
+  // first, and the breakpoint was simply wrong: it hid the labels below 258px
+  // when they actually needed 253, so a header with a cart showed three
+  // anonymous glyphs for no reason. A hard-coded number also cannot survive a
+  // fourth tab or a translation, which is why the component measures instead.
+  //
+  // jsdom has no layout, so the widths are stubbed and the observer is fired by
+  // hand. What is under test is the DECISION, which is the part that was wrong.
+  function sized(available: number, needed: number) {
+    const target = document.createElement('div');
+    document.body.append(target);
+    const props = $state({ tabs: TABS, active: 'home', onselect: () => {} });
+    live = mount(TabBar, { target, props });
+    flushSync();
+
+    const nav = target.querySelector<HTMLElement>('.navbar')!;
+    const track = target.querySelector<HTMLElement>('.track')!;
+    Object.defineProperty(nav, 'clientWidth', { get: () => available, configurable: true });
+    // The track only reports its full width while the labels are showing; once
+    // compact it is narrower, which is exactly the feedback the component must
+    // not act on.
+    Object.defineProperty(track, 'scrollWidth', {
+      get: () => (track.classList.contains('compact') ? Math.round(needed * 0.45) : needed),
+      configurable: true,
+    });
+    return {
+      track,
+      fire() {
+        resizeObservers.forEach((o) => o.fire());
+        flushSync();
+      },
+    };
+  }
+
+  it('keeps the labels when they fit', () => {
+    const nav = sized(254, 253);
+    nav.fire();
+    expect(nav.track.classList.contains('compact')).toBe(false);
+  });
+
+  it('drops the labels when they do not fit', () => {
+    const nav = sized(222, 253);
+    nav.fire();
+    expect(nav.track.classList.contains('compact')).toBe(true);
+  });
+
+  it('does not flicker back once compact', () => {
+    // The trap: hiding the labels shrinks the track, so re-measuring naively
+    // says "they fit now", the labels return, the track grows, and they
+    // disappear again — forever. The full width is only re-read while the
+    // labels are actually showing.
+    const nav = sized(222, 253);
+    nav.fire();
+    expect(nav.track.classList.contains('compact')).toBe(true);
+    for (let i = 0; i < 5; i++) nav.fire();
+    expect(nav.track.classList.contains('compact')).toBe(true);
   });
 });

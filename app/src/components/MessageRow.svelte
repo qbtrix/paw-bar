@@ -362,4 +362,23 @@
   @media (prefers-reduced-motion: reduce) {
     .typing span { animation: none; }
   }
+
+  /* Windows High Contrast and friends. Forced colors discards every
+     background-color, and this redesign had just moved the bubbles from
+     "border + fill" to "fill alone" — so in forced colors the transcript
+     collapsed to left-aligned text and right-aligned text with no bubble at
+     all, and no way to tell the visitor's own words from the answer. Verified
+     in Chrome under emulated forced-colors before and after.
+
+     A border is the one thing that survives, so the shape comes back from the
+     border rather than from the fill. The owner keeps their 2px edge, which
+     also survives, so all three speakers stay distinguishable. */
+  @media (forced-colors: active) {
+    .bubble {
+      border: 1px solid CanvasText;
+    }
+    .row.owner .bubble {
+      border-left-width: 3px;
+    }
+  }
 </style>
