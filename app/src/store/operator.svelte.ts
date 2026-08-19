@@ -46,6 +46,11 @@ export class OperatorStore {
   #timer: ReturnType<typeof setInterval> | null = null;
   #inFlight = false;
   #after = '';
+  /** The conversation `#after` was accumulated against, so a switch can reset
+   *  it. Starts as the constructor's conversation rather than '' so the first
+   *  poll of an ordinary session doesn't discard the cursor restored from the
+   *  transcript and re-append the whole thread. */
+  #polledConversationId: string;
   #customerRef: string | null = null;
   #onVisibility: (() => void) | null = null;
 
@@ -55,6 +60,7 @@ export class OperatorStore {
     // Resume from the newest owner/system turn the restored transcript already
     // holds, so a reload doesn't ask for (and re-append) the whole history.
     this.#after = chat.latestOperatorAt();
+    this.#polledConversationId = chat.conversationId;
   }
 
   /** Is the loop scheduled? (Panel open + not yet stopped.) */
@@ -102,9 +108,27 @@ export class OperatorStore {
    *  in flight, so requests never stack and a background tab stays quiet. */
   async poll(): Promise<void> {
     if (this.#inFlight || isHidden()) return;
+    // The `after` cursor belongs to ONE conversation. Walking back into an older
+    // thread from the Messages tab carries a high-water mark from a newer one,
+    // which would filter out every line in the thread just opened — a takeover
+    // that silently shows nothing. Re-seed from the transcript now on screen.
+    const conversationId = this.#chat.conversationId;
+    if (conversationId !== this.#polledConversationId) {
+      this.#polledConversationId = conversationId;
+      this.#after = this.#chat.latestOperatorAt();
+    }
     this.#inFlight = true;
     try {
-      const result = await fetchOperatorMessages(await this.#clientConfig(), this.#after);
+      const result = await fetchOperatorMessages(
+        await this.#clientConfig(),
+        this.#after,
+        undefined,
+        // Read fresh each poll rather than captured at construction: the visitor
+        // can switch conversations from the Messages tab mid-loop, and a
+        // captured id would keep delivering the old thread's owner replies into
+        // the new one.
+        this.#chat.conversationId,
+      );
       // null = 404 / refusal / network error / malformed body. Change nothing.
       if (!result) return;
       this.#chat.botPaused = result.botPaused;
