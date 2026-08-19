@@ -7,7 +7,12 @@
 // malformed body — returns [] so the view shows the quiet empty state; a
 // public widget never shows an error wall. Rows are validated like
 // lib/sources: string titles, http(s) urls only (never a javascript: href),
-// snippets coerced to strings.
+// snippets coerced to strings, deduped by url.
+//
+// 2026-08-19 (dedup): HomeTab and HelpTab both key their lists on article.url,
+// and a keyed each block with a repeated key is a render-time throw. Two rows
+// pointing at one page is a sync artefact, not a malformed response, so the
+// list this returns is unique by construction.
 
 export interface Article {
   title: string;
@@ -55,6 +60,7 @@ export async function fetchArticles(config: ArticlesConfig, signal?: AbortSignal
   }
   if (!data || !Array.isArray(data.articles)) return [];
   const out: Article[] = [];
+  const seen = new Set<string>();
   for (const item of data.articles) {
     if (out.length >= ARTICLES_CAP) break;
     if (!item || typeof item !== 'object') continue;
@@ -62,6 +68,8 @@ export async function fetchArticles(config: ArticlesConfig, signal?: AbortSignal
     const title = typeof row.title === 'string' ? row.title.trim() : '';
     const url = typeof row.url === 'string' ? row.url.trim() : '';
     if (!title || !isHttpUrl(url)) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
     out.push({ title, url, snippet: typeof row.snippet === 'string' ? row.snippet : '' });
   }
   return out;

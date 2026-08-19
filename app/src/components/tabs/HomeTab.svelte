@@ -116,7 +116,12 @@
 
     {#if starters.length > 0}
       <ul class="starters">
-        {#each starters.slice(0, 4) as starter (starter)}
+        <!-- Keyed by INDEX, not by the string. These are owner-typed prose,
+             nothing dedupes them, and two identical starters is a typo in a
+             settings field rather than an impossible state — but a repeated key
+             is a render-time throw that takes the panel down. Index is the
+             correct key for a fixed-order list of identical controls anyway. -->
+        {#each starters.slice(0, 4) as starter, i (i)}
           <li>
             <button type="button" class="starter" onclick={() => onask(starter)}>
               {starter}

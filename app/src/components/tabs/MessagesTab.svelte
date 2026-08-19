@@ -33,14 +33,24 @@
     onask: () => void;
   } = $props();
 
+  // A relative timestamp that never re-renders is wrong within a minute of the
+  // panel opening, and this panel stays open while the visitor waits for a
+  // reply — precisely the window where "now" turning into "3m" is the thing
+  // they are watching for. One interval for the whole list; cleared on unmount.
+  let now = $state(Date.now());
+  $effect(() => {
+    const id = setInterval(() => (now = Date.now()), 60_000);
+    return () => clearInterval(id);
+  });
+
   /** Compact relative age, matching what a messenger shows in a list row.
    *  Anything older than a week reads as a date — "8d" stops being useful at
    *  the point where the visitor would rather know when. */
-  function ago(iso: string): string {
+  function ago(iso: string, at: number): string {
     if (!iso) return '';
     const then = Date.parse(iso);
     if (Number.isNaN(then)) return '';
-    const mins = Math.floor((Date.now() - then) / 60000);
+    const mins = Math.floor((at - then) / 60000);
     if (mins < 1) return 'now';
     if (mins < 60) return `${mins}m`;
     const hours = Math.floor(mins / 60);
@@ -85,7 +95,7 @@
               <span class="row-body">
                 <span class="row-head">
                   <span class="row-name">{agentName}</span>
-                  <span class="row-time">{ago(conversation.lastMessageAt)}</span>
+                  <span class="row-time">{ago(conversation.lastMessageAt, now)}</span>
                 </span>
                 <span class="row-preview">
                   {conversation.preview || 'No messages yet'}
@@ -351,15 +361,4 @@
     }
   }
 
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-    border: 0;
-  }
 </style>

@@ -1,71 +1,102 @@
 /* tokens.css — The --pawbar-* custom properties that make the glass concierge a
-   white-label headless surface. Created 2026-07-15 (A3 glass bar). Defaults are
-   quiet-authority glass (dark). Style is driven by a data-pawbar-theme attribute
-   on the app root + this CSS-var scale (the cmdk pattern), so a light/dark flip
-   is one attribute and a full re-skin is window.__PAWBAR__.tokens injected
-   inline on the root (see main.ts). All colors are oklch (wide-gamut, matches
-   the paw-enterprise design system).
+   white-label headless surface. Created 2026-07-15 (A3 glass bar). All colors
+   are oklch (wide-gamut, matches the paw-enterprise design system).
 
    2026-08-19 (Messenger): the scale grew to cover the surfaces the tabbed panel
-   introduced — a hero, a tab bar, a conversation list, an unread peek — plus a
-   real MOTION scale. Motion is expressed as tokens rather than hard-coded
-   durations for the same reason color is: the owner sets a motion preset in
-   paw-enterprise and it arrives here as var overrides, so "calmer" is a
-   setting rather than a fork. Every duration resolves to 0.01ms under
-   prefers-reduced-motion (bottom of this file), which is why animations may
-   reference these vars freely. */
+   introduced — a hero, a nav, a conversation list — plus a real MOTION scale.
+   Motion is expressed as tokens rather than hard-coded durations for the same
+   reason color is: the owner sets a motion preset in paw-enterprise and it
+   arrives here as var overrides, so "calmer" is a setting rather than a fork.
+   Every duration resolves to 0.01ms under prefers-reduced-motion (bottom of
+   this file), which is why animations may reference these vars freely.
+
+   2026-08-19 (ONE THEME — captain direction): the light re-tune is gone, and
+   with it the data-pawbar-theme attribute and the `theme` boot field. It was a
+   second palette nobody could select: the backend never emitted `theme`, so the
+   widget's `?? 'dark'` fallback won on every site that has ever run this, and
+   the light block was 24 declarations of untested surface that no visitor had
+   seen. Shipping one palette means the contrast pairs below are the ones that
+   were actually designed against each other, and an owner who wants a lighter
+   surface overrides --pawbar-surface — the white-label path, which is real and
+   tested (tests/tokens.spec.ts), rather than a fork of the whole scale.
+
+   THE CONTRACT FOR OVERRIDES: every value here is independently overridable,
+   so nothing below may derive a color from another token in a way that breaks
+   when only one of the pair is replaced. Where a value must track another, it
+   uses color-mix at the USE site against the token the owner would set. */
 
 .pawbar-root {
-  /* Surfaces — translucent because we sit in an iframe over an unknown host bg;
-     the blur is applied on the panel element, not here. 0.8 alpha (was 0.72):
-     over light host pages the thinner surface washed out to a flat grey slab
-     instead of reading frosted. */
-  --pawbar-surface: oklch(0.17 0.015 260 / 0.8);
-  --pawbar-surface-strong: oklch(0.2 0.02 260 / 0.92);
-  /* One step up from surface-strong, for elements that sit ON the panel and
-     must read as raised without a border: the home cards, the composer well,
-     a conversation row on hover. */
-  --pawbar-surface-raised: oklch(0.26 0.02 260 / 0.9);
-  /* Text */
-  --pawbar-fg: oklch(0.98 0 0 / 0.92);
-  --pawbar-fg-muted: oklch(0.98 0 0 / 0.62);
+  /* ── Surfaces ────────────────────────────────────────────────────────────
+     Translucent because we sit in an iframe over an unknown host bg; the blur
+     is applied on the panel element, not here. The alpha floor is high enough
+     that a light host page reads as frosted glass rather than washing the
+     surface out to a flat grey slab. */
+  --pawbar-surface: oklch(0.165 0.014 264 / 0.86);
+  --pawbar-surface-strong: oklch(0.2 0.018 264 / 0.94);
+  /* One step up, for elements that sit ON the panel and must read as raised
+     without a border: the home cards, the composer well, a hovered row. */
+  --pawbar-surface-raised: oklch(0.255 0.02 264 / 0.92);
+  /* One step DOWN — a recessed well. The nav track and the composer field are
+     the two places the surface should read as carved into the panel rather
+     than resting on it, which is what separates a segmented control from a row
+     of buttons. */
+  --pawbar-surface-sunken: oklch(0.12 0.012 264 / 0.55);
+
+  /* ── Text ───────────────────────────────────────────────────────────────── */
+  --pawbar-fg: oklch(0.98 0 0 / 0.93);
+  --pawbar-fg-muted: oklch(0.98 0 0 / 0.64);
   /* The dimmest text that still clears 4.5:1 on --pawbar-surface. Used for
      timestamps and row metadata; never for anything a visitor must read to
      complete a task. */
-  --pawbar-fg-subtle: oklch(0.98 0 0 / 0.48);
-  /* Lines + focus */
-  --pawbar-border: oklch(1 0 0 / 0.12);
+  --pawbar-fg-subtle: oklch(0.98 0 0 / 0.5);
+
+  /* ── Lines + focus ──────────────────────────────────────────────────────── */
+  --pawbar-border: oklch(1 0 0 / 0.11);
+  /* A touch brighter, for an edge that has to survive sitting on a raised
+     surface rather than on the panel ground. */
+  --pawbar-border-strong: oklch(1 0 0 / 0.17);
   --pawbar-ring: oklch(0.62 0.19 258 / 0.55);
-  /* Accent — quiet authority blue (no green, per the billing/brand palette) */
+
+  /* ── Accent — quiet authority blue (no green, per the billing/brand palette) */
   --pawbar-accent: oklch(0.62 0.19 258);
   --pawbar-accent-fg: oklch(0.99 0 0);
-  /* Bubbles — the owner (a human from the site's team) is a THIRD speaker, so
-     it gets its own accent-tinted surface: not the visitor's solid accent, not
-     the bot's neutral grey. */
-  --pawbar-user-bubble: oklch(0.62 0.19 258 / 0.92);
-  --pawbar-assistant-bubble: oklch(1 0 0 / 0.05);
+
+  /* ── Bubbles ─────────────────────────────────────────────────────────────
+     The owner (a human from the site's team) is a THIRD speaker, so it gets its
+     own accent-tinted surface: not the visitor's solid accent, not the bot's
+     neutral. */
+  --pawbar-user-bubble: oklch(0.62 0.19 258 / 0.95);
+  --pawbar-assistant-bubble: oklch(1 0 0 / 0.062);
   --pawbar-owner-bubble: oklch(0.62 0.19 258 / 0.16);
-  /* Danger + the unread signal. Notification counts are their own token: they
-     must stay legible when an owner re-skins the accent to something that would
-     read as "everything is fine". */
+
+  /* ── Danger + the unread signal ──────────────────────────────────────────
+     Notification counts are their own token: they must stay legible when an
+     owner re-skins the accent to something that would read as "all is fine". */
   --pawbar-danger: oklch(0.62 0.2 25);
   --pawbar-unread: oklch(0.62 0.22 25);
   --pawbar-unread-fg: oklch(0.99 0 0);
 
-  /* Hero — the panel's opening field. Defaults to a two-stop wash of the accent
-     so a widget with no owner artwork still opens with a considered surface
-     rather than a flat header. An owner image replaces it via --pawbar-hero-image. */
+  /* ── Hero — the panel's opening field ────────────────────────────────────
+     Defaults to a two-stop wash of the accent so a widget with no owner artwork
+     still opens with a considered surface rather than a flat header. An owner
+     image replaces it via --pawbar-hero-image. */
   --pawbar-hero-from: oklch(0.46 0.14 262);
   --pawbar-hero-to: oklch(0.19 0.03 262);
   --pawbar-hero-fg: oklch(0.99 0 0 / 0.96);
-  --pawbar-hero-height: 200px;
+  --pawbar-hero-height: 168px;
 
-  /* Tab bar */
-  --pawbar-tabbar-bg: oklch(0.14 0.012 260 / 0.94);
-  --pawbar-tab-fg: oklch(0.98 0 0 / 0.55);
-  --pawbar-tab-fg-active: oklch(0.98 0 0 / 0.98);
+  /* ── Top nav (segmented pills) ───────────────────────────────────────────
+     A recessed track holding a raised active pill — paw-enterprise's
+     WorkspaceTabs language, which is where the captain asked this to land. The
+     active pill is a SURFACE change, not just a color change, so "which section
+     am I in" survives a re-skinned accent and a visitor who cannot separate
+     these two greys. */
+  --pawbar-nav-track: var(--pawbar-surface-sunken);
+  --pawbar-nav-fg: oklch(0.98 0 0 / 0.58);
+  --pawbar-nav-fg-active: oklch(0.98 0 0 / 0.98);
+  --pawbar-nav-active-bg: oklch(0.32 0.022 264 / 0.95);
 
-  /* Shape + type */
+  /* ── Shape + type ───────────────────────────────────────────────────────── */
   --pawbar-radius: 20px;
   --pawbar-radius-sm: 12px;
   --pawbar-blur: 28px;
@@ -83,8 +114,9 @@
   --pawbar-shadow-sm: 0 3px 10px -4px oklch(0 0 0 / 0.45);
   --pawbar-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 
-  /* Motion. Exponential ease-out from an already-visible resting state, so a
-     failed animation leaves a finished page rather than an invisible one.
+  /* ── Motion ─────────────────────────────────────────────────────────────
+     Exponential ease-out from an already-visible resting state, so a failed
+     animation leaves a finished page rather than an invisible one.
      --pawbar-ease-emphasis is the liveliest curve we ship and it is still a
      pure deceleration. An overshoot ("ease-out-back") was here first and was
      wrong for this surface: real objects decelerate, a support widget renders
@@ -98,34 +130,6 @@
   /* Scaled by the owner's motion preset: 0 disables travel while leaving
      opacity transitions intact, which keeps state changes legible. */
   --pawbar-motion-scale: 1;
-}
-
-/* Light quiet-authority glass — same var names, re-tuned. Selected by
-   data-pawbar-theme="light" on the app root. */
-.pawbar-root[data-pawbar-theme='light'] {
-  --pawbar-surface: oklch(0.99 0.003 260 / 0.72);
-  --pawbar-surface-strong: oklch(1 0 0 / 0.9);
-  --pawbar-surface-raised: oklch(1 0 0 / 0.98);
-  --pawbar-fg: oklch(0.22 0.01 260 / 0.95);
-  --pawbar-fg-muted: oklch(0.22 0.01 260 / 0.68);
-  --pawbar-fg-subtle: oklch(0.22 0.01 260 / 0.55);
-  --pawbar-border: oklch(0.2 0.02 260 / 0.12);
-  --pawbar-ring: oklch(0.62 0.19 258 / 0.45);
-  --pawbar-accent: oklch(0.58 0.2 258);
-  --pawbar-accent-fg: oklch(0.99 0 0);
-  --pawbar-user-bubble: oklch(0.58 0.2 258 / 0.95);
-  --pawbar-assistant-bubble: oklch(0.2 0.02 260 / 0.05);
-  --pawbar-owner-bubble: oklch(0.58 0.2 258 / 0.1);
-  --pawbar-danger: oklch(0.55 0.22 25);
-  --pawbar-unread: oklch(0.55 0.22 25);
-  --pawbar-shadow: 0 8px 24px -10px oklch(0.2 0.02 260 / 0.3);
-  --pawbar-shadow-sm: 0 3px 10px -4px oklch(0.2 0.02 260 / 0.2);
-  --pawbar-hero-from: oklch(0.72 0.13 262);
-  --pawbar-hero-to: oklch(0.99 0.003 260);
-  --pawbar-hero-fg: oklch(1 0 0 / 0.98);
-  --pawbar-tabbar-bg: oklch(1 0 0 / 0.94);
-  --pawbar-tab-fg: oklch(0.22 0.01 260 / 0.58);
-  --pawbar-tab-fg-active: oklch(0.22 0.01 260 / 0.98);
 }
 
 /* The visitor's OS setting wins over the owner's motion preset, always. Every

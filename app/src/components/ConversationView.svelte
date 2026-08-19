@@ -15,12 +15,16 @@
      "wherever you came from". A back button whose destination depends on route
      history is the thing that makes people stop trusting back buttons.
 
+     2026-08-19: the cart badge (and with it the checkout handoff) is back in
+     this header — see CartBadge's own note for what orphaned it.
+
      2026-08-19: the composer LEFT this component. It lives in the shell's
      docked bar below the panel now, so it is the same input in the same place
      whichever surface is showing — which is what the comp draws, and what
      stops the widget owning two different text boxes depending on where the
      visitor happens to be standing. -->
 <script lang="ts">
+  import CartBadge from './CartBadge.svelte';
   import Icon from './Icon.svelte';
   import MessageList from './MessageList.svelte';
   import type { Snippet } from 'svelte';
@@ -77,6 +81,10 @@
     </div>
 
     <div class="head-actions">
+      <!-- The cart follows the visitor between the tab surface and a thread:
+           an action loop that loses its checkout when they open a conversation
+           is the same dead end as having no checkout at all. -->
+      <CartBadge />
       <div class="menu-wrap">
         <button
           type="button"

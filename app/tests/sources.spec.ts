@@ -201,4 +201,34 @@ describe('transcript round-trip with sources', () => {
     const when = new Date('2026-07-30T12:00:00Z');
     expect(serializeTranscript(thread, 'Concierge', when)).toBe(serializeTranscript(bare, 'Concierge', when));
   });
+
+  // A keyed {#each} over these blows up on a repeated key, and a reply citing
+  // the same page twice is ordinary RAG output rather than a malformed payload.
+  // The cap made this look bounded; it never made it unique.
+  it('drops a repeated url, keeping the first title', () => {
+    expect(
+      sanitizeSources([
+        { title: 'Shipping', url: 'https://ocean.example/shipping' },
+        { title: 'Shipping policy', url: 'https://ocean.example/shipping' },
+        { title: 'Returns', url: 'https://ocean.example/returns' },
+      ]),
+    ).toEqual([
+      { title: 'Shipping', url: 'https://ocean.example/shipping' },
+      { title: 'Returns', url: 'https://ocean.example/returns' },
+    ]);
+  });
+
+  it('a duplicate does not consume a slot against the cap', () => {
+    const out = sanitizeSources([
+      { title: 'A', url: 'https://x.example/a' },
+      { title: 'A again', url: 'https://x.example/a' },
+      { title: 'B', url: 'https://x.example/b' },
+      { title: 'C', url: 'https://x.example/c' },
+    ]);
+    expect(out.map((s) => s.url)).toEqual([
+      'https://x.example/a',
+      'https://x.example/b',
+      'https://x.example/c',
+    ]);
+  });
 });

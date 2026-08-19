@@ -150,7 +150,7 @@ test('open docks a COLUMN, not a viewport overlay — the host page keeps its cl
   );
   // Close restores the RESTING view on its own, without the app having to post
   // a second pawbar:view to correct it.
-  assert.equal(iframe.style.width, '720px');
+  assert.equal(iframe.style.width, '384px');
 });
 
 test('the open panel ignores resize reports — a streaming reply cannot resize the frame', () => {
@@ -197,34 +197,59 @@ test('expand is opt-in and reversible: full-viewport, then back to the column', 
   assert.equal(iframe.style.height, '720px');
 });
 
-test('the docked bar is centered at the bottom, and its box hugs the reported width', () => {
+test('the docked bar is centered at the bottom, and its width is POLICY, not a report', () => {
   const window = mount();
   const iframe = onlyIframe(window);
-  // jsdom viewport is 1024x768: bar defaults to the 720 cap → left (1024-720)/2.
-  assert.equal(iframe.style.width, '720px');
-  assert.equal(iframe.style.left, '152px');
+  const fromFrame = (data) =>
+    messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
+  // jsdom viewport is 1024x768: BAR_W 384 → left (1024-384)/2.
+  assert.equal(iframe.style.width, '384px');
+  assert.equal(iframe.style.left, '320px');
   assert.equal(iframe.style.top, 768 - 96 + 'px'); // bottom-aligned default height
-  // The bar rests as a compact pill now, so its width IS reported. Pinning the
-  // box at 720 would leave ~295px of invisible iframe either side of a 130px
-  // pill, silently swallowing clicks on the host page's own content.
+
+  // The bar's HEIGHT tracks content (a composer growing to a second line)...
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 122, w: 999 }));
+  assert.equal(iframe.style.height, '122px');
+  // ...and its WIDTH ignores whatever the app reports, because the app is laid
+  // out INSIDE this box and cannot see the host viewport. Anything it derives
+  // from its own current width closes a loop, and it did: `min(360px, 100%)`
+  // resolved against the frame, so a bar restored from the minimized chip came
+  // back 133px wide and could never grow again.
+  assert.equal(iframe.style.width, '384px');
+});
+
+test('the bar comes back full width after being minimized to the chip', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const fromFrame = (data) =>
+    messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
+
+  window.dispatchEvent(fromFrame({ type: 'pawbar:view', view: 'chip' }));
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 67, w: 117 }));
+  assert.equal(iframe.style.width, '117px', 'the chip IS content-sized');
+
+  // The regression this exists for: restoring the bar left the box at whatever
+  // the chip had shrunk it to, because the app sized itself against the frame
+  // it happened to be in at the time.
+  window.dispatchEvent(fromFrame({ type: 'pawbar:view', view: 'bar' }));
+  assert.equal(iframe.style.width, '384px');
+});
+
+test('the bar never exceeds the viewport, so a phone cannot clip it', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  Object.defineProperty(window, 'innerWidth', { value: 320, configurable: true });
   window.dispatchEvent(
     messageEvent(window, {
-      data: { type: 'pawbar:resize', h: 56, w: 148 },
+      data: { type: 'pawbar:view', view: 'bar' },
       origin: FRAME_ORIGIN,
       source: iframe.contentWindow,
     }),
   );
-  assert.equal(iframe.style.width, '148px');
-  assert.equal(iframe.style.left, (1024 - 148) / 2 + 'px');
-  // ...but the cap still holds against a runaway report.
-  window.dispatchEvent(
-    messageEvent(window, {
-      data: { type: 'pawbar:resize', h: 56, w: 5000 },
-      origin: FRAME_ORIGIN,
-      source: iframe.contentWindow,
-    }),
-  );
-  assert.equal(iframe.style.width, '720px');
+  // 320 - VIEWPORT_MARGIN. The app fills whatever box it is given, so the pill
+  // is narrower on a phone rather than cut off at the frame edge.
+  assert.equal(iframe.style.width, '296px');
+  assert.equal(iframe.style.left, '12px');
 });
 
 test('pawbar:view chip docks a content-sized chip box', () => {
@@ -237,7 +262,7 @@ test('pawbar:view chip docks a content-sized chip box', () => {
   assert.equal(iframe.style.width, '180px'); // chip honours the reported width
   assert.equal(iframe.style.height, '64px');
   window.dispatchEvent(fromFrame({ type: 'pawbar:view', view: 'bar' }));
-  assert.equal(iframe.style.width, '720px'); // back to bar policy width
+  assert.equal(iframe.style.width, '384px'); // back to bar policy width
 });
 
 test('drag: start goes full-viewport and replies with the box; end docks at the new anchor', () => {
@@ -255,14 +280,14 @@ test('drag: start goes full-viewport and replies with the box; end docks at the 
   assert.equal(iframe.style.width, '100vw');
   assert.equal(posts.length, 1);
   assert.equal(posts[0].data.type, 'pawbar:box');
-  assert.equal(posts[0].data.x, 152);
-  assert.equal(posts[0].data.w, 720);
+  assert.equal(posts[0].data.x, 320);
+  assert.equal(posts[0].data.w, 384);
   assert.equal(posts[0].targetOrigin, FRAME_ORIGIN); // pinned, never "*"
 
   window.dispatchEvent(fromFrame({ type: 'pawbar:drag', phase: 'end', x: 40, y: 60 }));
   assert.equal(iframe.style.left, '40px');
   assert.equal(iframe.style.top, '60px');
-  assert.equal(iframe.style.width, '720px');
+  assert.equal(iframe.style.width, '384px');
 });
 
 test('the anchor is center-bottom: the chip re-docks centered where the bar was', () => {
@@ -270,13 +295,13 @@ test('the anchor is center-bottom: the chip re-docks centered where the bar was'
   const iframe = onlyIframe(window);
   const fromFrame = (data) =>
     messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
-  // Move the bar (720×96) to x:100,y:60 → anchor center-bottom = (460, 156).
+  // Move the bar (384×96) to x:100,y:60 → anchor center-bottom = (292, 156).
   window.dispatchEvent(fromFrame({ type: 'pawbar:drag', phase: 'start' }));
   window.dispatchEvent(fromFrame({ type: 'pawbar:drag', phase: 'end', x: 100, y: 60 }));
   // Flip to a 180×64 chip: it should center on the same point, not keep x:100.
   window.dispatchEvent(fromFrame({ type: 'pawbar:view', view: 'chip' }));
   window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 64, w: 180 }));
-  assert.equal(iframe.style.left, 460 - 90 + 'px');
+  assert.equal(iframe.style.left, 292 - 90 + 'px');
   assert.equal(iframe.style.top, 156 - 64 + 'px');
 });
 
@@ -286,11 +311,11 @@ test('a no-move drag adopts no anchor — the dock stays default-centered', () =
   const fromFrame = (data) =>
     messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
   window.dispatchEvent(fromFrame({ type: 'pawbar:drag', phase: 'start' }));
-  // Released where it started (152, 672 in the 1024×768 jsdom viewport).
-  window.dispatchEvent(fromFrame({ type: 'pawbar:drag', phase: 'end', x: 152, y: 672 }));
+  // Released where it started (320, 672 in the 1024×768 jsdom viewport).
+  window.dispatchEvent(fromFrame({ type: 'pawbar:drag', phase: 'end', x: 320, y: 672 }));
   assert.equal(window.localStorage.getItem('__pawbar_pos_v2'), null);
   // Still default-centered, so a viewport-dependent recompute keeps centering.
-  assert.equal(iframe.style.left, '152px');
+  assert.equal(iframe.style.left, '320px');
 });
 
 test('window.PawBar.open() pins its outbound post to the frame origin (never "*")', () => {
@@ -333,5 +358,127 @@ test('window.PawBar.close() returns to the resting dock', () => {
   window.PawBar.open();
   window.PawBar.close();
 
-  assert.equal(iframe.style.width, '720px');
+  assert.equal(iframe.style.width, '384px');
+});
+
+// ── The clipping bug (2026-08-19) ────────────────────────────────────────────
+// Reported by the captain: hovering the resting bar showed the input CUT OFF
+// for a beat before the frame caught up. Root cause is a CHASE, not a paint
+// bug. The app animated the pill's width in CSS; a ResizeObserver reported each
+// intermediate width; the loader then started its OWN 260ms box transition
+// toward a target the content had already left behind. Two transitions on the
+// same quantity means the outer one is permanently behind the inner one — and
+// an iframe clips whatever overflows it, so the content the frame had not
+// caught up to yet simply was not drawn.
+//
+// The app side stopped animating its width (the bar is one width now). This
+// pins the loader half: a content-size report must land on the box IMMEDIATELY.
+// The frame is the clip boundary, so it may never be smaller than the content
+// it is clipping — not even for one eased frame.
+test('a resize report sizes the box instantly — an animated box lags content and clips it', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const fromFrame = (data) =>
+    messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
+
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 56 }));
+  assert.equal(iframe.style.height, '56px');
+  assert.equal(iframe.style.transition, 'none', 'content reports must not be eased');
+
+  // A grown composer (a second line of text) is the case that matters: the bar
+  // is bottom-anchored and grows upward, so an eased height clips the top of
+  // the input the visitor is typing into.
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 122 }));
+  assert.equal(iframe.style.height, '122px');
+  assert.equal(iframe.style.transition, 'none');
+});
+
+// The counterpart: a view change IS still animated. Both endpoints are known up
+// front there, so there is no moving target to chase and the motion is a state
+// change the visitor asked for and can watch.
+test('a view change still eases the box', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  window.dispatchEvent(
+    messageEvent(window, {
+      data: { type: 'pawbar:view', view: 'chip' },
+      origin: FRAME_ORIGIN,
+      source: iframe.contentWindow,
+    }),
+  );
+  assert.match(iframe.style.transition, /width \d+ms/);
+});
+
+// ── Host-page dismissal for in-frame overlays (2026-08-19) ──────────────────
+// A menu opened inside the frame cannot see a click on the host page, so it
+// used to hang open over a page the visitor had already moved on from. The app
+// declares the overlay window; the loader watches its own document only for
+// that duration and answers with a bare type.
+test('while an overlay is up, a host-page click is reported to the frame', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const posts = [];
+  Object.defineProperty(iframe.contentWindow, 'postMessage', {
+    value: (data, targetOrigin) => posts.push({ data, targetOrigin }),
+    configurable: true,
+  });
+  const fromFrame = (data) =>
+    messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
+
+  // Nothing open: a host-page click tells the frame nothing.
+  window.document.body.dispatchEvent(
+    new window.PointerEvent('pointerdown', { bubbles: true }),
+  );
+  assert.equal(posts.length, 0, 'silent until an overlay declares itself');
+
+  window.dispatchEvent(fromFrame({ type: 'pawbar:overlay', on: true }));
+  window.document.body.dispatchEvent(
+    new window.PointerEvent('pointerdown', { bubbles: true }),
+  );
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].data.type, 'pawbar:host-pointerdown');
+  // Nothing about the host page crosses the boundary — no coordinates, no
+  // target, no selector. The frame learns THAT they clicked away, never where.
+  // (Compared as keys rather than deepEqual: the payload is built inside the
+  // jsdom realm, so its prototype is not Node's and deepStrictEqual refuses a
+  // pair that is otherwise identical.)
+  assert.deepEqual([...Object.keys(posts[0].data)], ['type']);
+  // And it stays pinned to the frame origin like every other outbound message.
+  assert.equal(posts[0].targetOrigin, FRAME_ORIGIN);
+
+  // A pointerdown on the iframe itself is the frame's own business.
+  iframe.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true }));
+  assert.equal(posts.length, 1);
+
+  // Closing the overlay goes silent again. The listener itself is permanent
+  // (one boolean test per click — cheaper in bytes than an add/remove pair
+  // against a 2KB budget); what must not be permanent is a message crossing the
+  // frame boundary on every click the visitor makes on somebody else's site.
+  window.dispatchEvent(fromFrame({ type: 'pawbar:overlay', on: false }));
+  window.document.body.dispatchEvent(
+    new window.PointerEvent('pointerdown', { bubbles: true }),
+  );
+  assert.equal(posts.length, 1);
+});
+
+test('a spoofed overlay declaration installs nothing', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const posts = [];
+  Object.defineProperty(iframe.contentWindow, 'postMessage', {
+    value: (data) => posts.push(data),
+    configurable: true,
+  });
+  // Right shape, wrong origin — the same gate every other message goes through.
+  window.dispatchEvent(
+    messageEvent(window, {
+      data: { type: 'pawbar:overlay', on: true },
+      origin: 'https://evil.example',
+      source: iframe.contentWindow,
+    }),
+  );
+  window.document.body.dispatchEvent(
+    new window.PointerEvent('pointerdown', { bubbles: true }),
+  );
+  assert.equal(posts.length, 0);
 });

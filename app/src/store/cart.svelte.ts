@@ -34,6 +34,11 @@ export class CartStore {
   error = $state<string | null>(null);
   /** The pending action key ("add_to_cart:<id>" / "checkout") for button state. */
   pending = $state<string | null>(null);
+  /** Is the cart popover showing? Lives on the store rather than inside
+   *  CartBadge so the SHELL can peel it with Escape like every other overlay.
+   *  It is drawn in two places (the tab header and the conversation header) and
+   *  the shell reaches neither by props, but both already hold this store. */
+  popoverOpen = $state(false);
 
   #config: CartStoreConfig;
   #customerRef: string | null = null;
