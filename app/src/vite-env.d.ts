@@ -22,6 +22,16 @@ interface PawBarBootConfig {
   theme?: 'light' | 'dark';
   /** Optional owner-authored concierge greeting; shown as the empty-state welcome. */
   greeting?: string;
+  /** 2026-08-19 (Messenger). Every field below is optional and defaulted in
+   *  config.ts: a widget served by a backend that predates them renders a
+   *  complete generic concierge rather than a half-filled one. */
+  starters?: string[];
+  agentName?: string;
+  agentAvatar?: string;
+  agentSubtitle?: string;
+  avatars?: string[];
+  /** The resting pill's copy, e.g. "Ask about Ocean Supply". */
+  launcherLabel?: string;
 }
 
 interface Window {

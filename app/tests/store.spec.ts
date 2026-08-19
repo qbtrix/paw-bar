@@ -4,13 +4,21 @@
 // delta appended → stream_end finalizes the turn as 'done'; and stop() aborts an
 // in-flight stream, keeping the partial text and clearing isStreaming. Runs
 // under jsdom so getCustomerRef's window.crypto/localStorage exist.
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { ChatStore } from '../src/store/chat.svelte';
 
 const CHUNK = 'event: chunk\ndata: {"content":"We open at 8am!","type":"text"}\n\n';
 const END = 'event: stream_end\ndata: {"assistant_message_id":"m1","cancelled":false}\n\n';
 const enc = (s: string) => new TextEncoder().encode(s);
 const config = { endpoint: 'http://test.local/api/v1', widgetId: 'w1', siteKey: 'k1' };
+
+// Drive-by (2026-08-19): three tests in this file failed on main because the
+// ChatStore constructor rehydrates from localStorage and nothing cleared it
+// between tests, so `messages[1]` addressed a previous test's turn. The suite
+// was reporting a real leak as a store bug.
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

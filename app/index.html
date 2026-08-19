@@ -14,7 +14,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Paw Bar — Glass Concierge (dev)</title>
     <style>
-      /* Dev-only: a busy host background to prove the glass/blur reads well. */
+      /* Dev-only: a busy host background to prove the glass/blur reads well.
+         Dropped when embedded (see the script below) — inside a frame it would
+         paint a grey rectangle over the host page instead of showing it. */
+      html.embedded body {
+        background: none;
+      }
       body {
         margin: 0;
         min-height: 100vh;
@@ -25,6 +30,12 @@
       }
     </style>
     <script>
+      // The gradient above is a STANDALONE dev aid: it proves the glass reads
+      // well over a busy page. Embedded in host.html (or the real frame) it
+      // would paint the iframe's own rectangle over the host site, so a
+      // transparent widget would look like a grey box. Strip it when we are in
+      // a frame — otherwise every screenshot lies about what a visitor sees.
+      if (window.parent !== window) document.documentElement.classList.add('embedded');
       // Stub the boot config the production frame HTML would inject.
       window.__PAWBAR__ = {
         siteKey: 'dev-site-key',

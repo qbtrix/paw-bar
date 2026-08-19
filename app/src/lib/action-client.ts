@@ -98,7 +98,15 @@ export async function getCart(config: ActionConfig, signal?: AbortSignal): Promi
   }
   if (!res.ok) return null;
   try {
-    return (await res.json()) as Cart;
+    const body = (await res.json()) as unknown;
+    // A cast is not a check. This used to be `as Cart`, so ANY 200 whose body
+    // was not a cart — a proxy's JSON error page, a partial response, a future
+    // envelope shape — became a Cart with no `items`, and the first read of
+    // cart.count threw inside the shell's render. The bar only got away with it
+    // because count was previously read in a view where the cart had not loaded
+    // yet; it is read beside the open panel now, which is exactly when it has.
+    if (!body || typeof body !== 'object' || !Array.isArray((body as Cart).items)) return null;
+    return body as Cart;
   } catch {
     return null;
   }

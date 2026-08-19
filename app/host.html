@@ -1,0 +1,141 @@
+<!doctype html>
+<!--
+  host.html — a fake customer website with the bar embedded the way a real one
+  embeds it. Created 2026-08-19 (messenger shell).
+
+  `index.html` renders the app standalone, which is fine for component work but
+  cannot show the thing that actually matters about the open state: the iframe
+  is a BOX the loader sizes, and the page around it stays live. Standalone, the
+  app fills the viewport and every geometry bug hides.
+
+  So this page speaks the loader's postMessage protocol — the same messages
+  loader/src/loader.ts handles, kept deliberately minimal — and puts real page
+  content underneath, including a click counter. If the open panel is ever a
+  modal again, the counter stops going up and you can see it.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ocean Supply — Paw Bar host harness</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 200vh;
+        font: 16px/1.5 system-ui, sans-serif;
+        color: #10131a;
+        background: #fff;
+      }
+      header {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 22px 40px; border-bottom: 1px solid #e7e9ee;
+      }
+      .brand { font-weight: 700; letter-spacing: -0.02em; }
+      main { max-width: 900px; margin: 0 auto; padding: 72px 40px; }
+      h1 { font-size: clamp(38px, 6vw, 76px); line-height: 1.02; letter-spacing: -0.04em; margin: 0 0 20px; }
+      p { font-size: 19px; color: #4a5163; max-width: 62ch; }
+      .hero {
+        height: 320px; margin: 40px 0; border-radius: 20px;
+        background: linear-gradient(120deg, #8ea2ff, #d9a7ff 40%, #ffd0a1);
+      }
+      .probe {
+        display: inline-flex; align-items: center; gap: 10px; margin-top: 8px;
+        padding: 12px 20px; border: 1px solid #d3d7e0; border-radius: 999px;
+        background: #fff; font: inherit; font-size: 15px; cursor: pointer;
+      }
+      .probe b { font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <header><span class="brand">Ocean Supply</span><span>Login</span></header>
+    <main>
+      <h1>Everything for the water.</h1>
+      <p>
+        Wetsuits, boards and the small parts nobody stocks. Free returns for
+        thirty days, and someone who actually surfs on the other end of the
+        chat.
+      </p>
+      <button class="probe" id="probe">
+        The page is still clickable — clicks: <b id="n">0</b>
+      </button>
+      <div class="hero"></div>
+      <p>
+        Scroll down. The bar stays docked, and the page keeps scrolling under
+        it, because the iframe is only ever as big as what it draws.
+      </p>
+    </main>
+
+    <script>
+      document.getElementById('probe').addEventListener('click', () => {
+        const n = document.getElementById('n');
+        n.textContent = String(Number(n.textContent) + 1);
+      });
+
+      // ── the loader's box protocol, minimally ──────────────────────────────
+      const PANEL_W = 400, PANEL_MAX_H = 720, BAR_MAX_W = 720, MARGIN = 24;
+      const PANEL_MIN_VW = 460, PANEL_MIN_VH = 620;
+      const frame = document.createElement('iframe');
+      frame.src = '/index.html';
+      frame.title = 'Site concierge';
+      frame.style.cssText =
+        'position:fixed;border:0;background:transparent;color-scheme:normal;z-index:2147483000;';
+      document.body.appendChild(frame);
+
+      let view = 'bar', dockView = 'bar', expanded = false;
+      const size = { bar: { w: BAR_MAX_W, h: 96 }, chip: { w: 240, h: 72 }, panel: { w: PANEL_W, h: PANEL_MAX_H } };
+
+      const sheet = () =>
+        view === 'panel' && (innerWidth < PANEL_MIN_VW || innerHeight < PANEL_MIN_VH);
+
+      const BOX_MS = 260, BOX_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
+      // Mirrors loader.ts: the visitor's OS setting suppresses the box
+      // animation. Read live, since people change it while a page is open.
+      const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+      function apply(animate) {
+        frame.style.transition = animate && !reduced()
+          ? ['left', 'top', 'width', 'height'].map((k) => `${k} ${BOX_MS}ms ${BOX_EASE}`).join(', ')
+          : 'none';
+        if (expanded || sheet()) {
+          Object.assign(frame.style, { left: '0px', top: '0px', width: '100vw', height: '100vh' });
+          return;
+        }
+        const maxW = innerWidth - MARGIN;
+        const wantW = view === 'bar' ? Math.min(size.bar.w, BAR_MAX_W) : size[view].w;
+        const w = Math.min(wantW, maxW);
+        const wantH = view === 'panel' ? PANEL_MAX_H : size[view].h;
+        const h = Math.min(Math.max(wantH, 48), innerHeight - MARGIN);
+        Object.assign(frame.style, {
+          left: Math.round((innerWidth - w) / 2) + 'px',
+          top: Math.max(0, innerHeight - h) + 'px',
+          width: w + 'px',
+          height: h + 'px',
+        });
+      }
+      apply();
+      addEventListener('resize', apply);
+
+      addEventListener('message', (ev) => {
+        if (ev.source !== frame.contentWindow) return;
+        const d = ev.data;
+        if (!d || typeof d !== 'object') return;
+        switch (d.type) {
+          case 'pawbar:resize':
+            if (view === 'panel') break;
+            if (Number.isFinite(d.h)) size[view].h = d.h;
+            if (Number.isFinite(d.w) && d.w > 0) size[view].w = d.w;
+            apply(true);
+            break;
+          case 'pawbar:view':
+            view = d.view;
+            if (d.view !== 'panel') { dockView = d.view; expanded = false; }
+            apply(true);
+            break;
+          case 'pawbar:open': view = 'panel'; apply(true); break;
+          case 'pawbar:expand': expanded = d.on === true; apply(true); break;
+          case 'pawbar:close': view = dockView; expanded = false; apply(true); break;
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -37,7 +37,15 @@ import { streamConciergeChat, type ConciergeChatConfig } from '../lib/chat-clien
 import { getCustomerRef } from '../lib/customer-ref';
 import { laterAt, operatorMessageId, type OperatorMessage } from '../lib/operator-poll';
 import type { Source } from '../lib/sources';
-import { clearTranscript, loadTranscript, saveTranscript } from '../lib/transcript';
+import { openConversation } from '../lib/conversations-client';
+import {
+  clearTranscript,
+  loadActiveConversationId,
+  loadTranscript,
+  migrateLegacyTranscript,
+  saveActiveConversationId,
+  saveTranscript,
+} from '../lib/transcript';
 
 export type MessageStatus = 'streaming' | 'done' | 'error';
 /** 'owner' = a human from the site's team; 'system' = a quiet in-thread notice. */
@@ -81,6 +89,12 @@ export class ChatStore {
    *  frame; the panel shows a quiet chip while it's true. */
   botPaused = $state(false);
 
+  /** Which of this visitor's conversations the panel is showing (2026-08-19).
+   *  "" until the server names one, which is a legitimate state: a turn sent
+   *  without an id lands on the conversation in progress, so the visitor can
+   *  talk before the list has loaded. */
+  conversationId = $state('');
+
   #config: ChatStoreConfig;
   #customerRef: string | null = null;
   #controller: AbortController | null = null;
@@ -90,17 +104,46 @@ export class ChatStore {
     // Continuity across iframe reloads (every host-page navigation reloads the
     // frame): rehydrate the visitor's persisted thread — the Intercom/Crisp
     // pattern. Statuses come back terminal; nothing resumes streaming.
-    this.messages = loadTranscript(config.widgetId);
+    this.conversationId = loadActiveConversationId(config.widgetId);
+    this.messages = loadTranscript(config.widgetId, this.conversationId);
   }
 
   /** Persist the terminal turns — called whenever a turn reaches a rest state. */
   #persist(): void {
-    saveTranscript(this.#config.widgetId, this.messages);
+    saveTranscript(this.#config.widgetId, this.messages, this.conversationId);
+  }
+
+  /** Adopt the conversation the server named for a thread that predates
+   *  conversation identity, carrying its stored turns across ONCE so a visitor
+   *  mid-conversation at upgrade does not open the bar to an empty panel. */
+  adoptConversation(conversationId: string): void {
+    if (!conversationId || this.conversationId) return;
+    migrateLegacyTranscript(this.#config.widgetId, conversationId);
+    this.conversationId = conversationId;
+    saveActiveConversationId(this.#config.widgetId, conversationId);
+    if (this.messages.length === 0) {
+      this.messages = loadTranscript(this.#config.widgetId, conversationId);
+    }
+  }
+
+  /** Walk into one of the visitor's other conversations (the Messages tab).
+   *  Aborts anything in flight first, so a reply streaming into the thread the
+   *  visitor just left can never land in the one they opened. */
+  switchTo(conversationId: string): void {
+    if (!conversationId || conversationId === this.conversationId) return;
+    const controller = this.#controller;
+    this.#controller = null;
+    controller?.abort();
+    this.isStreaming = false;
+    this.error = null;
+    this.conversationId = conversationId;
+    this.messages = loadTranscript(this.#config.widgetId, conversationId);
+    saveActiveConversationId(this.#config.widgetId, conversationId);
   }
 
   async #resolveCustomerRef(): Promise<string> {
     if (this.#customerRef) return this.#customerRef;
-    this.#customerRef = await getCustomerRef();
+    this.#customerRef = await getCustomerRef(this.#config.widgetId);
     return this.#customerRef;
   }
 
@@ -133,6 +176,7 @@ export class ChatStore {
       widgetId: this.#config.widgetId,
       signedKey: this.#config.siteKey,
       customerRef,
+      conversationId: this.conversationId,
     };
 
     await streamConciergeChat(
@@ -261,14 +305,41 @@ export class ChatStore {
    *  the late callback a no-op against the fresh state. botPaused is left
    *  ALONE on purpose: whether the owner has taken over is server state keyed
    *  to this visitor, and wiping the local thread doesn't hand the bot back. */
-  reset(): void {
+  async reset(): Promise<void> {
     const controller = this.#controller;
     this.#controller = null;
     controller?.abort();
+
+    // Tell the SERVER, not just localStorage. Before 2026-08-19 this method
+    // only wiped the local row, so "New conversation" was a lie the widget told
+    // itself: the backend kept appending to the same conversation and kept
+    // replaying the abandoned thread into the agent. Retiring it server-side is
+    // what actually makes the next turn start cold.
+    const previous = this.conversationId;
+    const opened = await openConversation(
+      {
+        endpoint: this.#config.endpoint,
+        widgetId: this.#config.widgetId,
+        signedKey: this.#config.siteKey,
+      },
+      await this.#resolveCustomerRef(),
+    );
+
     this.messages = [];
     this.error = null;
     this.isStreaming = false;
-    clearTranscript(this.#config.widgetId);
+    // The old conversation's turns stay on the device: it is now a row in the
+    // visitor's Messages list, and clearing it would empty a conversation they
+    // can still open. Only a FAILED open clears, because then there is no new
+    // conversation and the local thread would otherwise reattach to the old one.
+    if (opened) {
+      this.conversationId = opened.id;
+      saveActiveConversationId(this.#config.widgetId, opened.id);
+    } else {
+      this.conversationId = '';
+      saveActiveConversationId(this.#config.widgetId, '');
+      clearTranscript(this.#config.widgetId, previous);
+    }
   }
 
   #finish(controller: AbortController): void {

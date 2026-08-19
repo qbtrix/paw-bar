@@ -35,7 +35,20 @@
 import type { Message, MessageRole } from '../store/chat.svelte';
 import { sanitizeSources } from './sources';
 
-const KEY_PREFIX = 'pawbar.transcript.v1.';
+// 2026-08-19 (conversation identity): the row is keyed per CONVERSATION, not
+// per widget. A visitor may now hold several, and the Messages tab lets them
+// walk back into an old one — which needs that conversation's own turns, not
+// whatever the widget last had. Reading a past conversation from the SERVER is
+// deliberately not the answer: the site owner can switch transcript retention
+// off entirely, and this store is the visitor's own device, so it keeps working
+// exactly where a server read would (correctly) have nothing to return.
+//
+// ACTIVE_KEY remembers which conversation to resume on reload, since the iframe
+// reloads on every host-page navigation and the server's answer arrives later
+// than the first paint.
+const KEY_PREFIX = 'pawbar.transcript.v2.';
+const LEGACY_KEY_PREFIX = 'pawbar.transcript.v1.';
+const ACTIVE_PREFIX = 'pawbar.active.v1.';
 export const TRANSCRIPT_CAP = 60;
 export const TRANSCRIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -46,17 +59,59 @@ interface StoredTranscript {
 
 const ROLES: readonly MessageRole[] = ['user', 'assistant', 'owner', 'system'];
 
-function key(widgetId: string): string {
-  return `${KEY_PREFIX}${widgetId}`;
+function key(widgetId: string, conversationId = ''): string {
+  return `${KEY_PREFIX}${widgetId}.${conversationId || 'active'}`;
+}
+
+/** The conversation the visitor was last in, so a reload resumes it. */
+export function loadActiveConversationId(widgetId: string): string {
+  if (!widgetId) return '';
+  try {
+    return window.localStorage.getItem(`${ACTIVE_PREFIX}${widgetId}`) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveActiveConversationId(widgetId: string, conversationId: string): void {
+  if (!widgetId) return;
+  try {
+    if (conversationId) {
+      window.localStorage.setItem(`${ACTIVE_PREFIX}${widgetId}`, conversationId);
+    } else {
+      window.localStorage.removeItem(`${ACTIVE_PREFIX}${widgetId}`);
+    }
+  } catch {
+    // Storage blocked — the session keeps its in-memory conversation.
+  }
+}
+
+/** Adopt a pre-conversation transcript as the row for `conversationId`, once.
+ *
+ *  A visitor mid-thread when this ships would otherwise open the bar to an
+ *  empty panel while the server still holds their conversation. The legacy row
+ *  is REMOVED as it is adopted, so this can only happen for the first
+ *  conversation and a later one never inherits a stranger's turns. */
+export function migrateLegacyTranscript(widgetId: string, conversationId: string): void {
+  if (!widgetId || !conversationId) return;
+  try {
+    const legacy = window.localStorage.getItem(`${LEGACY_KEY_PREFIX}${widgetId}`);
+    if (!legacy) return;
+    const target = key(widgetId, conversationId);
+    if (!window.localStorage.getItem(target)) window.localStorage.setItem(target, legacy);
+    window.localStorage.removeItem(`${LEGACY_KEY_PREFIX}${widgetId}`);
+  } catch {
+    // Nothing to migrate into — the visitor starts fresh, which is survivable.
+  }
 }
 
 /** Restore the persisted thread for this widget, or [] (expired / absent /
  *  malformed / storage blocked). Malformed rows are deleted on sight. */
-export function loadTranscript(widgetId: string): Message[] {
+export function loadTranscript(widgetId: string, conversationId = ''): Message[] {
   if (!widgetId) return [];
   let raw: string | null = null;
   try {
-    raw = window.localStorage.getItem(key(widgetId));
+    raw = window.localStorage.getItem(key(widgetId, conversationId));
   } catch {
     return [];
   }
@@ -69,7 +124,7 @@ export function loadTranscript(widgetId: string): Message[] {
       !Array.isArray(parsed.messages) ||
       Date.now() - parsed.saved_at > TRANSCRIPT_TTL_MS
     ) {
-      clearTranscript(widgetId);
+      clearTranscript(widgetId, conversationId);
       return [];
     }
     const out: Message[] = [];
@@ -94,13 +149,13 @@ export function loadTranscript(widgetId: string): Message[] {
     }
     return out.slice(-TRANSCRIPT_CAP);
   } catch {
-    clearTranscript(widgetId);
+    clearTranscript(widgetId, conversationId);
     return [];
   }
 }
 
 /** Persist the thread (terminal turns only, capped). Best-effort. */
-export function saveTranscript(widgetId: string, messages: Message[]): void {
+export function saveTranscript(widgetId: string, messages: Message[], conversationId = ''): void {
   if (!widgetId) return;
   const terminal = messages
     .filter((m) => m.status !== 'streaming' && m.content)
@@ -117,19 +172,19 @@ export function saveTranscript(widgetId: string, messages: Message[]): void {
     }));
   try {
     if (terminal.length === 0) {
-      window.localStorage.removeItem(key(widgetId));
+      window.localStorage.removeItem(key(widgetId, conversationId));
       return;
     }
     const row: StoredTranscript = { saved_at: Date.now(), messages: terminal };
-    window.localStorage.setItem(key(widgetId), JSON.stringify(row));
+    window.localStorage.setItem(key(widgetId, conversationId), JSON.stringify(row));
   } catch {
     // Storage blocked or quota — the session keeps its in-memory thread.
   }
 }
 
-export function clearTranscript(widgetId: string): void {
+export function clearTranscript(widgetId: string, conversationId = ''): void {
   try {
-    window.localStorage.removeItem(key(widgetId));
+    window.localStorage.removeItem(key(widgetId, conversationId));
   } catch {
     // ignore
   }

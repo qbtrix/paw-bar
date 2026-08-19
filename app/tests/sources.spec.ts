@@ -171,7 +171,7 @@ describe('transcript round-trip with sources', () => {
 
   it('re-sanitizes a tampered stored row on load', () => {
     window.localStorage.setItem(
-      'pawbar.transcript.v1.w1',
+      'pawbar.transcript.v2.w1.active',
       JSON.stringify({
         saved_at: Date.now(),
         messages: [

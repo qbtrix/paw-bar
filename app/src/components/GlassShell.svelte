@@ -78,6 +78,8 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { fly } from 'svelte/transition';
+  import { duration, travel, expoOut } from '../lib/motion';
   import type { ChatStore, ChatStoreConfig } from '../store/chat.svelte';
   import { type CartStore, provideCart } from '../store/cart.svelte';
   import { type ContactStore, provideContact } from '../store/contact.svelte';
@@ -85,31 +87,52 @@
   import type { PawBarPoster } from '../lib/postmessage';
   import { fetchArticles, type Article } from '../lib/articles-client';
   import { serializeTranscript } from '../lib/transcript';
-  import MessageList from './MessageList.svelte';
   import Composer from './Composer.svelte';
-  import CartBadge from './CartBadge.svelte';
+  import Icon from './Icon.svelte';
+  import Messenger, { type MessengerTab } from './Messenger.svelte';
+  import type { ConversationsStore } from '../store/conversations.svelte';
 
   let {
     store,
     cart,
     contact,
     operator,
+    conversations,
     chatConfig,
     poster,
     theme = 'dark',
     greeting = '',
+    starters = [],
+    agentName = 'Concierge',
+    agentAvatar = '',
+    agentSubtitle = 'The team can also help',
+    avatars = [],
+    launcherLabel = '',
     parentOrigin = '',
   }: {
     store: ChatStore;
     cart: CartStore;
     contact: ContactStore;
     operator: OperatorStore;
+    conversations: ConversationsStore;
     chatConfig: ChatStoreConfig;
     poster: PawBarPoster;
     theme?: 'light' | 'dark';
     greeting?: string;
+    starters?: string[];
+    agentName?: string;
+    agentAvatar?: string;
+    agentSubtitle?: string;
+    avatars?: string[];
+    /** What the resting pill says. The owner's word for their own site beats
+     *  ours ("Ask about Ocean Supply" reads as theirs; "Ask about this site"
+     *  reads as a widget), so this is an appearance field with a default that
+     *  works when they never set one. */
+    launcherLabel?: string;
     parentOrigin?: string;
   } = $props();
+
+  const label = $derived(launcherLabel.trim() || 'Ask about this site');
 
   // Expose the cart to descendant card CTAs (Markdown → CardBlock → ProductCard)
   // + the header badge without prop-drilling through the transcript. untrack:
@@ -140,6 +163,18 @@
   }
 
   let view = $state<View>(readInitialView());
+  let expanded = $state(false);
+
+  // The bar rests as a compact labelled pill and widens into the composer on
+  // hover — the whole point being that a widget on somebody else's site should
+  // not park a text input across the bottom of their page.
+  //
+  // Hover is an ENHANCEMENT, never the only way in: a touch device fires no
+  // pointerenter, so the pill is also a button that opens the panel, and
+  // focusing it by keyboard widens it the same way hovering does.
+  let barHover = $state(false);
+  let barFocus = $state(false);
+  const barOpen = $derived(view === 'panel' || barHover || barFocus);
   let contentEl: HTMLDivElement | null = $state(null);
   let composer: ReturnType<typeof Composer> | null = $state(null);
 
@@ -155,18 +190,35 @@
   function openPanel() {
     view = 'panel';
     menuOpen = false;
-    panelBody = 'chat';
     poster.open();
     // Initial cart hydrate on the first open (one-shot inside the store).
     void cart.load();
-    queueMicrotask(() => composer?.focus());
+    // The Home tab shows articles and the Messages tab shows conversations, so
+    // both load on OPEN rather than on first tab-touch: paying two requests at
+    // the moment the visitor is reading the greeting is cheaper than a spinner
+    // the first time they tap a tab. Both are one-shot / latched internally.
+    loadArticles();
+    void conversations.refresh();
   }
   function closePanel() {
     view = 'bar';
     menuOpen = false;
+    expanded = false;
+    poster.expand(false);
     poster.view('bar');
     persistDock('bar');
-    queueMicrotask(() => composer?.focus());
+    // Back to the resting pill, so do NOT pull focus into the composer — that
+    // would re-open the bar the visitor just closed and read as the widget
+    // refusing to go away.
+    barHover = false;
+  }
+
+  /** The big reading surface. A long answer with cards is genuinely cramped in
+   *  a 400px column, so the expand control exists — but it is opt-in and
+   *  reversible, which is the difference between it and opening as a modal. */
+  function toggleExpand() {
+    expanded = !expanded;
+    poster.expand(expanded);
   }
   function minimize() {
     view = 'chip';
@@ -181,30 +233,46 @@
     queueMicrotask(() => composer?.focus());
   }
 
-  // Sending from the bar morphs into the panel so the reply streams in place.
+  // Sending from the bar morphs into the panel so the reply streams in place —
+  // and lands the visitor IN the conversation, not on the Home tab, because the
+  // reply they just asked for is about to stream somewhere they can see it.
   function handleBarSend(text: string) {
     openPanel();
-    void store.send(text);
-  }
-  function handlePanelSend(text: string) {
+    inConversation = true;
     void store.send(text);
   }
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape' || drag) return;
-    // The quick-actions menu is the innermost layer — Escape peels it first,
-    // then the articles view (back to the conversation), then the panel.
+    // Innermost layer first: the quick-actions menu, then a conversation (back
+    // to the list it was opened from), then the panel itself. Escape peeling one
+    // layer at a time is what keeps it from feeling like a trapdoor.
     if (menuOpen) {
       menuOpen = false;
       return;
     }
-    if (view === 'panel' && panelBody === 'articles') {
-      backToChat();
+    if (expanded) {
+      toggleExpand();
+      return;
+    }
+    if (view === 'panel' && inConversation) {
+      inConversation = false;
+      messengerTab = 'messages';
       return;
     }
     if (view === 'panel') closePanel();
     else if (view === 'bar') minimize();
   }
+
+  // A thread restored from localStorage may predate conversation identity, so it
+  // has turns but no id. The moment the list names the conversation in progress,
+  // adopt it — otherwise the visitor's next turn is sent with no id, the server
+  // resolves one, and the local transcript stays filed under the wrong key.
+  // Guarded inside the store: it only ever adopts when it has no id yet.
+  $effect(() => {
+    const active = conversations.activeId;
+    if (active) untrack(() => store.adoptConversation(active));
+  });
 
   // ── Owner messages (poll while the panel is open) ─────────────────────────
   // ONE lifecycle owner: the loop runs exactly while the visitor is looking at
@@ -240,14 +308,19 @@
     void contact.submit(contactEmail);
   }
 
-  // ── Articles view (quick-actions "Browse articles") ───────────────────────
-  let panelBody = $state<'chat' | 'articles'>('chat');
+  // ── Messenger surfaces (2026-08-19) ───────────────────────────────────────
+  // The panel is a tabbed Messenger now. Articles are a TAB rather than a menu
+  // item, so they load once when the panel first opens instead of on a click
+  // most visitors never made.
+  let messengerTab = $state<MessengerTab>('home');
+  let inConversation = $state(false);
   let articles = $state<Article[]>([]);
   let articlesLoading = $state(false);
+  let articlesLoaded = false;
 
-  function openArticles() {
-    menuOpen = false;
-    panelBody = 'articles';
+  function loadArticles() {
+    if (articlesLoaded) return;
+    articlesLoaded = true;
     articlesLoading = true;
     void fetchArticles({
       endpoint: chatConfig.endpoint,
@@ -258,9 +331,28 @@
       articlesLoading = false;
     });
   }
-  function backToChat() {
-    panelBody = 'chat';
-    queueMicrotask(() => composer?.focus());
+
+  /** An article opens on the site itself, in a new tab. The widget is a
+   *  concierge, not a reader: pulling the page into a 380px panel would show it
+   *  worse than the site does and strand the visitor away from its navigation. */
+  function openArticle(article: Article) {
+    window.open(article.url, '_blank', 'noopener,noreferrer');
+  }
+
+  /** The composer lives in the bar, so a starter tapped on Home or a query
+   *  abandoned in Help is handed here rather than pushed into the panel.
+   *  Prefilled, never sent: the visitor gets to edit it first. */
+  function seedComposer(text: string) {
+    queueMicrotask(() => {
+      if (text) composer?.prefill(text);
+      composer?.focus();
+    });
+  }
+
+  /** Walk into one of the visitor's earlier conversations. */
+  function openExistingConversation(id: string) {
+    store.switchTo(id);
+    conversations.syncActive(id);
   }
 
   // ── Quick actions (panel header menu) ─────────────────────────────────────
@@ -272,10 +364,15 @@
     if (menuWrapEl && !menuWrapEl.contains(e.target as Node)) menuOpen = false;
   }
 
-  function newConversation() {
+  /** "New conversation" now tells the SERVER, so the next turn genuinely starts
+   *  cold. `reset()` is async for that reason; the panel stays interactive while
+   *  it lands, and a refused open leaves the visitor in the conversation they
+   *  already had rather than in a nameless one. */
+  async function newConversation() {
     menuOpen = false;
-    store.reset();
-    queueMicrotask(() => composer?.focus());
+    await store.reset();
+    if (store.conversationId) conversations.syncActive(store.conversationId);
+    void conversations.refresh();
   }
 
   // Client-side only: serialize the thread and hand the visitor a .txt file.
@@ -383,6 +480,35 @@
 
 <svelte:window onkeydown={onKeydown} onpointerdown={onWindowPointerDown} />
 
+<!-- Quick actions, rendered into the conversation header's overflow. Kept here
+     rather than inside ConversationView because every action it offers is the
+     SHELL's to perform: minimize is a dock transition, download reads the
+     store, and "new conversation" now has to reach the server. -->
+{#snippet quickMenu()}
+  {#if menuOpen}
+    <div class="menu" role="menu" aria-label="Conversation options" bind:this={menuWrapEl}>
+      <button type="button" class="menu-item" role="menuitem" onclick={newConversation}>
+        <Icon name="plus" size="14px" />
+        <span>New conversation</span>
+      </button>
+      <button
+        type="button"
+        class="menu-item"
+        role="menuitem"
+        onclick={downloadTranscript}
+        disabled={store.messages.length === 0}
+      >
+        <Icon name="send" size="14px" />
+        <span>Download transcript</span>
+      </button>
+      <button type="button" class="menu-item" role="menuitem" onclick={minimize}>
+        <Icon name="chevron-down" size="14px" />
+        <span>Minimize</span>
+      </button>
+    </div>
+  {/if}
+{/snippet}
+
 <!-- Inline contact prompt, rendered at the tail of the thread via MessageList's
      footer snippet. The email value stays in local component state + the
      request body — it never touches the chat store or the transcript. -->
@@ -428,10 +554,6 @@
   role="region"
   aria-label="Site concierge"
 >
-  {#if view === 'panel'}
-    <button type="button" class="backdrop" onclick={closePanel} aria-label="Close concierge" tabindex="-1"></button>
-  {/if}
-
   <div
     class="pawbar-content"
     bind:this={contentEl}
@@ -464,8 +586,67 @@
           <span>Ask</span>
         </button>
       </div>
-    {:else if view === 'bar'}
-      <div class="bar">
+    {:else}
+      {#if view === 'panel'}
+        <!-- NOT role="dialog"/aria-modal. The page behind is live and clickable, so
+           claiming a modal would tell a screen-reader user the rest of the site is
+           inert when it is not. It is a complementary region that can be left by
+           any means, which is what it now actually is.
+
+           `fly` rather than a CSS keyframe because the panel LEAVES the DOM on
+           close, and CSS cannot animate that. Distance and duration come from
+           motion.ts, so the owner's preset and the visitor's reduced-motion
+           setting both reach it.
+
+           It travels a SHORT distance and fades, because the loader is growing
+           the iframe box underneath it over the same 260ms (loader.ts BOX_MS).
+           The box supplies the expansion; this supplies the arrival. Making the
+           panel fly far as well read as two things moving at once — the frame
+           opening and the contents sliding independently inside it. -->
+      <section
+        class="panel"
+        aria-label="Site concierge"
+        transition:fly={{ y: travel(10), duration: duration(), easing: expoOut }}
+      >
+        <Messenger
+          bind:tab={messengerTab}
+          bind:inConversation
+          {store}
+          conversations={conversations.items}
+          conversationsLoading={conversations.loading}
+          {articles}
+          {articlesLoading}
+          {greeting}
+          {starters}
+          {agentName}
+          {agentAvatar}
+          {agentSubtitle}
+          {avatars}
+          {menuOpen}
+          footer={contactPrompt}
+          menu={quickMenu}
+          onopenConversation={openExistingConversation}
+          onnewConversation={newConversation}
+          onarticle={openArticle}
+          onclose={closePanel}
+          onmenu={() => (menuOpen = !menuOpen)}
+          onseed={seedComposer}
+          {expanded}
+          onexpand={toggleExpand}
+        />
+      </section>
+      {/if}
+
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="bar"
+        class:open={barOpen}
+        class:docked={view !== 'panel'}
+        onpointerenter={() => (barHover = true)}
+        onpointerleave={() => (barHover = false)}
+        onfocusin={() => (barFocus = true)}
+        onfocusout={() => (barFocus = false)}
+      >
         <button
           type="button"
           class="grip"
@@ -510,14 +691,25 @@
             />
           </svg>
         </button>
-        <div class="bar-composer">
-          <Composer
-            bind:this={composer}
-            isStreaming={store.isStreaming}
-            variant="bare"
-            onSend={handleBarSend}
-            onStop={() => store.stop()}
-          />
+        <!-- Both live in one grid cell so the pill can WIDEN into the composer
+             rather than swap for it. A swap would jump the bar's width in one
+             frame; sharing the cell lets the width animate while the label
+             fades out under the caret. The label is a real button, so a touch
+             device with no hover still has an obvious way in. -->
+        <div class="bar-slot">
+          <button type="button" class="bar-label" onclick={openPanel} tabindex={barOpen ? -1 : 0}>
+            {label}
+          </button>
+          <div class="bar-composer" aria-hidden={!barOpen}>
+            <Composer
+              bind:this={composer}
+              isStreaming={store.isStreaming}
+              variant="bare"
+              placeholder={label}
+              onSend={handleBarSend}
+              onStop={() => store.stop()}
+            />
+          </div>
         </div>
         {#if cart.count > 0}
           <button
@@ -541,189 +733,31 @@
             <span>{cart.count}</span>
           </button>
         {/if}
-        <button type="button" class="icon-btn" onclick={minimize} aria-label="Minimize">
+        <!-- One control, two truths: while the column is open this collapses it,
+             while the bar rests it minimises to the chip. Same place, same
+             gesture, and never both buttons competing for the corner. -->
+        <button
+          type="button"
+          class="icon-btn"
+          onclick={view === 'panel' ? closePanel : minimize}
+          aria-label={view === 'panel' ? 'Collapse conversation' : 'Minimize'}
+        >
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path d="M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+            {#if view === 'panel'}
+              <path
+                d="M6 9l6 6 6-6"
+                stroke="currentColor"
+                stroke-width="2"
+                fill="none"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            {:else}
+              <path d="M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+            {/if}
           </svg>
         </button>
       </div>
-    {:else}
-      <section class="panel" role="dialog" aria-modal="true" aria-label="Site concierge">
-        <header class="head">
-          <div class="head-title">
-            <span class="head-dot"></span>
-            <span>Concierge</span>
-          </div>
-          <div class="head-actions">
-            <CartBadge />
-            <div class="menu-wrap" bind:this={menuWrapEl}>
-              <button
-                type="button"
-                class="icon-btn"
-                onclick={() => (menuOpen = !menuOpen)}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                aria-label="Conversation options"
-              >
-                <!-- lucide chevron-down -->
-                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                  <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-              </button>
-              {#if menuOpen}
-                <div class="menu" role="menu" aria-label="Conversation options">
-                  <button type="button" class="menu-item" role="menuitem" onclick={newConversation}>
-                    <!-- lucide plus -->
-                    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                      <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
-                    </svg>
-                    <span>New conversation</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="menu-item"
-                    role="menuitem"
-                    onclick={downloadTranscript}
-                    disabled={store.messages.length === 0}
-                  >
-                    <!-- lucide download -->
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="14"
-                      height="14"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M12 3v12" />
-                      <path d="M7 10l5 5 5-5" />
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    </svg>
-                    <span>Download transcript</span>
-                  </button>
-                  <button type="button" class="menu-item" role="menuitem" onclick={openArticles}>
-                    <!-- lucide book-open -->
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="14"
-                      height="14"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-                    </svg>
-                    <span>Browse articles</span>
-                  </button>
-                  <button type="button" class="menu-item" role="menuitem" onclick={minimize}>
-                    <!-- lucide minus (the bar's minimize glyph) -->
-                    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                      <path d="M5 12h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
-                    </svg>
-                    <span>Minimize</span>
-                  </button>
-                </div>
-              {/if}
-            </div>
-            <button type="button" class="icon-btn" onclick={closePanel} aria-label="Close">
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
-              </svg>
-            </button>
-          </div>
-        </header>
-
-        {#if panelBody === 'articles'}
-          <div class="articles">
-            <button type="button" class="articles-back" onclick={backToChat}>
-              <!-- lucide arrow-left -->
-              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                <path d="M19 12H5m6-6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <span>Back to conversation</span>
-            </button>
-            {#if articlesLoading}
-              <div class="articles-state" aria-label="Loading articles">
-                <div class="dots"><span></span><span></span><span></span></div>
-              </div>
-            {:else if articles.length === 0}
-              <div class="articles-state">
-                <p class="empty-title">No articles yet</p>
-                <p class="empty-sub">When this site publishes articles, they'll show up here.</p>
-              </div>
-            {:else}
-              <div class="articles-list">
-                {#each articles as article (article.url)}
-                  <a class="article-row" href={article.url} target="_blank" rel="noopener noreferrer">
-                    <span class="article-title">{article.title}</span>
-                    {#if article.snippet}
-                      <span class="article-snippet">{article.snippet}</span>
-                    {/if}
-                  </a>
-                {/each}
-              </div>
-            {/if}
-          </div>
-        {:else}
-          {#if store.messages.length === 0}
-            <div class="empty">
-              <span class="glow-dot empty-dot"></span>
-              {#if greeting}
-                <p class="empty-greeting">{greeting}</p>
-              {:else}
-                <p class="empty-title">Ask about this site</p>
-                <p class="empty-sub">Instant answers, grounded in this site's own knowledge.</p>
-              {/if}
-            </div>
-          {:else}
-            <MessageList messages={store.messages} footer={contactPrompt} />
-          {/if}
-
-          {#if store.error}
-            <div class="banner" role="status">{store.error}</div>
-          {/if}
-
-          <div class="composer-wrap">
-            {#if store.botPaused}
-              <!-- Persistent while the owner has taken over: the visitor is
-                   talking to a person now, so instant replies stopping is the
-                   expected behaviour, not a broken widget. -->
-              <p class="paused-note" role="status">
-                <span class="paused-avatar" aria-hidden="true">
-                  <!-- lucide user-round -->
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="10"
-                    height="10"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <circle cx="12" cy="8" r="5" />
-                    <path d="M20 21a8 8 0 0 0-16 0" />
-                  </svg>
-                </span>
-                <span>You're chatting with the team</span>
-              </p>
-            {/if}
-            <Composer
-              bind:this={composer}
-              isStreaming={store.isStreaming}
-              onSend={handlePanelSend}
-              onStop={() => store.stop()}
-            />
-          </div>
-        {/if}
-      </section>
     {/if}
   </div>
 </div>
@@ -743,30 +777,18 @@
        backdrop and content wrapper below should catch clicks. */
     pointer-events: none;
   }
-  /* Open = centered command palette (the loader makes the iframe full-viewport). */
+  /* Open = a column standing on the dock anchor: messenger above, composer
+     below, the host page live and clickable everywhere else. The loader sizes
+     the iframe to exactly this column (see loader.ts PANEL_W) — that, not a
+     transparent backdrop, is what makes it not a modal. */
   .pawbar-root[data-pawbar-view='panel'] {
-    justify-content: center;
-    align-items: center;
-    padding: clamp(16px, 4vh, 40px);
+    justify-content: flex-end;
+    gap: 10px;
   }
   /* Mid-drag the content wrapper is fixed-positioned inline; kill the padding
      so the wrapper's coords map 1:1 to the posted box. */
   .pawbar-root[data-pawbar-dragging='true'] {
     padding: 0;
-  }
-
-  /* Outside-click catcher + page dim. A real button (keyboard story stays Esc /
-     the header X; tabindex -1 keeps it out of the tab order). */
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    border: none;
-    padding: 0;
-    background: oklch(0.13 0.01 260 / 0.34);
-    -webkit-backdrop-filter: blur(2px);
-    backdrop-filter: blur(2px);
-    pointer-events: auto;
-    cursor: default;
   }
 
   /* The measured content box: bar, chip, or panel. Kept separate from
@@ -780,16 +802,22 @@
     min-height: 0;
     max-height: 100%;
   }
-  /* The chip hugs its content so the reported width shrinks the iframe box. */
-  .pawbar-root[data-pawbar-view='chip'] .pawbar-content {
+  /* The chip AND the resting bar hug their content, so the width the
+     ResizeObserver reports shrinks the iframe box to the pill. This is what
+     stops an invisible 720px-wide frame sitting across the bottom of the host
+     page swallowing clicks either side of a 130px pill. */
+  .pawbar-root[data-pawbar-view='chip'] .pawbar-content,
+  .pawbar-root[data-pawbar-view='bar'] .pawbar-content {
     align-self: center;
     width: fit-content;
   }
-  /* Palette proportions from the genesis mockup (~969×737 on a 16" frame). */
+  /* Fill the box the loader gave us. Both dimensions are its policy while
+     open, so a streaming reply cannot resize the iframe under the visitor. */
   .pawbar-root[data-pawbar-view='panel'] .pawbar-content {
     position: relative;
-    width: min(940px, 100%);
-    height: min(720px, 100%);
+    width: 100%;
+    height: 100%;
+    gap: 10px;
   }
 
   /* ── Shared accent dot ──────────────────────────────────────────────────── */
@@ -816,9 +844,67 @@
     /* Inset top highlight = the light edge that sells frosted glass. */
     box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), var(--pawbar-shadow);
   }
+  /* One cell, two occupants. Width is the animated property (not a swap), so
+     the pill grows into the composer instead of jumping to it. */
+  .bar-slot {
+    display: grid;
+    min-width: 0;
+    transition: width var(--pawbar-duration) var(--pawbar-ease-emphasis);
+  }
+  .bar-slot > * {
+    grid-area: 1 / 1;
+    min-width: 0;
+  }
+
+  /* Resting width: enough for the owner's label and no more. */
+  .bar.docked .bar-slot {
+    width: 148px;
+  }
+  .bar.docked.open .bar-slot {
+    width: 296px;
+  }
+  /* Open, the column is one width and the composer simply fills the row. */
+  .bar:not(.docked) .bar-slot {
+    width: auto;
+    flex: 1;
+  }
+
+  .bar-label {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--pawbar-fg-muted);
+    font: inherit;
+    font-size: 13.5px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: opacity var(--pawbar-duration-fast) var(--pawbar-ease);
+  }
+  .bar.open .bar-label {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .bar-label:focus-visible {
+    outline: 2px solid var(--pawbar-ring);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
   .bar-composer {
     flex: 1;
     min-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--pawbar-duration-fast) var(--pawbar-ease);
+  }
+  .bar.open .bar-composer {
+    opacity: 1;
+    pointer-events: auto;
   }
   /* Circular paw mascot — ChatPill's .mascot-avatar language, bar-sized.
      A BUTTON: clicking it opens the panel (the returning visitor's way back
@@ -931,8 +1017,9 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    max-height: 100%;
-    height: 100%;
+    /* Takes what the column has left after the composer, rather than 100% —
+       the bar below is a sibling now, not something the panel contains. */
+    flex: 1;
     border-radius: var(--pawbar-radius);
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface);
@@ -943,71 +1030,8 @@
   }
 
   /* ── Empty transcript welcome ───────────────────────────────────────────── */
-  .empty {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 24px;
-    text-align: center;
-  }
-  .empty-dot {
-    width: 10px;
-    height: 10px;
-    box-shadow: 0 0 18px var(--pawbar-accent);
-    margin-bottom: 8px;
-  }
-  .empty-title {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-  }
-  .empty-sub {
-    margin: 0;
-    font-size: 13px;
-    color: var(--pawbar-fg-muted);
-    max-width: 260px;
-    line-height: 1.45;
-  }
   /* Owner greeting: a sentence or two in the owner's voice, so it reads as
      body copy (relaxed weight/leading), not a terse bold title. */
-  .empty-greeting {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 500;
-    max-width: 320px;
-    line-height: 1.5;
-    white-space: pre-line;
-  }
-  .head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--pawbar-border);
-  }
-  .head-title {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-  }
-  .head-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--pawbar-accent);
-  }
-  .head-actions {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
   .icon-btn {
     flex: none;
     display: inline-flex;
@@ -1026,14 +1050,6 @@
     background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
   }
   /* ── Quick actions menu (header) ────────────────────────────────────────── */
-  .menu-wrap {
-    position: relative;
-    display: inline-flex;
-  }
-  .icon-btn[aria-expanded='true'] {
-    color: var(--pawbar-fg);
-    background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
-  }
   .menu {
     position: absolute;
     top: calc(100% + 6px);
@@ -1064,10 +1080,6 @@
     text-align: left;
     white-space: nowrap;
     cursor: pointer;
-  }
-  .menu-item svg {
-    flex: none;
-    color: var(--pawbar-fg-muted);
   }
   .menu-item:hover:not(:disabled) {
     background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
@@ -1176,144 +1188,14 @@
   }
 
   /* ── Articles view (panel body swap) ────────────────────────────────────── */
-  .articles {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .articles-back {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    align-self: flex-start;
-    margin: 10px 16px 0;
-    padding: 6px 12px 6px 9px;
-    border: none;
-    border-radius: 999px;
-    background: none;
-    color: var(--pawbar-fg-muted);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .articles-back:hover {
-    color: var(--pawbar-fg);
-    background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
-  }
-  .articles-state {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 24px;
-    text-align: center;
-  }
-  .dots {
-    display: inline-flex;
-    gap: 4px;
-  }
-  .dots span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--pawbar-fg-muted);
-    animation: pawbar-dots 1.2s infinite ease-in-out;
-  }
-  .dots span:nth-child(2) {
-    animation-delay: 0.15s;
-  }
-  .dots span:nth-child(3) {
-    animation-delay: 0.3s;
-  }
   @keyframes pawbar-dots {
     0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
     30% { opacity: 1; transform: translateY(-3px); }
   }
   @media (prefers-reduced-motion: reduce) {
-    .dots span {
-      animation: none;
-    }
-  }
-  .articles-list {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 16px 16px;
-  }
-  .article-row {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 11px 14px;
-    border-radius: 14px;
-    border: 1px solid var(--pawbar-border);
-    background: color-mix(in oklab, var(--pawbar-fg) 4%, transparent);
-    text-decoration: none;
-    color: var(--pawbar-fg);
-  }
-  .article-row:hover {
-    border-color: color-mix(in oklab, var(--pawbar-fg) 25%, transparent);
-    background: color-mix(in oklab, var(--pawbar-fg) 7%, transparent);
-  }
-  .article-title {
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.4;
-  }
-  .article-snippet {
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--pawbar-fg-muted);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .banner {
-    margin: 8px 14px 0;
-    padding: 7px 10px;
-    border-radius: 9px;
-    font-size: 12px;
-    color: var(--pawbar-danger);
-    background: color-mix(in oklab, var(--pawbar-danger) 12%, transparent);
-    border: 1px solid color-mix(in oklab, var(--pawbar-danger) 30%, transparent);
-  }
-  .composer-wrap {
-    padding: 12px;
-    border-top: 1px solid var(--pawbar-border);
   }
   /* Bot-paused state: quiet, persistent, and out of the way — it sits above
      the composer rather than in the thread so it can't be scrolled past. */
-  .paused-note {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    margin: 0 0 8px;
-    padding: 0 4px;
-    font-size: 11.5px;
-    color: var(--pawbar-fg-muted);
-  }
-  .paused-avatar {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 1.5px solid color-mix(in oklab, var(--pawbar-accent) 60%, transparent);
-    color: var(--pawbar-accent);
-  }
-
   /* Phone: the pill face tightens like ChatPill's mobile pass (smaller
      mascot, hidden BAR grip, tighter gaps). Lives at the END of the sheet so
      it wins the same-specificity cascade against the component base rules.
@@ -1335,17 +1217,8 @@
       height: 26px;
       border-width: 1.5px;
     }
-    .composer-wrap {
-      padding: 10px;
-    }
     .contact {
       max-width: 100%;
-    }
-    .articles-back {
-      margin: 8px 12px 0;
-    }
-    .articles-list {
-      padding: 10px 12px 12px;
     }
   }
 </style>

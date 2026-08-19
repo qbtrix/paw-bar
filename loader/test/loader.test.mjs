@@ -124,47 +124,102 @@ test('IGNORES a right-origin but wrong-source message — no resize', () => {
   assert.equal(iframe.style.height, before);
 });
 
-test('open/close messages toggle the iframe box', () => {
+test('open docks a COLUMN, not a viewport overlay — the host page keeps its clicks', () => {
   const window = mount();
   const iframe = onlyIframe(window);
   window.dispatchEvent(
     messageEvent(window, { data: { type: 'pawbar:open' }, origin: FRAME_ORIGIN, source: iframe.contentWindow }),
   );
-  // Open = full-viewport overlay (the app centers the palette inside it).
-  assert.equal(iframe.style.width, '100vw');
-  assert.equal(iframe.style.height, '100vh');
+  // THE point of the open state, and the reason this test is worth its length:
+  // a full-viewport iframe eats every click on the host page whether or not the
+  // app paints a backdrop, because pointer-events inside a frame cannot hand a
+  // click back to the document underneath. Sizing the box to the column is the
+  // only thing that makes this a messenger rather than a modal — so if someone
+  // ever restores goFullscreen() here, this is the test that says why not.
+  assert.notEqual(iframe.style.width, '100vw');
+  assert.notEqual(iframe.style.height, '100vh');
+  // jsdom viewport is 1024x768: PANEL_W 400 → left (1024-400)/2 = 312,
+  // height min(PANEL_MAX_H 720, 768-24) = 720 → top 768-720 = 48.
+  assert.equal(iframe.style.width, '400px');
+  assert.equal(iframe.style.height, '720px');
+  assert.equal(iframe.style.left, '312px');
+  assert.equal(iframe.style.top, '48px');
+
   window.dispatchEvent(
     messageEvent(window, { data: { type: 'pawbar:close' }, origin: FRAME_ORIGIN, source: iframe.contentWindow }),
   );
-  // Docked bar width = min(BAR_MAX_W, innerWidth - margin) → 720 in jsdom (1024).
+  // Close restores the RESTING view on its own, without the app having to post
+  // a second pawbar:view to correct it.
   assert.equal(iframe.style.width, '720px');
 });
 
-test('resize messages are ignored while open — the overlay stays viewport-sized', () => {
+test('the open panel ignores resize reports — a streaming reply cannot resize the frame', () => {
   const window = mount();
   const iframe = onlyIframe(window);
   const fromFrame = (data) =>
     messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
   window.dispatchEvent(fromFrame({ type: 'pawbar:open' }));
-  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 437 }));
-  assert.equal(iframe.style.height, '100vh'); // not 437px
-  // After close, content-height reports size the docked box again.
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 437, w: 300 }));
+  // Both panel dimensions are loader policy. If the box tracked content, every
+  // token of a streamed answer would resize the iframe under the visitor.
+  assert.equal(iframe.style.height, '720px');
+  assert.equal(iframe.style.width, '400px');
+  // After close, content reports size the docked box again.
   window.dispatchEvent(fromFrame({ type: 'pawbar:close' }));
   window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 72 }));
   assert.equal(iframe.style.height, '72px');
 });
 
-test('the docked bar is centered at the bottom, and width reports cannot shrink it', () => {
+test('a viewport too small for a column beside the page gets the full-screen sheet', () => {
   const window = mount();
   const iframe = onlyIframe(window);
-  // jsdom viewport is 1024×768: bar = 720 wide → left (1024-720)/2 = 152.
+  Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true });
+  Object.defineProperty(window, 'innerHeight', { value: 780, configurable: true });
+  window.dispatchEvent(
+    messageEvent(window, { data: { type: 'pawbar:open' }, origin: FRAME_ORIGIN, source: iframe.contentWindow }),
+  );
+  // On a phone there is no "beside the page" to leave clickable, so covering it
+  // is the ordinary mobile sheet rather than the modal we just removed.
+  assert.equal(iframe.style.width, '100vw');
+  assert.equal(iframe.style.height, '100vh');
+});
+
+test('expand is opt-in and reversible: full-viewport, then back to the column', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const fromFrame = (data) =>
+    messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
+  window.dispatchEvent(fromFrame({ type: 'pawbar:open' }));
+  window.dispatchEvent(fromFrame({ type: 'pawbar:expand', on: true }));
+  assert.equal(iframe.style.width, '100vw');
+  window.dispatchEvent(fromFrame({ type: 'pawbar:expand', on: false }));
+  assert.equal(iframe.style.width, '400px');
+  assert.equal(iframe.style.height, '720px');
+});
+
+test('the docked bar is centered at the bottom, and its box hugs the reported width', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  // jsdom viewport is 1024x768: bar defaults to the 720 cap → left (1024-720)/2.
   assert.equal(iframe.style.width, '720px');
   assert.equal(iframe.style.left, '152px');
   assert.equal(iframe.style.top, 768 - 96 + 'px'); // bottom-aligned default height
-  // A reported width must NOT shrink the bar (loader policy owns bar width).
+  // The bar rests as a compact pill now, so its width IS reported. Pinning the
+  // box at 720 would leave ~295px of invisible iframe either side of a 130px
+  // pill, silently swallowing clicks on the host page's own content.
   window.dispatchEvent(
     messageEvent(window, {
-      data: { type: 'pawbar:resize', h: 96, w: 500 },
+      data: { type: 'pawbar:resize', h: 56, w: 148 },
+      origin: FRAME_ORIGIN,
+      source: iframe.contentWindow,
+    }),
+  );
+  assert.equal(iframe.style.width, '148px');
+  assert.equal(iframe.style.left, (1024 - 148) / 2 + 'px');
+  // ...but the cap still holds against a runaway report.
+  window.dispatchEvent(
+    messageEvent(window, {
+      data: { type: 'pawbar:resize', h: 56, w: 5000 },
       origin: FRAME_ORIGIN,
       source: iframe.contentWindow,
     }),
@@ -254,4 +309,29 @@ test('window.PawBar.open() pins its outbound post to the frame origin (never "*"
   assert.equal(calls[0].data.type, 'pawbar:host-open');
   assert.equal(calls[0].targetOrigin, FRAME_ORIGIN);
   assert.notEqual(calls[0].targetOrigin, '*');
+});
+
+test('window.PawBar.open() docks the same column the message path does', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+
+  window.PawBar.open();
+
+  // The host's own "Chat with us" button and the widget's launcher are the same
+  // widget. This used to call goFullscreen() while the message path docked a
+  // column, so which door the visitor came through decided whether the frame
+  // covered the page — and only one of the two was ever looked at.
+  assert.equal(iframe.style.width, '400px');
+  assert.equal(iframe.style.height, '720px');
+  assert.notEqual(iframe.style.width, '100vw');
+});
+
+test('window.PawBar.close() returns to the resting dock', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+
+  window.PawBar.open();
+  window.PawBar.close();
+
+  assert.equal(iframe.style.width, '720px');
 });
