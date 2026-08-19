@@ -7,9 +7,34 @@
 // mount-time scrollHeight is then garbage and no input event ever corrects it,
 // leaving a max-height bar (the "giant bar" restore bug). Width-gated so the
 // observer can't loop on its own height writes.
+//
+// 2026-08-19: an EMPTY textarea is measured at one row, not at whatever its
+// placeholder happens to wrap to. scrollHeight counts the placeholder, so in
+// the resting pill's narrow slot "Ask about this site" wrapped to two lines and
+// the idle bar stood 24px TALLER than the same bar on hover — the box shrinking
+// as it widened, which is backwards. The placeholder is a hint about what to
+// type, and a hint must not set the height of the thing you type into.
 
 export function autosize(node: HTMLTextAreaElement, maxHeight = 160) {
+  /** One row, measured with the placeholder suppressed so its wrapping cannot
+   *  contribute. Read fresh each time: font tokens are owner-settable, so a
+   *  cached row height would be wrong the moment a site sets its own font. */
+  function emptyHeight(): number {
+    const ph = node.placeholder;
+    node.placeholder = '';
+    node.style.height = 'auto';
+    const h = node.scrollHeight;
+    node.placeholder = ph;
+    return h;
+  }
+
   function resize() {
+    if (node.value === '') {
+      const h = emptyHeight();
+      node.style.height = `${h}px`;
+      node.style.overflowY = 'hidden';
+      return;
+    }
     node.style.height = 'auto';
     const next = Math.min(node.scrollHeight, maxHeight);
     node.style.height = `${next}px`;

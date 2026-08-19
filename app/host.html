@@ -88,7 +88,14 @@
       const sheet = () =>
         view === 'panel' && (innerWidth < PANEL_MIN_VW || innerHeight < PANEL_MIN_VH);
 
-      function apply() {
+      const BOX_MS = 260, BOX_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
+      // Mirrors loader.ts: the visitor's OS setting suppresses the box
+      // animation. Read live, since people change it while a page is open.
+      const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+      function apply(animate) {
+        frame.style.transition = animate && !reduced()
+          ? ['left', 'top', 'width', 'height'].map((k) => `${k} ${BOX_MS}ms ${BOX_EASE}`).join(', ')
+          : 'none';
         if (expanded || sheet()) {
           Object.assign(frame.style, { left: '0px', top: '0px', width: '100vw', height: '100vh' });
           return;
@@ -117,16 +124,16 @@
             if (view === 'panel') break;
             if (Number.isFinite(d.h)) size[view].h = d.h;
             if (Number.isFinite(d.w) && d.w > 0) size[view].w = d.w;
-            apply();
+            apply(true);
             break;
           case 'pawbar:view':
             view = d.view;
             if (d.view !== 'panel') { dockView = d.view; expanded = false; }
-            apply();
+            apply(true);
             break;
-          case 'pawbar:open': view = 'panel'; apply(); break;
-          case 'pawbar:expand': expanded = d.on === true; apply(); break;
-          case 'pawbar:close': view = dockView; expanded = false; apply(); break;
+          case 'pawbar:open': view = 'panel'; apply(true); break;
+          case 'pawbar:expand': expanded = d.on === true; apply(true); break;
+          case 'pawbar:close': view = dockView; expanded = false; apply(true); break;
         }
       });
     </script>

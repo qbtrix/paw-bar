@@ -596,11 +596,17 @@
            `fly` rather than a CSS keyframe because the panel LEAVES the DOM on
            close, and CSS cannot animate that. Distance and duration come from
            motion.ts, so the owner's preset and the visitor's reduced-motion
-           setting both reach it. -->
+           setting both reach it.
+
+           It travels a SHORT distance and fades, because the loader is growing
+           the iframe box underneath it over the same 260ms (loader.ts BOX_MS).
+           The box supplies the expansion; this supplies the arrival. Making the
+           panel fly far as well read as two things moving at once — the frame
+           opening and the contents sliding independently inside it. -->
       <section
         class="panel"
         aria-label="Site concierge"
-        transition:fly={{ y: travel(14), duration: duration(), easing: expoOut }}
+        transition:fly={{ y: travel(10), duration: duration(), easing: expoOut }}
       >
         <Messenger
           bind:tab={messengerTab}

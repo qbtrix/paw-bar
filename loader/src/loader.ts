@@ -63,6 +63,21 @@ const PANEL_MAX_H = 720;
 const PANEL_MIN_VW = 460;
 const PANEL_MIN_VH = 620;
 
+// The box GROWS into the open column instead of snapping to it. This has to
+// live in the loader because the loader owns the iframe rect: the app can only
+// animate its own content, so a panel that slid in beautifully still did so
+// inside a frame that had already jumped from 256x96 to 400x720 in one frame.
+// Both halves move together now — the box expands while the panel flies in.
+//
+// Dimensions rather than a transform: the iframe's content is laid out against
+// its real size, so scaling it would squash the text and then snap it back.
+// It is one fixed element for a quarter of a second, not a scroll-linked
+// effect.
+const BOX_MS = 260;
+// Exponential ease-out — the same curve family as --pawbar-ease inside the app,
+// so the frame and its contents decelerate together rather than racing.
+const BOX_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
+
 type DockView = 'bar' | 'chip' | 'panel';
 
 interface PawBarApi {
@@ -183,25 +198,44 @@ type LoaderWindow = Window &
     return { x, y, w, h };
   }
 
-  function applyDock(): void {
+  /** The visitor's OS setting, read live — people change it while a page is
+   *  open, and a cached answer would keep animating at them until reload. */
+  function reduced(): boolean {
+    return !!win.matchMedia && win.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  /** Write the box. `animate` is opt-in per call rather than a standing style,
+   *  because three cases must stay instant:
+   *    - the FIRST placement (there is nothing to grow from, and a box sliding
+   *      in from 0x0 on page load is a widget announcing itself)
+   *    - every frame of a drag (a transition here lags the box behind the
+   *      pointer, which feels broken rather than smooth)
+   *    - a window resize (the box is tracking a viewport that already moved)
+   */
+  function setBox(x: string, y: string, w: string, h: string, animate: boolean): void {
+    iframe.style.transition =
+      animate && !reduced()
+        ? `left ${BOX_MS}ms ${BOX_EASE}, top ${BOX_MS}ms ${BOX_EASE}, width ${BOX_MS}ms ${BOX_EASE}, height ${BOX_MS}ms ${BOX_EASE}`
+        : 'none';
+    iframe.style.left = x;
+    iframe.style.top = y;
+    iframe.style.width = w;
+    iframe.style.height = h;
+  }
+
+  function applyDock(animate = false): void {
     // Expanded on request, or a viewport with no room for a column beside the
     // page. Checked here so a window resize re-decides on every reflow.
     if (expanded || panelIsSheet()) {
-      goFullscreen();
+      goFullscreen(animate);
       return;
     }
     const b = dockBox();
-    iframe.style.left = b.x + 'px';
-    iframe.style.top = b.y + 'px';
-    iframe.style.width = b.w + 'px';
-    iframe.style.height = b.h + 'px';
+    setBox(b.x + 'px', b.y + 'px', b.w + 'px', b.h + 'px', animate);
   }
 
-  function goFullscreen(): void {
-    iframe.style.left = '0px';
-    iframe.style.top = '0px';
-    iframe.style.width = '100vw';
-    iframe.style.height = '100vh';
+  function goFullscreen(animate = false): void {
+    setBox('0px', '0px', '100vw', '100vh', animate);
   }
 
   (doc.body || doc.documentElement).appendChild(iframe);
@@ -241,7 +275,9 @@ type LoaderWindow = Window &
         if (Number.isFinite(h)) size[view].h = h;
         const w = Number(data.w);
         if (Number.isFinite(w) && w > 0) size[view].w = w;
-        applyDock();
+        // Animated: the resting pill widens into the composer on hover, and the
+        // box has to travel with it or the frame snaps a beat before the pill.
+        applyDock(true);
         break;
       }
       case 'pawbar:view': {
@@ -252,7 +288,8 @@ type LoaderWindow = Window &
             dockView = data.view;
             expanded = false;
           }
-          applyDock();
+          // Animated: bar↔chip is a state the visitor asked for and can watch.
+          applyDock(true);
         }
         break;
       }
@@ -268,17 +305,19 @@ type LoaderWindow = Window &
         // so the host page keeps its clicks everywhere the column is not.
         view = 'panel';
         overlay = false;
-        applyDock();
+        // THE open. The box grows from the pill to the column while the panel
+        // flies in inside it, so the two read as one movement.
+        applyDock(true);
         break;
       case 'pawbar:expand':
         expanded = data.on === true;
-        applyDock();
+        applyDock(true);
         break;
       case 'pawbar:close':
         view = dockView;
         overlay = false;
         expanded = false;
-        applyDock();
+        applyDock(true);
         break;
       case 'pawbar:drag': {
         if (data.phase === 'start') {
