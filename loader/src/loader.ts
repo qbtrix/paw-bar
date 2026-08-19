@@ -358,14 +358,21 @@ type LoaderWindow = Window &
   //    AND forwards a pinned host-intent to the app (forward-compatible: the app
   //    honours pawbar:host-open / pawbar:host-close).
   win.PawBar = {
+    // Must match `pawbar:open` exactly. It used to call goFullscreen(), so a
+    // site with its own "Chat with us" button got the viewport-covering frame
+    // the message path had already stopped producing — the same widget behaving
+    // two different ways depending on which door the visitor came through.
     open(): void {
-      overlay = true;
-      goFullscreen();
+      view = 'panel';
+      overlay = false;
+      applyDock(true);
       postToFrame({ type: 'pawbar:host-open' });
     },
     close(): void {
+      view = dockView;
       overlay = false;
-      applyDock();
+      expanded = false;
+      applyDock(true);
       postToFrame({ type: 'pawbar:host-close' });
     },
   };

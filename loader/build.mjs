@@ -3,6 +3,14 @@
 // browsers (ES2020). Minified IIFE so a foreign site can `<script src="…">` the
 // loader without touching its own bundler. Reports raw + gzipped size; the
 // jsdom unit test loads dist/loader.js directly (the exact shipped IIFE).
+//
+// It ALSO emits dist/loader.readable.js — the same bundle unminified. That is
+// the artifact pocketpaw vendors as its served loader. Before this, the vendored
+// copy was hand-transcribed TypeScript with the annotations stripped by hand,
+// which drifts the moment this file changes and gives no signal that it has:
+// the copy pocketpaw was serving predated a whole session of loader fixes and
+// still called goFullscreen() on open, so the widget went fullscreen on a real
+// site while the source said otherwise.
 
 import { build } from 'esbuild';
 import { gzipSync } from 'node:zlib';
@@ -24,6 +32,20 @@ await build({
   outfile: here + 'dist/loader.js',
   bundle: true,
   minify: true,
+  sourcemap: false,
+  format: 'iife',
+  target: ['es2020'],
+  platform: 'browser',
+  legalComments: 'none',
+});
+
+// Unminified twin for vendoring. Same entry, same target, same semantics —
+// only the whitespace differs — so a reader can diff it against source.
+await build({
+  entryPoints: [here + 'src/loader.ts'],
+  outfile: here + 'dist/loader.readable.js',
+  bundle: true,
+  minify: false,
   sourcemap: false,
   format: 'iife',
   target: ['es2020'],

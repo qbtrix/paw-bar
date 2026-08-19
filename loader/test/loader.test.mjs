@@ -310,3 +310,28 @@ test('window.PawBar.open() pins its outbound post to the frame origin (never "*"
   assert.equal(calls[0].targetOrigin, FRAME_ORIGIN);
   assert.notEqual(calls[0].targetOrigin, '*');
 });
+
+test('window.PawBar.open() docks the same column the message path does', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+
+  window.PawBar.open();
+
+  // The host's own "Chat with us" button and the widget's launcher are the same
+  // widget. This used to call goFullscreen() while the message path docked a
+  // column, so which door the visitor came through decided whether the frame
+  // covered the page — and only one of the two was ever looked at.
+  assert.equal(iframe.style.width, '400px');
+  assert.equal(iframe.style.height, '720px');
+  assert.notEqual(iframe.style.width, '100vw');
+});
+
+test('window.PawBar.close() returns to the resting dock', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+
+  window.PawBar.open();
+  window.PawBar.close();
+
+  assert.equal(iframe.style.width, '720px');
+});
