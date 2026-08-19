@@ -117,6 +117,31 @@ describe('fetchOperatorMessages', () => {
     expect(String(fetchMock.mock.calls[0][0])).not.toContain('after=');
   });
 
+  // 2026-08-19 — the delivery half of owner-side conversation identity. Without
+  // the parameter the backend answers for the visitor's WHOLE history, so an
+  // owner's reply to a thread they finished last week lands inside the one on
+  // screen. Mutation that proves it: drop the `q.set('conversation_id', …)`
+  // line and this fails.
+  it('names the conversation being read', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes({ messages: [], bot_paused: false }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchOperatorMessages(clientConfig, '', undefined, 'ppc-abc');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('conversation_id=ppc-abc');
+  });
+
+  it('omits the conversation when the visitor has none yet', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes({ messages: [], bot_paused: false }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchOperatorMessages(clientConfig);
+
+    // A visitor who has never sent a turn has nothing to mis-deliver, and an
+    // empty parameter would read as "the conversation whose id is empty".
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('conversation_id=');
+  });
+
   it('drops malformed rows and keeps the good ones', async () => {
     vi.stubGlobal(
       'fetch',

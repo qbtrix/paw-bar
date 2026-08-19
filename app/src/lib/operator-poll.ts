@@ -7,8 +7,13 @@
 // a network blip or a malformed body must leave the widget behaving EXACTLY as
 // it did before this file existed. Contract (exact):
 //   GET {endpoint}/paw-bar/messages/{widget_id}/{customer_ref}
-//       ?signed_key=…&after=<iso8601|omitted>
+//       ?signed_key=…&after=<iso8601|omitted>&conversation_id=<id|omitted>
 //     → {messages: [{role:"owner"|"system", content, at}…], bot_paused: bool}
+//   2026-08-19: `conversation_id` scopes the read to the thread on screen. A
+//   visitor may hold several, and without it the backend answers for all of
+//   them — so an owner's reply to one surfaces in another, and `bot_paused`
+//   describes a thread the visitor isn't looking at. Omitting it keeps the old
+//   whole-visitor behaviour, which is what a cached bundle will do.
 //     refusals mirror the chat endpoint: 404 unknown widget · 429 · 401 bad
 //     key · 403 origin.
 // Same-origin GETs from our own frame carry no Origin header; the backend
@@ -84,9 +89,17 @@ export async function fetchOperatorMessages(
   config: ConciergeChatConfig,
   after = '',
   signal?: AbortSignal,
+  conversationId = '',
 ): Promise<OperatorPoll | null> {
   const q = new URLSearchParams({ signed_key: config.signedKey });
   if (after) q.set('after', after);
+  // Which thread we are asking about (2026-08-19). Without it the backend
+  // answers for the visitor's WHOLE history, so an owner's reply to a
+  // conversation they finished last week appears inside the one they are typing
+  // in now — and `bot_paused` describes a different thread than the one on
+  // screen. Omitted when the visitor has no conversation yet (they have never
+  // sent a turn), which is exactly when there is nothing to mis-deliver.
+  if (conversationId) q.set('conversation_id', conversationId);
   const url =
     `${base(config.endpoint)}/paw-bar/messages/${encodeURIComponent(config.widgetId)}` +
     `/${encodeURIComponent(config.customerRef)}?${q.toString()}`;
