@@ -16,6 +16,10 @@ interface PawBarBootConfig {
   /** Exact origin of the host page; postMessage targetOrigin is pinned to this, never "*". */
   parentOrigin: string;
   mode: 'concierge';
+  /** TRUE only in the owner preview frame (D5). Gates the live-restyle listener
+   *  in main.ts; absent on a public embed and on any frame served before
+   *  2026-08-20, both of which must be treated as false. */
+  preview?: boolean;
   /** Optional white-label overrides for the --pawbar-* token scale. */
   tokens?: Record<string, string>;
   /** Optional 'light' | 'dark'; defaults to 'dark' (quiet-authority glass). */

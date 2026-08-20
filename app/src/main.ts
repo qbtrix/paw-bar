@@ -29,6 +29,8 @@ import { CartStore } from './store/cart.svelte';
 import { ContactStore } from './store/contact.svelte';
 import { OperatorStore } from './store/operator.svelte';
 import { createPoster } from './lib/postmessage';
+import { applyTokens } from './lib/tokens';
+import { installPreviewTokenListener } from './lib/preview-tokens';
 
 const config = readConfig();
 
@@ -47,13 +49,6 @@ const target = document.getElementById('pawbar-app') ?? document.body;
 // The customization path looked wired end to end and did nothing — and it went
 // unnoticed because the backend answered `"tokens": {}` for exactly as long,
 // so there was never a value there to lose. See tests/tokens.spec.ts.
-function applyTokens(root: HTMLElement): void {
-  for (const [rawKey, rawValue] of Object.entries(config.tokens)) {
-    const key = rawKey.startsWith('--') ? rawKey : `--pawbar-${rawKey.replace(/^pawbar-/, '')}`;
-    if (typeof rawValue === 'string') root.style.setProperty(key, rawValue);
-  }
-}
-
 const storeConfig = {
   endpoint: config.endpoint,
   widgetId: config.widgetId,
@@ -99,4 +94,14 @@ mount(GlassShell, {
 // rendered by the time it returns — so the first painted frame is the styled
 // one and no visitor watches a default palette flip to the owner's.
 const root = target.querySelector<HTMLElement>('.pawbar-root');
-if (root) applyTokens(root);
+if (root) applyTokens(root, config.tokens);
+
+// Live restyling, owner preview ONLY. Both gates (preview flag + a known parent
+// origin) live in installPreviewTokenListener, which refuses to install rather
+// than installing something permissive — see lib/preview-tokens.ts.
+installPreviewTokenListener({
+  preview: config.preview,
+  parentOrigin: config.parentOrigin,
+  getRoot: () => target.querySelector<HTMLElement>('.pawbar-root'),
+});
+

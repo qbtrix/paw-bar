@@ -32,6 +32,9 @@ export interface PawBarConfig {
   endpoint: string;
   parentOrigin: string;
   mode: 'concierge';
+  /** TRUE only in the owner preview frame (D5), never a public embed. Gates the
+   *  live-restyle listener: see main.ts. Absent/false on anything older. */
+  preview: boolean;
   tokens: Record<string, string>;
   /** Owner's choice; 'auto' (the default) follows the host page. */
   scheme: SchemeSetting;
@@ -102,6 +105,7 @@ export function readConfig(): PawBarConfig {
     endpoint: boot?.endpoint ?? 'http://localhost:8888/api/v1',
     parentOrigin: boot?.parentOrigin ?? devParentOrigin(),
     mode: 'concierge',
+    preview: boot?.preview === true,
     tokens: boot?.tokens ?? {},
     scheme: readSetting(boot?.scheme),
     hostScheme: hostSchemeFromUrl(window.location.search) ?? '',
