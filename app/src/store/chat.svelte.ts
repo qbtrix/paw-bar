@@ -1,4 +1,9 @@
 // chat.svelte.ts — Svelte 5 runes store over the concierge SSE contract.
+// Updated 2026-08-21 (resume the thread): adoptConversation carries the turns
+// with the id. A visitor who typed before the conversation list loaded had their
+// transcript filed under the ".active" sentinel; adoption took the id, wrote the
+// pointer and left the turns behind, so the next reload resumed a conversation
+// with an empty row. See lib/transcript.migrateActiveTranscript.
 // Updated 2026-07-30 (human takeover): a HUMAN can now join the thread. Message
 // grew two roles — 'owner' (the site owner typing from their inbox) and
 // 'system' (quiet in-thread notices) — and the store owns three new pieces:
@@ -46,6 +51,7 @@ import {
   clearTranscript,
   loadActiveConversationId,
   loadTranscript,
+  migrateActiveTranscript,
   migrateLegacyTranscript,
   saveActiveConversationId,
   saveTranscript,
@@ -172,10 +178,20 @@ export class ChatStore {
   adoptConversation(conversationId: string): void {
     if (!conversationId || this.conversationId) return;
     migrateLegacyTranscript(this.#config.widgetId, conversationId);
+    // ...and the row this session built before the list named the conversation.
+    // Skipping it is what stranded the turns: the pointer moved to the named
+    // conversation, the transcript stayed under the sentinel, and the reload
+    // after that opened an empty panel.
+    migrateActiveTranscript(this.#config.widgetId, conversationId);
     this.conversationId = conversationId;
     saveActiveConversationId(this.#config.widgetId, conversationId);
     if (this.messages.length === 0) {
       this.messages = loadTranscript(this.#config.widgetId, conversationId);
+    } else {
+      // The thread already on screen now has a name. File it under that name so
+      // the pointer and the row agree even when the migration above had nothing
+      // to move (storage blocked, or the turns only ever existed in memory).
+      this.#persist();
     }
   }
 

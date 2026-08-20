@@ -46,6 +46,11 @@ import { sanitizeSources } from './sources';
 // ACTIVE_KEY remembers which conversation to resume on reload, since the iframe
 // reloads on every host-page navigation and the server's answer arrives later
 // than the first paint.
+// 2026-08-21 (resume the thread): migrateActiveTranscript — the row a visitor
+// builds BEFORE the server names their conversation is filed under the ".active"
+// sentinel, and adoption now carries it across to the real id. It did not, which
+// is how a visitor with a conversation on disk opened the bar to an empty panel.
+//
 const KEY_PREFIX = 'pawbar.transcript.v2.';
 const LEGACY_KEY_PREFIX = 'pawbar.transcript.v1.';
 const ACTIVE_PREFIX = 'pawbar.active.v1.';
@@ -102,6 +107,39 @@ export function migrateLegacyTranscript(widgetId: string, conversationId: string
     window.localStorage.removeItem(`${LEGACY_KEY_PREFIX}${widgetId}`);
   } catch {
     // Nothing to migrate into — the visitor starts fresh, which is survivable.
+  }
+}
+
+/** Carry the pre-identity row across to the conversation the server just named.
+
+ *  A turn sent before the conversation list has loaded is persisted under
+ *  key(widgetId, "") — the literal ".active" sentinel — because the store has no
+ *  id to file it under yet. That is the COMMON path, not an edge case: the
+ *  composer accepts a question the moment the panel opens, while the list is
+ *  still in flight.
+ *
+ *  Without this, adoption took the id and left the turns behind. The pointer
+ *  named one row and the transcript sat in another, so the next reload resumed a
+ *  conversation with nothing filed under it and painted an empty panel while the
+ *  thread was still on disk one key away. Repeat over a few visits and storage
+ *  fills with orphaned rows under conversations the visitor can no longer reach.
+ *
+ *  Same once-only rule as the v1 migration: the sentinel is REMOVED as it is
+ *  adopted, so a later conversation can never inherit an earlier one's turns.
+ *  An existing row under the target is never clobbered — it is the newer of the
+ *  two by construction. */
+export function migrateActiveTranscript(widgetId: string, conversationId: string): void {
+  if (!widgetId || !conversationId) return;
+  try {
+    const sentinel = key(widgetId, '');
+    const row = window.localStorage.getItem(sentinel);
+    if (!row) return;
+    const target = key(widgetId, conversationId);
+    if (!window.localStorage.getItem(target)) window.localStorage.setItem(target, row);
+    window.localStorage.removeItem(sentinel);
+  } catch {
+    // Storage blocked — the in-memory thread is untouched, and the session
+    // keeps the turns it is already showing.
   }
 }
 
