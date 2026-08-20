@@ -233,10 +233,27 @@
     poster.view(dock === 'chip' ? 'chip' : 'bar');
   });
 
+  // Decided once per mount, at the moment the panel first opens rather than at
+  // mount: the thread may arrive from the SERVER a beat after the store is
+  // built (the cache is empty whenever Safari blocks this frame's storage, or
+  // the 7-day TTL has expired), and the visitor almost always clicks after that
+  // has landed. Once they have chosen to leave the conversation, the choice
+  // stands for the session — reopening the panel must not drag them back in.
+  let resumeChecked = false;
+
   function openPanel() {
     view = 'panel';
     menuOpen = false;
     poster.open();
+    // A visitor holding turns is not a new visitor. Showing them the greeting
+    // and the starter questions, with their conversation unmarked inside the
+    // Messages tab, is how "i had a chat but i don't see my chat history"
+    // happens while nothing is actually lost. Same position handleBarSend
+    // already takes, with the tense changed.
+    if (!resumeChecked) {
+      resumeChecked = true;
+      if (store.messages.length > 0) inConversation = true;
+    }
     // Initial cart hydrate on the first open (one-shot inside the store).
     void cart.load();
     // The Home tab shows articles and the Messages tab shows conversations, so
