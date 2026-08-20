@@ -37,7 +37,11 @@ import { streamConciergeChat, type ConciergeChatConfig } from '../lib/chat-clien
 import { getCustomerRef } from '../lib/customer-ref';
 import { laterAt, operatorMessageId, type OperatorMessage } from '../lib/operator-poll';
 import type { Source } from '../lib/sources';
-import { openConversation } from '../lib/conversations-client';
+import {
+  fetchConversationMessages,
+  openConversation,
+  type WireTurn,
+} from '../lib/conversations-client';
 import {
   clearTranscript,
   loadActiveConversationId,
@@ -105,7 +109,56 @@ export class ChatStore {
     // frame): rehydrate the visitor's persisted thread — the Intercom/Crisp
     // pattern. Statuses come back terminal; nothing resumes streaming.
     this.conversationId = loadActiveConversationId(config.widgetId);
+    // The CACHE, painted first so the panel is never blank for a frame.
     this.messages = loadTranscript(config.widgetId, this.conversationId);
+    // Then the record. See #hydrate.
+    void this.#hydrate();
+  }
+
+  /** Replace the cached thread with the server's copy.
+   *
+   *  localStorage is a cache, not the record. It used to be the record, and that
+   *  was the bug: this bar is a THIRD-PARTY iframe, so Safari blocks its storage
+   *  outright and Chrome and Firefox partition it per top-level site — and the
+   *  stored row carries a 7-day TTL on top of that. Any of those losing the
+   *  transcript lost the conversation permanently, while the server held every
+   *  message the whole time. A visitor came back to an empty panel with their
+   *  conversation id still sitting in localStorage, pointing at turns nothing
+   *  could load: the pointer has no TTL and the thread does.
+   *
+   *  Failure-soft in both directions. null means we could not ask — offline, or
+   *  a 404 on a pointer that has gone stale — and the cached thread stays on
+   *  screen, which is strictly better than blanking it. An empty ARRAY is the
+   *  server saying the thread really is empty, and that is adopted: a
+   *  conversation cleared server-side should not be resurrected from a stale
+   *  cache forever.
+   *
+   *  Never clobbers a live exchange: if the visitor has started typing turns
+   *  before this lands, theirs win. The fetch is only ever catching up. */
+  async #hydrate(): Promise<void> {
+    const conversationId = this.conversationId;
+    if (!conversationId) return;
+    const customerRef = await this.#resolveCustomerRef();
+    if (!customerRef) return;
+    const turns = await fetchConversationMessages(
+      { endpoint: this.#config.endpoint, widgetId: this.#config.widgetId, signedKey: this.#config.siteKey },
+      customerRef,
+      conversationId,
+    );
+    if (turns === null) return;
+    // Re-read AFTER the await: the visitor may have switched conversations or
+    // sent a turn while this was in flight, and a late answer must not land in
+    // the wrong thread or overwrite something newer than itself.
+    if (this.conversationId !== conversationId) return;
+    if (this.isStreaming || this.messages.some((m) => m.status === 'streaming')) return;
+    this.messages = turns.map((turn: WireTurn) => ({
+      id: newId(),
+      role: turn.role,
+      content: turn.content,
+      status: 'done' as const,
+      ...(turn.at ? { at: turn.at } : {}),
+    }));
+    this.#persist();
   }
 
   /** Persist the terminal turns — called whenever a turn reaches a rest state. */
@@ -137,8 +190,14 @@ export class ChatStore {
     this.isStreaming = false;
     this.error = null;
     this.conversationId = conversationId;
+    // Cache first so the panel switches instantly, then the record — the same
+    // two-step the constructor does. Walking into an old thread from the Messages
+    // tab is in fact the MOST likely place to hold nothing locally: the cache is
+    // written per conversation, and the visitor is by definition opening one they
+    // have not been in recently.
     this.messages = loadTranscript(this.#config.widgetId, conversationId);
     saveActiveConversationId(this.#config.widgetId, conversationId);
+    void this.#hydrate();
   }
 
   async #resolveCustomerRef(): Promise<string> {
