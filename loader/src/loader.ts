@@ -100,9 +100,32 @@ interface PawBarApi {
 type LoaderWindow = Window &
   typeof globalThis & { PawBar?: PawBarApi; [key: string]: unknown };
 
+/** Does this page ask us not to mount? (`?pawbar=off`)
+ *
+ *  For the owner's appearance preview. The dashboard frames the REAL published
+ *  site so a theme can be judged on the page it will sit on, and overlays its own
+ *  owner-preview bar — the one that accepts live token updates. The framed page
+ *  would otherwise grow a SECOND bar: the public embed, showing the SAVED look,
+ *  sitting behind the one being edited. Two bars, and the wrong one is the one
+ *  that responds.
+ *
+ *  Not a security control, and it does not need to be. A visitor who adds this to
+ *  a URL hides a widget on a page they are already looking at, which costs
+ *  nobody anything. The site owner's own switch is `concierge_enabled`, which is
+ *  server-side and cannot be talked out of by a query string.
+ */
+function suppressed(win: LoaderWindow): boolean {
+  try {
+    return new URLSearchParams(win.location.search).get('pawbar') === 'off';
+  } catch {
+    return false;
+  }
+}
+
 (function bootstrap(win: LoaderWindow): void {
   // Idempotent: a duplicate paste / double-include must be a silent no-op.
   if (win[LOADED_FLAG]) return;
+  if (suppressed(win)) return;
 
   const doc = win.document;
 
