@@ -115,7 +115,7 @@
     padding: 0 12px;
     border: 1px solid var(--pawbar-border);
     border-radius: var(--pawbar-radius-sm);
-    background: oklch(1 0 0 / 0.05);
+    background: var(--pawbar-wash);
     transition: border-color var(--pawbar-duration-fast) var(--pawbar-ease);
   }
 
@@ -187,7 +187,7 @@
   }
 
   .row:hover {
-    background: oklch(1 0 0 / 0.05);
+    background: var(--pawbar-wash);
   }
 
   .row:focus-visible {
@@ -268,7 +268,7 @@
 
   .skeleton {
     display: block;
-    background: oklch(1 0 0 / 0.07);
+    background: var(--pawbar-wash-strong);
     border-radius: 6px;
     animation: pulse 1.6s var(--pawbar-ease) infinite;
   }

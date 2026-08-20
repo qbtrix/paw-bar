@@ -17,6 +17,14 @@
 //   {type:"pawbar:drag", phase,x,y}   move protocol: "start" → loader goes
 //     full-viewport and replies {type:"pawbar:box",x,y,w,h} so the app can track
 //     the pointer; "end" carries the new dock anchor for the loader to adopt.
+//   {type:"pawbar:overlay", on}       a menu/popover is showing (2026-08-19).
+//     Outside-click dismissal inside the frame can only see pointer events
+//     inside the FRAME, so a click on the host page left the quick menu or the
+//     cart popover hanging open over a page the visitor had moved on from.
+//     While this is on, a click on the host page answers with a bare
+//     {type:"pawbar:host-pointerdown"} — no coordinates, no target, nothing
+//     about the host page crosses the boundary, and nothing is sent at all
+//     while it is off.
 
 export interface PawBarPoster {
   resize(height: number, width?: number): void;
@@ -29,6 +37,9 @@ export interface PawBarPoster {
   close(): void;
   dragStart(): void;
   dragEnd(x: number, y: number): void;
+  /** Tell the loader whether a dismissible overlay is showing, so it can watch
+   *  the host page for the click that should close it. */
+  overlay(on: boolean): void;
 }
 
 export function createPoster(parentOrigin: string): PawBarPoster {
@@ -73,6 +84,9 @@ export function createPoster(parentOrigin: string): PawBarPoster {
     },
     dragEnd(x: number, y: number) {
       post({ type: 'pawbar:drag', phase: 'end', x: Math.round(x), y: Math.round(y) });
+    },
+    overlay(on: boolean) {
+      post({ type: 'pawbar:overlay', on });
     },
   };
 }

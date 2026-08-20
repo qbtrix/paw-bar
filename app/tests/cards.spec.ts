@@ -174,4 +174,40 @@ describe('card helpers', () => {
     expect(safeImageUrl('data:image/svg+xml;utf8,<svg onload=alert(1)>')).toBe('');
     expect(safeImageUrl(undefined)).toBe('');
   });
+
+  // ── Key uniqueness (2026-08-19) ───────────────────────────────────────────
+  // The card components render these lists in keyed {#each} blocks. Both are
+  // index-keyed now so a repeat can no longer throw, but a duplicate that
+  // reaches the DOM is still wrong output — the same CTA drawn twice, or a form
+  // whose submitted body silently drops one of the visitor's answers. This card
+  // is model-emitted JSON, so both cases are payloads to survive rather than
+  // states to assume away.
+  it('dedupes a repeated product action verb', () => {
+    const card = parseCard(
+      JSON.stringify({
+        kind: 'product',
+        items: [{ id: 'e', name: 'Espresso', actions: ['add_to_cart', 'add_to_cart', 'checkout'] }],
+      }),
+    );
+    expect(card?.items?.[0].actions).toEqual(['add_to_cart', 'checkout']);
+  });
+
+  it('refuses a form whose field names collide', () => {
+    // Not deduped — REFUSED. The submitted body is keyed on the field name, so
+    // two fields sharing one means one answer overwrites the other. There is no
+    // reading of this card that is safe to render, and the quiet
+    // "card unavailable" fallback is the honest outcome.
+    expect(
+      parseCard(
+        JSON.stringify({
+          kind: 'form',
+          verb: 'book_visit',
+          fields: [
+            { name: 'phone', label: 'Phone', type: 'tel' },
+            { name: 'phone', label: 'Mobile', type: 'tel' },
+          ],
+        }),
+      ),
+    ).toBeNull();
+  });
 });

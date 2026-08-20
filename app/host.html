@@ -73,17 +73,44 @@
       });
 
       // ── the loader's box protocol, minimally ──────────────────────────────
-      const PANEL_W = 400, PANEL_MAX_H = 720, BAR_MAX_W = 720, MARGIN = 24;
+      const PANEL_W = 400, PANEL_MAX_H = 720, BAR_W = 384, MARGIN = 24;
       const PANEL_MIN_VW = 460, PANEL_MIN_VH = 620;
       const frame = document.createElement('iframe');
-      frame.src = '/index.html';
+      // ?demo swaps in the fake-backend page, so the harness can show a
+      // populated messenger — a streamed reply, a conversation list, a cart —
+      // without a backend running. Everything else about the harness is
+      // identical, which is the point: the states differ, the frame does not.
+      const demo = new URLSearchParams(location.search);
+      // Mirrors loader.ts hostScheme(): the frame cannot see this page, so the
+      // page tells it which way round it reads. Without this the harness would
+      // show a widget that ignores its host, which is the bug the real loader
+      // was changed to fix.
+      const hostScheme = () => {
+        const declared = getComputedStyle(document.documentElement).colorScheme || '';
+        const d = declared.includes('dark'), l = declared.includes('light');
+        if (d !== l) return d ? 'd' : 'l';
+        for (const el of [document.body, document.documentElement]) {
+          const p = getComputedStyle(el).backgroundColor.match(/[\d.]+/g);
+          if (!p || p.length < 3 || (p.length > 3 && +p[3] < 0.5)) continue;
+          return (0.2126 * +p[0] + 0.7152 * +p[1] + 0.0722 * +p[2]) / 255 < 0.5 ? 'd' : 'l';
+        }
+        return matchMedia('(prefers-color-scheme: dark)').matches ? 'd' : 'l';
+      };
+      const frameQuery = (extra) => {
+        const q = new URLSearchParams(extra || {});
+        q.set('s', hostScheme());
+        return '?' + q.toString();
+      };
+      frame.src = demo.has('demo')
+        ? '/demo.html' + frameQuery(demo.get('state') ? { state: demo.get('state') } : {})
+        : '/index.html' + frameQuery();
       frame.title = 'Site concierge';
       frame.style.cssText =
         'position:fixed;border:0;background:transparent;color-scheme:normal;z-index:2147483000;';
       document.body.appendChild(frame);
 
       let view = 'bar', dockView = 'bar', expanded = false;
-      const size = { bar: { w: BAR_MAX_W, h: 96 }, chip: { w: 240, h: 72 }, panel: { w: PANEL_W, h: PANEL_MAX_H } };
+      const size = { bar: { w: BAR_W, h: 96 }, chip: { w: 240, h: 72 }, panel: { w: PANEL_W, h: PANEL_MAX_H } };
 
       const sheet = () =>
         view === 'panel' && (innerWidth < PANEL_MIN_VW || innerHeight < PANEL_MIN_VH);
@@ -101,7 +128,10 @@
           return;
         }
         const maxW = innerWidth - MARGIN;
-        const wantW = view === 'bar' ? Math.min(size.bar.w, BAR_MAX_W) : size[view].w;
+        // The bar's width is loader POLICY, not an app report — see
+        // loader.ts BAR_W. An app that sizes itself against the frame it is
+        // already inside cannot grow back out of a small one.
+        const wantW = view === 'bar' ? BAR_W : size[view].w;
         const w = Math.min(wantW, maxW);
         const wantH = view === 'panel' ? PANEL_MAX_H : size[view].h;
         const h = Math.min(Math.max(wantH, 48), innerHeight - MARGIN);
@@ -123,8 +153,12 @@
           case 'pawbar:resize':
             if (view === 'panel') break;
             if (Number.isFinite(d.h)) size[view].h = d.h;
-            if (Number.isFinite(d.w) && d.w > 0) size[view].w = d.w;
-            apply(true);
+            if (view !== 'bar' && Number.isFinite(d.w) && d.w > 0) size[view].w = d.w;
+            // INSTANT, mirroring loader.ts. An eased box here would trail the
+            // content it is clipping, which is exactly the "input looks cut off
+            // for a beat" bug — and a harness that reproduces the bug the
+            // loader no longer has is worse than no harness.
+            apply(false);
             break;
           case 'pawbar:view':
             view = d.view;
@@ -134,8 +168,21 @@
           case 'pawbar:open': view = 'panel'; apply(true); break;
           case 'pawbar:expand': expanded = d.on === true; apply(true); break;
           case 'pawbar:close': view = dockView; expanded = false; apply(true); break;
+          case 'pawbar:overlay': watchHostPointer(d.on === true); break;
         }
       });
+
+      // Mirrors loader.ts: while an in-frame overlay is up, a click on THIS page
+      // dismisses it. Without this the harness cannot show the bug it was built
+      // to expose — a quick menu left hanging over a page the visitor already
+      // moved on from.
+      let overlayOpen = false;
+      function watchHostPointer(on) { overlayOpen = on; }
+      document.addEventListener('pointerdown', (ev) => {
+        if (overlayOpen && ev.target !== frame) {
+          frame.contentWindow?.postMessage({ type: 'pawbar:host-pointerdown' }, location.origin);
+        }
+      }, true);
     </script>
   </body>
 </html>

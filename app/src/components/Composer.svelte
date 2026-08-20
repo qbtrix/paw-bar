@@ -1,7 +1,7 @@
 <!--
-  Composer.svelte — Lean Svelte 5 composer host (~100 lines). Created 2026-07-15
-  (A3 glass bar). Rebuilt fresh instead of porting paw-enterprise's 1499-line
-  ChatInput (5 store couplings). Autosizing textarea, Enter-to-send /
+  Composer.svelte — Lean Svelte 5 composer host. Created 2026-07-15 (A3 glass
+  bar). Rebuilt fresh instead of porting paw-enterprise's 1499-line ChatInput
+  (5 store couplings). Autosizing textarea, Enter-to-send /
   Shift+Enter-newline, paste-intercept (files surfaced, not dumped as base64),
   and a send button that becomes a Stop button mid-stream. Voice/emoji are
   owner-mode later — out of scope for the concierge visitor face.
@@ -12,6 +12,21 @@
   ArrowUp) — the old left-pointing filled play-glyph read as "back". Mobile
   (≤640px): 32px send, 16px textarea type so iOS Safari doesn't auto-zoom on
   focus.
+
+  2026-08-19 (input redesign, captain direction): this is now the widget's ONLY
+  text input — the resting bar holds a live one rather than a label that grew
+  into one on hover. Two changes follow from that:
+
+  • The send button is quiet until there is something to send. A permanently
+    filled accent circle on a resting widget is a call to action for an action
+    the visitor has not started; filling it the moment their first character
+    lands makes the button mean "this will send" instead of "this is a button".
+    Disabled-and-dimmed said the same thing at 40% opacity, which on a
+    translucent surface over an unknown host page is not reliably legible.
+
+  • `aria-keyshortcuts` states the Enter binding rather than leaving it to be
+    discovered. A textarea that submits on Enter is a surprise worth declaring,
+    and a placeholder cannot carry it (it disappears the moment they type).
 -->
 <script lang="ts">
   import { autosize } from '../lib/composer/autosize';
@@ -27,8 +42,8 @@
     isStreaming?: boolean;
     placeholder?: string;
     /** 'panel' draws its own boxed surface; 'bare' is chromeless for hosts
-     *  that already ARE the surface (the docked pill bar — ChatPill's face
-     *  pattern: the pill is the chrome, the input inside it draws none). */
+     *  that already ARE the surface (the docked bar — the pill is the chrome,
+     *  the input inside it draws none). */
     variant?: 'panel' | 'bare';
     onSend: (text: string) => void;
     onStop: () => void;
@@ -92,13 +107,14 @@
     onkeydown={onKeydown}
     onpaste={onPaste}
     aria-label="Message"
+    aria-keyshortcuts="Enter"
   ></textarea>
   {#if isStreaming}
     <button type="button" class="send stop" onclick={onStop} aria-label="Stop">
       <span class="stop-icon"></span>
     </button>
   {:else}
-    <button type="submit" class="send" disabled={!canSend} aria-label="Send">
+    <button type="submit" class="send" class:ready={canSend} disabled={!canSend} aria-label="Send">
       <!-- ArrowUp — the paw-os send affordance (matches ChatPill / ChatInput). -->
       <svg
         viewBox="0 0 24 24"
@@ -123,22 +139,23 @@
     display: flex;
     align-items: flex-end;
     gap: 8px;
-    padding: 10px;
+    padding: 8px 8px 8px 6px;
     border: 1px solid var(--pawbar-border);
-    border-radius: 16px;
-    background: var(--pawbar-surface-strong);
+    border-radius: 24px;
+    background: var(--pawbar-surface-sunken);
   }
   .composer:focus-within {
-    border-color: var(--pawbar-ring);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--pawbar-ring) 45%, transparent);
+    border-color: color-mix(in oklab, var(--pawbar-ring) 70%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--pawbar-ring) 28%, transparent);
   }
-  /* Chromeless variant: the host (the docked pill bar) is the surface. */
+  /* Chromeless variant: the host (the docked pill bar) is the surface, and it
+     draws the focus ring for the whole pill. */
   .composer.bare,
   .composer.bare:focus-within {
     border: none;
     background: none;
     box-shadow: none;
-    padding: 4px 2px;
+    padding: 0;
   }
   textarea {
     flex: 1;
@@ -151,41 +168,57 @@
     font-size: 15px;
     line-height: 1.5;
     max-height: 160px;
-    padding: 6px 4px 6px 8px;
+    padding: 7px 4px 7px 10px;
   }
+  /* A placeholder NEVER wraps. autosize grows the textarea for its VALUE, not
+     for its placeholder, so a label too long for the line wrapped to a second
+     one the textarea then clipped in half — "Ask about Ocean / Suppl". It is
+     the owner's label and it can be 40 characters, so this is ordinary input,
+     not an edge case. Truncating reads as a normal chat input; a sliced
+     descender reads as a broken widget on their own site. */
   textarea::placeholder {
     color: var(--pawbar-fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .send {
     flex: none;
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: none;
+    border: 1px solid var(--pawbar-border);
     /* paw-os language: send is a CIRCLE (ChatPill / ChatInput rounded-full). */
     border-radius: 50%;
     cursor: pointer;
-    background: var(--pawbar-accent);
-    color: var(--pawbar-accent-fg);
-    transition: opacity 0.15s ease;
+    background: color-mix(in oklab, var(--pawbar-fg) 7%, transparent);
+    color: var(--pawbar-fg-muted);
+    transition:
+      background var(--pawbar-duration-fast) var(--pawbar-ease),
+      color var(--pawbar-duration-fast) var(--pawbar-ease),
+      border-color var(--pawbar-duration-fast) var(--pawbar-ease);
   }
-  @media (max-width: 640px) {
-    .send {
-      width: 32px;
-      height: 32px;
-    }
-    textarea {
-      font-size: 16px; /* 16px stops iOS Safari's focus auto-zoom */
-    }
+  /* It fills the moment there is something to send. Colour is the signal, not
+     opacity: a 40%-alpha glyph on a translucent surface over an unknown host
+     page is not reliably legible, and "greyed out" is a guess where "quiet
+     circle vs. accent circle" is a statement. */
+  .send.ready {
+    background: var(--pawbar-accent);
+    border-color: transparent;
+    color: var(--pawbar-accent-fg);
   }
   .send:disabled {
-    opacity: 0.4;
     cursor: default;
+  }
+  .send:focus-visible {
+    outline: 2px solid var(--pawbar-ring);
+    outline-offset: 2px;
   }
   .send.stop {
     background: color-mix(in oklab, var(--pawbar-fg) 14%, transparent);
+    border-color: transparent;
     color: var(--pawbar-fg);
   }
   .stop-icon {
@@ -193,5 +226,21 @@
     height: 11px;
     border-radius: 3px;
     background: currentColor;
+  }
+  /* Keyed on the POINTER, not on width. This composer lives inside a
+     content-sized iframe, so a width query measures the box the widget drew
+     for itself — the 360px bar matched "≤640px" on a 1280px desktop, meaning
+     every desktop got the phone treatment. Both rules here are about a finger
+     on glass (a bigger tap target, and 16px type because that is the threshold
+     under which iOS Safari zooms the page on focus), so asking about the
+     pointer is both correct and size-independent. */
+  @media (hover: none) and (pointer: coarse) {
+    .send {
+      width: 32px;
+      height: 32px;
+    }
+    textarea {
+      font-size: 16px; /* 16px stops iOS Safari's focus auto-zoom */
+    }
   }
 </style>

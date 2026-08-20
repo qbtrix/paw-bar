@@ -2,9 +2,10 @@
   MessageRow.svelte — One chat turn. Created 2026-07-15 (A3 glass bar). User
   turns render as a plain text bubble (textContent, never innerHTML). Assistant
   turns render streamed markdown through Markdown.svelte and carry a footer:
-  copy, a thumbs rate, and a provenance line ("grounded in this site's
-  knowledge") — the provenance sells the no-hallucination trust story. The
-  footer only shows once the turn is done (not mid-stream) and never on errors.
+  copy and a provenance line ("grounded in this site's knowledge") — the
+  provenance sells the no-hallucination trust story. The footer only shows once
+  the turn is done (not mid-stream) and never on errors. (A thumbs rating sat
+  beside copy until 2026-08-19; see below for why it does not any more.)
   2026-07-30 (sources on replies): when the reply carries sanitized source
   citations, a "Sources ›" toggle sits beside the provenance badge and expands
   to link chips (new tab, noopener). Titles bind as TEXT; hrefs are pre-vetted
@@ -16,6 +17,25 @@
   words). A SYSTEM turn is a centered quiet chip, never a bubble. Both bind
   their content as TEXT (never markdown, never {@html}) — server-authored is
   not the same as trusted, and a visitor must never be shown markup.
+
+  2026-08-19 (bubble redesign, captain direction): assistant turns lost their
+  hairline border and now sit on a slightly lifted surface, which is what
+  separates a bubble from a boxed card at this size; both bubbles gained a
+  larger radius against a tighter tail corner, so the direction a turn came
+  from is read from its SHAPE rather than only from which side it hugs.
+
+  2026-08-19: the thumbs rating is GONE. `rate()` set a local variable and
+  nothing else — no request, no store, nothing that ever read it back. A visitor
+  pressed it believing they had told somebody an answer was wrong, and nobody
+  was told. There is no feedback endpoint on the paw_bar router to wire it to,
+  so the honest move is to stop asking a question we throw away; it comes back
+  the day there is somewhere for the answer to go. Copy stays.
+
+  2026-08-19 (a11y): the sources toggle carries its own visible word as its
+  accessible name. It used to be labelled "Show sources"/"Hide sources" over the
+  visible text "Sources", which is WCAG 2.5.3 (Label in Name) — a voice-control
+  user saying "click Sources" got no match. `aria-expanded` already carries the
+  open/closed state, so the label never needed to restate it.
 -->
 <script lang="ts">
   import type { Message } from '../store/chat.svelte';
@@ -24,7 +44,6 @@
   let { message }: { message: Message } = $props();
 
   let copied = $state(false);
-  let rating = $state<'up' | 'down' | null>(null);
   let sourcesOpen = $state(false);
 
   const isAssistant = $derived(message.role === 'assistant');
@@ -42,9 +61,6 @@
     } catch {
       /* clipboard blocked — leave idle */
     }
-  }
-  function rate(value: 'up' | 'down') {
-    rating = rating === value ? null : value;
   }
 </script>
 
@@ -82,7 +98,10 @@
         {#if message.content}
           <Markdown content={message.content} streaming={message.status === 'streaming'} />
         {:else if message.status === 'streaming'}
-          <div class="typing" aria-label="Assistant is typing">
+          <!-- A bare div with an aria-label is ignored by most screen
+               readers: with no role there is nothing for the label to name. The
+               status role is what makes "Assistant is typing" reach anyone. -->
+          <div class="typing" role="status" aria-label="Assistant is typing">
             <span></span><span></span><span></span>
           </div>
         {/if}
@@ -104,7 +123,6 @@
             class:open={sourcesOpen}
             onclick={() => (sourcesOpen = !sourcesOpen)}
             aria-expanded={sourcesOpen}
-            aria-label={sourcesOpen ? 'Hide sources' : 'Show sources'}
           >
             <span>Sources</span>
             <!-- lucide chevron-right, rotates when open -->
@@ -114,24 +132,21 @@
           </button>
         {/if}
         <div class="actions">
-          <button type="button" onclick={copy} aria-label="Copy reply">{copied ? 'Copied' : 'Copy'}</button>
-          <button
-            type="button"
-            class:active={rating === 'up'}
-            onclick={() => rate('up')}
-            aria-label="Helpful"
-            aria-pressed={rating === 'up'}>Yes</button>
-          <button
-            type="button"
-            class:active={rating === 'down'}
-            onclick={() => rate('down')}
-            aria-label="Not helpful"
-            aria-pressed={rating === 'down'}>No</button>
+          <button type="button" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button>
         </div>
       </div>
       {#if sourcesOpen && sources.length > 0}
         <div class="source-chips">
-          {#each sources as source (source.url)}
+          <!-- Keyed by INDEX. lib/sources dedupes by url, so this list should
+               never carry a repeat — but "should never" is what the previous
+               key relied on, and it was wrong: a reply citing the same page
+               twice threw each_key_duplicate at render time, in production,
+               with nothing to catch it. The url is agent-supplied data, the
+               chips never reorder, and nothing here has state worth preserving
+               across a re-key, so index is both the safe key and the correct
+               one. The sanitizer stays the place duplicates are REMOVED; this
+               is the layer that no longer explodes if one gets through. -->
+          {#each sources as source, i (i)}
             <a class="source-chip" href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a>
           {/each}
         </div>
@@ -199,27 +214,30 @@
     /* 88% of the narrow corner box was fine; on the wide centered palette an
        unbounded 88% makes unreadable ~800px lines — cap for measure. */
     max-width: min(88%, 640px);
-    padding: 10px 13px;
-    border-radius: 16px;
-    border: 1px solid var(--pawbar-border);
+    padding: 11px 14px;
+    /* A generous radius against a tight tail corner. The asymmetry is what
+       says which side a turn came from at a glance, which matters more than
+       the fill colour for anyone who cannot separate the two. */
+    border-radius: 18px;
   }
   .row.user .bubble {
     background: var(--pawbar-user-bubble);
     color: var(--pawbar-accent-fg);
-    border-color: transparent;
-    border-bottom-right-radius: 6px;
+    border-bottom-right-radius: 5px;
   }
+  /* No border. A hairline outline plus a fill reads as a boxed CARD at this
+     size; the reply is a spoken turn, and a lifted surface is how a turn is
+     drawn. */
   .row.assistant .bubble {
     background: var(--pawbar-assistant-bubble);
-    border-bottom-left-radius: 6px;
+    border-bottom-left-radius: 5px;
   }
   /* Accent-tinted with a solid accent edge: unmistakably not the bot's grey
      bubble, and not the visitor's solid accent bubble either. */
   .row.owner .bubble {
     background: var(--pawbar-owner-bubble);
-    border-color: color-mix(in oklab, var(--pawbar-accent) 32%, transparent);
     border-left: 2px solid var(--pawbar-accent);
-    border-bottom-left-radius: 6px;
+    border-bottom-left-radius: 5px;
   }
   .text {
     margin: 0;
@@ -323,10 +341,6 @@
     color: var(--pawbar-fg);
     background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
   }
-  .actions button.active {
-    color: var(--pawbar-accent);
-    background: color-mix(in oklab, var(--pawbar-accent) 16%, transparent);
-  }
   .typing {
     display: inline-flex;
     gap: 4px;
@@ -347,5 +361,24 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .typing span { animation: none; }
+  }
+
+  /* Windows High Contrast and friends. Forced colors discards every
+     background-color, and this redesign had just moved the bubbles from
+     "border + fill" to "fill alone" — so in forced colors the transcript
+     collapsed to left-aligned text and right-aligned text with no bubble at
+     all, and no way to tell the visitor's own words from the answer. Verified
+     in Chrome under emulated forced-colors before and after.
+
+     A border is the one thing that survives, so the shape comes back from the
+     border rather than from the fill. The owner keeps their 2px edge, which
+     also survives, so all three speakers stay distinguishable. */
+  @media (forced-colors: active) {
+    .bubble {
+      border: 1px solid CanvasText;
+    }
+    .row.owner .bubble {
+      border-left-width: 3px;
+    }
   }
 </style>

@@ -8,7 +8,9 @@
 // drives the box over postMessage.
 //
 // 2026-07-15 bar-first docking (captain direction): the docked resting state is
-// a center-bottom BAR (width capped at BAR_MAX_W) that the app can flip to a
+// {pawbar:overlay,on} tells this loader an in-frame menu/popover is showing, so
+// a click on the HOST page answers {pawbar:host-pointerdown} and dismisses it.
+// a center-bottom BAR (width is loader policy, BAR_W) that the app can flip to a
 // minimized CHIP ({pawbar:view}). {pawbar:resize,h,w} sizes the docked box —
 // height always, width only for the chip (the bar width is loader policy; using
 // the app-reported width for the bar would feed back and shrink it). OPEN is a
@@ -37,7 +39,17 @@ const DRAG_MIN_PX = 4;
 
 // Dock policy. Heights (and the chip width) are app-reported via
 // {pawbar:resize}; these are just the pre-report defaults and caps.
-const BAR_MAX_W = 720;
+//
+// The BAR's width is loader POLICY as of 2026-08-19, not an app report, for the
+// same reason the panel's is: the app is laid out inside this box and cannot
+// see the host viewport, so anything it derives from its own current width is a
+// feedback loop. It had one — `width: min(360px, 100%)` — and restoring the bar
+// from the minimized chip resolved that `100%` against the CHIP's frame, so the
+// bar came back 133px wide and could never grow again. A single number here,
+// clamped to the viewport below, has no loop to close. The chip still reports
+// its own width because it is genuinely content-sized ("Ask" is as wide as the
+// word), and nothing derives from it.
+const BAR_W = 384;
 const DEFAULT_BAR_H = 96;
 const DEFAULT_CHIP = { w: 240, h: 72 };
 const MIN_H = 48;
@@ -127,6 +139,12 @@ type LoaderWindow = Window &
   const parentOrigin = resolveParentOrigin(win);
 
   // 3. Build the frame URL and mount the docked iframe.
+  //
+  // `s` is the HOST PAGE'S colour scheme, and it goes in the URL rather than a
+  // postMessage on purpose: the frame needs it in time for its first paint. Sent
+  // after boot it would arrive a frame or two late, and every visitor on a light
+  // site would watch a dark widget flip. The frame treats it as a default the
+  // owner's own tokens still override.
   const src =
     endpoint +
     FRAME_PATH +
@@ -135,7 +153,9 @@ type LoaderWindow = Window &
     '&w=' +
     encodeURIComponent(widgetId) +
     '&po=' +
-    encodeURIComponent(parentOrigin);
+    encodeURIComponent(parentOrigin) +
+    '&s=' +
+    hostScheme(win);
 
   const iframe = doc.createElement('iframe');
   iframe.title = 'Site concierge';
@@ -166,7 +186,7 @@ type LoaderWindow = Window &
   let anchor: { cx: number; by: number } | null = readAnchor(win);
   let dragFrom: { x: number; y: number; w: number; h: number } | null = null;
   const size = {
-    bar: { w: BAR_MAX_W, h: DEFAULT_BAR_H },
+    bar: { w: BAR_W, h: DEFAULT_BAR_H },
     chip: { w: DEFAULT_CHIP.w, h: DEFAULT_CHIP.h },
     panel: { w: PANEL_W, h: PANEL_MAX_H },
   };
@@ -181,11 +201,12 @@ type LoaderWindow = Window &
   function dockBox(): { x: number; y: number; w: number; h: number } {
     const vw = win.innerWidth || 0;
     const vh = win.innerHeight || 0;
-    const maxW = vw ? vw - VIEWPORT_MARGIN : BAR_MAX_W;
-    // The bar reports its own width now (it rests as a compact pill and widens
-    // on hover), so an invisible 720px box no longer sits across the page
-    // eating clicks either side of it. BAR_MAX_W stays as the ceiling.
-    const wantW = view === 'bar' ? Math.min(size.bar.w, BAR_MAX_W) : size[view].w;
+    const maxW = vw ? vw - VIEWPORT_MARGIN : BAR_W;
+    // The bar is exactly BAR_W (clamped to the viewport), so the pill FILLS its
+    // frame — there is no invisible slack either side of it eating clicks on
+    // the host page, which is what an app-reported width was protecting against
+    // back when the bar rested at 148px and grew on hover. It does neither now.
+    const wantW = view === 'bar' ? BAR_W : size[view].w;
     const w = Math.min(wantW, maxW);
     const wantH = view === 'panel' ? PANEL_MAX_H : size[view].h;
     const h = vh ? clamp(wantH, MIN_H, vh - VIEWPORT_MARGIN) : Math.max(MIN_H, wantH);
@@ -241,10 +262,57 @@ type LoaderWindow = Window &
   (doc.body || doc.documentElement).appendChild(iframe);
   applyDock();
 
+  // ── Host-page dismissal for in-frame overlays (2026-08-19) ────────────────
+  // Outside-click dismissal inside the frame can only see pointer events inside
+  // the FRAME. A visitor who opened the quick menu or the cart popover and then
+  // clicked the site itself left it hanging open over a page they had moved on
+  // from. The app declares the overlay window with {pawbar:overlay,on} and this
+  // listener exists only for its duration — a permanent document-wide listener
+  // on a customer's page, firing on every click they ever make, is not a cost
+  // this widget gets to impose for a popover that is closed 99% of the time.
+  //
+  // What crosses the boundary is a bare type. No coordinates, no target, no
+  // selector — the frame learns THAT the visitor clicked away, never where or
+  // on what.
+  //
+  // One listener, attached once and gated by a flag, rather than added and
+  // removed around each overlay: at a 2KB gzipped budget the add/remove pair
+  // cost more bytes than it saved work, and what it saves is a boolean test per
+  // click. Nothing is posted while the flag is false, which was the actual
+  // concern — a message per click on somebody's whole site.
+  let overlayOpen = false;
+  function watchHostPointer(on: boolean): void {
+    overlayOpen = on;
+  }
+  // Capture, so a host page that stops propagation in its own handlers cannot
+  // leave our overlay stuck open. A pointerdown INSIDE the iframe is reported
+  // on the iframe element itself; the frame handles those on its own and must
+  // not be told twice.
+  doc.addEventListener(
+    'pointerdown',
+    (ev: Event): void => {
+      if (overlayOpen && ev.target !== iframe) postToFrame({ type: 'pawbar:host-pointerdown' });
+    },
+    true,
+  );
+
   function postToFrame(msg: Record<string, unknown>): void {
     // ALWAYS pin to the frame origin — never "*".
     const target = iframe.contentWindow;
     if (target) target.postMessage(msg, frameOrigin);
+  }
+
+  // The visitor can change their OS setting with the page open, and a site
+  // that follows it changes underneath us. Re-read and tell the frame; it is one
+  // listener and it is the only scheme change we can see without watching the
+  // host's DOM. A site with its OWN in-page toggle still needs a reload — see
+  // hostScheme() for why that is not worth a MutationObserver on someone else's
+  // document.
+  const schemeQuery = win.matchMedia && win.matchMedia('(prefers-color-scheme: dark)');
+  if (schemeQuery && schemeQuery.addEventListener) {
+    schemeQuery.addEventListener('change', (): void => {
+      postToFrame({ type: 'pawbar:scheme', s: hostScheme(win) });
+    });
   }
 
   // 4. postMessage handshake — accept ONLY messages provably from our iframe:
@@ -273,11 +341,24 @@ type LoaderWindow = Window &
         if (view === 'panel') break;
         const h = Number(data.h);
         if (Number.isFinite(h)) size[view].h = h;
+        // Width is honoured for the CHIP only — the bar's is policy above, and
+        // storing a reported one would put the loop back.
         const w = Number(data.w);
-        if (Number.isFinite(w) && w > 0) size[view].w = w;
-        // Animated: the resting pill widens into the composer on hover, and the
-        // box has to travel with it or the frame snaps a beat before the pill.
-        applyDock(true);
+        if (view !== 'bar' && Number.isFinite(w) && w > 0) size[view].w = w;
+        // INSTANT, never eased. The frame is the clip boundary for everything
+        // the app draws, so it may never be smaller than the content it is
+        // clipping — not for one eased frame.
+        //
+        // This used to animate, to "travel with" a pill that widened on hover.
+        // That made the box CHASE the content: the app animated its own width,
+        // a ResizeObserver reported each intermediate value, and each report
+        // restarted a 260ms box transition toward a target the content had
+        // already moved past. Two transitions on one quantity means the outer
+        // one is permanently behind — and the visitor saw the composer cut off
+        // for a beat before the frame caught up (the captain's 2026-08-19
+        // report). The app stopped animating its width in the same change; this
+        // is the half that guarantees the frame can never lag content again.
+        applyDock(false);
         break;
       }
       case 'pawbar:view': {
@@ -298,6 +379,7 @@ type LoaderWindow = Window &
         // allowlist): remove the iframe entirely so the site shows NOTHING —
         // a declined frame's body is a blank shell, but even its invisible
         // dock sliver shouldn't linger over the page.
+        watchHostPointer(false);
         iframe.remove();
         break;
       case 'pawbar:open':
@@ -312,6 +394,9 @@ type LoaderWindow = Window &
       case 'pawbar:expand':
         expanded = data.on === true;
         applyDock(true);
+        break;
+      case 'pawbar:overlay':
+        watchHostPointer(data.on === true);
         break;
       case 'pawbar:close':
         view = dockView;
@@ -387,6 +472,50 @@ function attr(el: Element, name: string): string {
 function lastScriptWith(dataAttr: string, doc: Document): HTMLScriptElement | null {
   const list = doc.querySelectorAll<HTMLScriptElement>('script[' + dataAttr + ']');
   return list.length ? list[list.length - 1] : null;
+}
+
+/**
+ * Which way round the HOST page reads: 'l' (light) or 'd' (dark).
+ *
+ * This is the one thing the loader can answer and the frame cannot — the frame
+ * is a cross-origin document and can see nothing of the page around it. Three
+ * signals, most explicit first:
+ *
+ *   1. `color-scheme` on the host's :root. A site that sets it is STATING which
+ *      it is, and that beats anything inferred.
+ *   2. The effective page background. Walked body → html because a body with no
+ *      background is transparent and the colour lives on html. Relative
+ *      luminance decides, so a mid-grey site lands on the right side rather
+ *      than on a guess about hue.
+ *   3. The visitor's OS preference, when the page says nothing either way.
+ *
+ * Deliberately NOT watched with a MutationObserver: a site's own dark-mode
+ * toggle usually swaps a class on :root, but which class, on which element, is
+ * per-site, and observing an arbitrary customer's document on every mutation to
+ * catch it is a real cost on their page for a case a reload already fixes.
+ */
+function hostScheme(win: Window): string {
+  const doc = win.document;
+  try {
+    const declared = win.getComputedStyle(doc.documentElement).colorScheme || '';
+    const dark = declared.indexOf('dark') >= 0;
+    const light = declared.indexOf('light') >= 0;
+    if (dark !== light) return dark ? 'd' : 'l';
+
+    const roots = [doc.body, doc.documentElement];
+    for (let i = 0; i < roots.length; i++) {
+      const el = roots[i];
+      if (!el) continue;
+      const parts = win.getComputedStyle(el).backgroundColor.match(/[\d.]+/g);
+      // A transparent or barely-there background tells us nothing; keep walking.
+      if (!parts || parts.length < 3 || (parts.length > 3 && +parts[3] < 0.5)) continue;
+      const lum = (0.2126 * +parts[0] + 0.7152 * +parts[1] + 0.0722 * +parts[2]) / 255;
+      return lum < 0.5 ? 'd' : 'l';
+    }
+  } catch {
+    /* a hostile or exotic host document — fall through to the visitor */
+  }
+  return win.matchMedia && win.matchMedia('(prefers-color-scheme: dark)').matches ? 'd' : 'l';
 }
 
 function originOf(url: string): string {

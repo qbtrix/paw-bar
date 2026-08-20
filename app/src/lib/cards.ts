@@ -84,7 +84,13 @@ export function parseCard(json: string): PawBarCard | null {
       currency: typeof r.currency === 'string' ? r.currency : undefined,
       image_url: typeof r.image_url === 'string' ? r.image_url : undefined,
       description: typeof r.description === 'string' ? r.description : undefined,
-      actions: Array.isArray(r.actions) ? r.actions.filter((a): a is string => typeof a === 'string') : [],
+      // Deduped: ProductCard keys its CTA row on the verb, and a keyed each
+      // block with a repeated key is a render-time throw. A card is
+      // agent-authored JSON, so "the model listed add_to_cart twice" is a
+      // payload we have to survive, not one we get to assume away.
+      actions: Array.isArray(r.actions)
+        ? [...new Set(r.actions.filter((a): a is string => typeof a === 'string'))]
+        : [],
     });
   }
   if (items.length === 0) return null;
@@ -109,6 +115,11 @@ function parseFormCard(obj: Record<string, unknown>): PawBarCard | null {
     const type = typeof r.type === 'string' ? r.type : '';
     if (!name || !label) return null;
     if (!(FORM_FIELD_TYPES as readonly string[]).includes(type)) return null;
+    // A repeated field name is REFUSED, not deduped. FormCard renders these in
+    // a keyed each block, and the submitted body is keyed on the name too — so
+    // two fields sharing one means one of the visitor's answers silently
+    // overwrites the other. There is no reading of that card safe to render.
+    if (fields.some((f) => f.name === name)) return null;
     fields.push({ name, label, type: type as FormFieldType });
   }
   if (fields.length === 0) return null;

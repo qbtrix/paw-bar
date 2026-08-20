@@ -116,7 +116,12 @@
 
     {#if starters.length > 0}
       <ul class="starters">
-        {#each starters.slice(0, 4) as starter (starter)}
+        <!-- Keyed by INDEX, not by the string. These are owner-typed prose,
+             nothing dedupes them, and two identical starters is a typo in a
+             settings field rather than an impossible state — but a repeated key
+             is a render-time throw that takes the panel down. Index is the
+             correct key for a fixed-order list of identical controls anyway. -->
+        {#each starters.slice(0, 4) as starter, i (i)}
           <li>
             <button type="button" class="starter" onclick={() => onask(starter)}>
               {starter}
@@ -210,7 +215,7 @@
   }
 
   .quiet {
-    color: oklch(1 0 0 / 0.62);
+    color: var(--pawbar-hero-fg-quiet);
     font-weight: 500;
   }
 
@@ -238,7 +243,6 @@
     border: 1px solid var(--pawbar-border);
     border-radius: var(--pawbar-radius);
     background: var(--pawbar-surface-raised);
-    box-shadow: var(--pawbar-shadow-sm);
     color: var(--pawbar-fg);
     font: inherit;
     text-align: left;
@@ -249,7 +253,7 @@
   }
 
   .ask:hover {
-    border-color: oklch(1 0 0 / 0.22);
+    border-color: var(--pawbar-border-strong);
     transform: translateY(calc(-1px * var(--pawbar-motion-scale)));
   }
 
@@ -325,7 +329,7 @@
 
   .starter:hover {
     color: var(--pawbar-fg);
-    border-color: oklch(1 0 0 / 0.24);
+    border-color: var(--pawbar-border-strong);
   }
 
   .starter:focus-visible {
@@ -350,7 +354,7 @@
     border: 1px solid var(--pawbar-border);
     border-radius: var(--pawbar-radius);
     overflow: hidden;
-    background: oklch(1 0 0 / 0.03);
+    background: var(--pawbar-wash);
   }
 
   .reading li + li {
@@ -373,7 +377,7 @@
   }
 
   .article:hover {
-    background: oklch(1 0 0 / 0.05);
+    background: var(--pawbar-wash);
   }
 
   .article:focus-visible {

@@ -90,4 +90,26 @@ describe('fetchArticles', () => {
       expect(await fetchArticles(config)).toEqual([]);
     }
   });
+
+  // Same shape as the sources bug: HomeTab and HelpTab both key their lists on
+  // article.url, so two rows pointing at one page is a render-time throw.
+  it('drops a repeated url', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          articles: [
+            { title: 'Shipping', url: 'https://ocean.example/shipping', snippet: 'a' },
+            { title: 'Shipping (v2)', url: 'https://ocean.example/shipping', snippet: 'b' },
+            { title: 'Returns', url: 'https://ocean.example/returns', snippet: 'c' },
+          ],
+        }),
+      ),
+    );
+    const list = await fetchArticles(config);
+    expect(list.map((a) => a.url)).toEqual([
+      'https://ocean.example/shipping',
+      'https://ocean.example/returns',
+    ]);
+  });
 });

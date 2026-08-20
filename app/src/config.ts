@@ -1,7 +1,7 @@
 // config.ts — Reads the window.__PAWBAR__ boot config the serving frame HTML
 // injects before this bundle loads, with sane fallbacks for local `vite dev`.
 // Created 2026-07-15 (A3): the frame endpoint (A1) sets window.__PAWBAR__ with
-// { siteKey, widgetId, endpoint, parentOrigin, mode, tokens?, theme? }. In a
+// { siteKey, widgetId, endpoint, parentOrigin, mode, tokens? }. In a
 // plain `vite dev` page that global is absent, so we fall back to localhost
 // dev defaults (a real reply still needs a running backend — that's the A4
 // smoke, not this app's concern). parentOrigin defaults to document.referrer's
@@ -11,6 +11,20 @@
 // 2026-07-16 (D4): added `greeting` — the owner's concierge greeting the frame
 // emits from the Site doc. Read defensively (non-string coerces to ''); the
 // shell shows it as the empty-state welcome, else the default copy.
+// 2026-08-19 (host scheme): `scheme` is the owner's light/dark/auto choice, and
+// it defaults to `auto` — meaning "follow the site". The widget cannot see the
+// host page from inside a cross-origin frame, so the LOADER reads it and appends
+// `?s=l|d` to the frame URL; readConfig picks that up here. See lib/scheme.ts
+// for the precedence and loader/src/loader.ts for how the page is read.
+//
+// 2026-08-19 (one theme): the old `theme` field is gone. The backend never emitted it, so the
+// `?? 'dark'` fallback won on every site that has ever run this and the light
+// palette was unreachable by construction. An owner who wants a different
+// surface overrides --pawbar-* through `tokens`, which is the customization
+// path that is actually wired and tested. A boot config still carrying `theme`
+// is simply ignored rather than rejected — old frame HTML must keep booting.
+
+import { hostSchemeFromUrl, readSetting, type SchemeSetting } from './lib/scheme';
 
 export interface PawBarConfig {
   siteKey: string;
@@ -19,7 +33,10 @@ export interface PawBarConfig {
   parentOrigin: string;
   mode: 'concierge';
   tokens: Record<string, string>;
-  theme: 'light' | 'dark';
+  /** Owner's choice; 'auto' (the default) follows the host page. */
+  scheme: SchemeSetting;
+  /** What the loader read off the host page — 'l' | 'd', or '' standalone. */
+  hostScheme: string;
   greeting: string;
   /** Conversation starters from the bound agent (capped 4 server-side). The
    *  frame has emitted these since E3; nothing read them until the Home tab
@@ -86,7 +103,8 @@ export function readConfig(): PawBarConfig {
     parentOrigin: boot?.parentOrigin ?? devParentOrigin(),
     mode: 'concierge',
     tokens: boot?.tokens ?? {},
-    theme: boot?.theme ?? 'dark',
+    scheme: readSetting(boot?.scheme),
+    hostScheme: hostSchemeFromUrl(window.location.search) ?? '',
     // Defensive: only a real string survives; a number/null/malformed value → ''.
     greeting: typeof boot?.greeting === 'string' ? boot.greeting : '',
     starters: readStrings(boot?.starters, 4),

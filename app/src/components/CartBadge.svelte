@@ -5,13 +5,28 @@
   button that hands off to the site's REAL checkout (opened in the click gesture
   so popup blockers don't eat it — the agent never executes payment). Reads the
   shared cart store from context; renders nothing until the cart has items.
+
+  2026-08-19: RE-MOUNTED. The messenger refactor orphaned this component — it
+  stopped being imported anywhere, while the docked bar kept a cart button
+  labelled "open concierge" that led to a panel with no cart in it. The visitor
+  action loop (C2) had no exit: the only surviving openCheckout() caller was a
+  product card's own CTA, reachable only if the agent happened to re-emit one.
+  It now sits in BOTH panel headers (tab surface and conversation), because
+  those are the two places the visitor can be while the frame is large enough
+  to hold a popover — the docked bar's iframe is content-sized, so a popover
+  drawn there would be clipped away at the frame edge.
+
+  2026-08-19: `open` moved onto the CartStore. It was local state, which is why
+  this was the one overlay Escape could not dismiss: the shell peels overlays in
+  order and had no way to see this one. It is also no longer role="dialog" —
+  it is not modal, traps nothing, and claiming otherwise tells a screen-reader
+  user the rest of the surface is inert when it is not.
 -->
 <script lang="ts">
   import { useCart } from '../store/cart.svelte';
   import { formatPrice } from '../lib/cards';
 
   const cart = useCart();
-  let open = $state(false);
   let root: HTMLDivElement | null = $state(null);
 
   const total = $derived(cart.cart ? formatPrice(cart.cart.total_cents, cart.cart.currency) : '');
@@ -28,12 +43,19 @@
 
   // Close the popover on an outside click while it's open.
   $effect(() => {
-    if (!open) return;
+    if (!cart.popoverOpen) return;
     function onDocClick(e: MouseEvent) {
-      if (root && !root.contains(e.target as Node)) open = false;
+      if (root && !root.contains(e.target as Node)) cart.popoverOpen = false;
     }
     document.addEventListener('click', onDocClick, true);
     return () => document.removeEventListener('click', onDocClick, true);
+  });
+
+  // An emptied cart must not leave a popover pointing at nothing. The badge
+  // unmounts on count 0, and an unmounted popover that is still flagged open
+  // would swallow the visitor's next Escape.
+  $effect(() => {
+    if (cart.count === 0) cart.popoverOpen = false;
   });
 </script>
 
@@ -42,9 +64,8 @@
     <button
       type="button"
       class="badge"
-      onclick={() => (open = !open)}
-      aria-haspopup="true"
-      aria-expanded={open}
+      onclick={() => (cart.popoverOpen = !cart.popoverOpen)}
+      aria-expanded={cart.popoverOpen}
       aria-label={`Cart, ${cart.count} item${cart.count === 1 ? '' : 's'}`}
     >
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -62,8 +83,8 @@
       <span class="count">{cart.count}</span>
     </button>
 
-    {#if open}
-      <div class="pop" role="dialog" aria-label="Cart">
+    {#if cart.popoverOpen}
+      <div class="pop" role="group" aria-label="Cart">
         <ul class="lines">
           {#each cart.cart?.items ?? [] as line, i (line.id ?? line.product_id ?? i)}
             <li class="line">
@@ -126,7 +147,7 @@
     background: var(--pawbar-surface-strong);
     -webkit-backdrop-filter: blur(var(--pawbar-blur));
     backdrop-filter: blur(var(--pawbar-blur));
-    box-shadow: var(--pawbar-shadow);
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
   }
   .lines {
     list-style: none;

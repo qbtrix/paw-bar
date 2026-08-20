@@ -19,6 +19,12 @@ interface PawBarBootConfig {
   /** Optional white-label overrides for the --pawbar-* token scale. */
   tokens?: Record<string, string>;
   /** Optional 'light' | 'dark'; defaults to 'dark' (quiet-authority glass). */
+  /** Owner's light/dark/auto choice. Absent → 'auto', i.e. follow the site. */
+  scheme?: 'light' | 'dark' | 'auto';
+  /** IGNORED since 2026-08-19 (one theme). Kept on the declared shape so old
+   *  frame HTML that still emits it type-checks rather than being an unknown
+   *  key — readConfig simply does not read it. Delete once no served frame
+   *  sends it. */
   theme?: 'light' | 'dark';
   /** Optional owner-authored concierge greeting; shown as the empty-state welcome. */
   greeting?: string;

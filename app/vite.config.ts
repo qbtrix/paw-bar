@@ -9,7 +9,7 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
   build: {
     target: 'es2020',
@@ -26,8 +26,27 @@ export default defineConfig({
       },
     },
   },
+  // Component tests mount real components, so under test Svelte must resolve to
+  // its CLIENT build. Without this vitest picks svelte/index-server.js and every
+  // mount() throws lifecycle_function_unavailable — which is why this app
+  // shipped with zero component tests and a render-time crash nobody caught.
+  // Scoped to `mode === 'test'` so the production build is untouched.
+  resolve: mode === 'test' ? { conditions: ['browser'] } : {},
   test: {
     environment: 'jsdom',
-    include: ['tests/**/*.spec.ts'],
+    // *.spec.svelte.ts is compiled by vite-plugin-svelte as a runes module, so
+    // a component test can hold $state props and drive a real prop update the
+    // way the app does. Plain .spec.ts cannot — runes are a compiler feature.
+    include: ['tests/**/*.spec.ts', 'tests/**/*.spec.svelte.ts'],
+    // jsdom has no ResizeObserver, and both size-sensitive components need one
+    // to mount at all. The stub is drivable rather than a no-op — see the note
+    // in tests/setup.ts for why that distinction decides whether the tests of
+    // those components mean anything.
+    setupFiles: ['tests/setup.ts'],
+    // Vitest disables CSS processing by default, which makes every stylesheet
+    // read as an empty string — `?raw`, `?inline` and a plain import alike. The
+    // white-label guard in tests/theming.spec.ts asserts on tokens.css, and
+    // without this it would have passed by reading nothing at all.
+    css: true,
   },
-});
+}));

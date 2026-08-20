@@ -37,13 +37,22 @@
       // a frame — otherwise every screenshot lies about what a visitor sees.
       if (window.parent !== window) document.documentElement.classList.add('embedded');
       // Stub the boot config the production frame HTML would inject.
+      // No `theme` key: the widget ships ONE palette now, and a dev harness
+      // that sets a field the app ignores is a harness that quietly drifts from
+      // the real frame HTML. Everything else here mirrors what the backend
+      // emits, with enough content that the panel renders like an install
+      // rather than like an empty state.
       window.__PAWBAR__ = {
         siteKey: 'dev-site-key',
         widgetId: 'dev-widget',
         endpoint: 'http://localhost:8888/api/v1',
         parentOrigin: window.location.origin,
         mode: 'concierge',
-        theme: 'dark',
+        greeting: 'Hello there. How can we help?',
+        agentName: 'Ocean Supply',
+        agentSubtitle: 'The team can also help',
+        launcherLabel: 'Ask about Ocean Supply',
+        starters: ['Where is my order?', 'Do you ship to Portugal?', 'How do returns work?'],
       };
     </script>
   </head>

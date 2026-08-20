@@ -27,9 +27,11 @@
   loader applies it only while docked.
 
   2026-07-15 (C2 action loop): takes the CartStore and provides it via context to
-  descendant card CTAs; the panel header carries the CartBadge (checkout handoff),
-  and the docked bar shows a compact count badge (opens the panel) when the cart
-  is non-empty. Opening the panel triggers the store's one-shot cart hydrate.
+  descendant card CTAs; both panel headers carry the CartBadge (checkout
+  handoff), and the docked bar shows a compact count badge (opens the panel)
+  when the cart is non-empty. Opening the panel triggers the store's one-shot
+  cart hydrate. (The badge was orphaned by the messenger refactor and re-mounted
+  2026-08-19 — see CartBadge.svelte.)
 
   2026-07-30 (form cards): also provides the ContactStore via context
   (provideContact) so a gated FormCard submit can nudge the email-capture
@@ -71,10 +73,30 @@
   2026-07-30 paw-os design-language pass (captain: match ChatPill, esp. phone):
   the docked bar's accent dot became a circular paw MASCOT avatar (ChatPill's
   .mascot-avatar pattern — paw glyph in a 2px-bordered circle); the bar's inner
-  Composer is now variant="bare" so the pill is the ONLY chrome (the boxed
-  composer inside the pill bar read as double chrome); ≤640px the drag grip is
-  hidden (drag is a desktop affordance), paddings tighten, and the mascot
-  shrinks — the loader already caps bar width to the viewport.
+  Composer is variant="bare" so the pill is the ONLY chrome (the boxed composer
+  inside the pill bar read as double chrome); ≤640px the drag grip is hidden
+  (drag is a desktop affordance), paddings tighten, and the mascot shrinks — the
+  loader already caps bar width to the viewport.
+
+  2026-08-19 (THE BAR HAS ONE WIDTH — captain report + redesign): the resting
+  pill used to be 148px of label that WIDENED to 296px of composer on hover, and
+  the visitor saw the input CUT OFF for a beat before the frame caught up. The
+  cause was a chase, not a paint bug. The app animated `.bar-slot`'s width in
+  CSS; a ResizeObserver reported every intermediate value; the loader started
+  its OWN 260ms box transition toward a target the content had already passed.
+  Two eased transitions on one quantity means the outer one is permanently
+  behind the inner one — and an iframe clips whatever overflows it, so the part
+  the frame had not reached yet simply was not drawn.
+
+  So the morph is gone. The bar is ONE width holding a live composer, which is
+  what "the docked resting state is a center-bottom INPUT BAR (the product
+  face)" said in the first place; the label-that-grows was the deviation. That
+  removes the clip at its source (no animated width, nothing to chase), and with
+  it a whole state machine: barHover / barFocus / barOpen, the shared grid cell,
+  the label button, and the aria-hidden composer whose textarea and send button
+  stayed in the tab order because `opacity: 0` does not remove anything from it.
+  The loader's half of the fix is in loader.ts — content reports now land on the
+  box instantly.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -86,6 +108,8 @@
   import type { OperatorStore } from '../store/operator.svelte';
   import type { PawBarPoster } from '../lib/postmessage';
   import { fetchArticles, type Article } from '../lib/articles-client';
+  import { dockSize } from '../lib/dock-size';
+  import { resolveScheme, type Scheme, type SchemeSetting } from '../lib/scheme';
   import { serializeTranscript } from '../lib/transcript';
   import Composer from './Composer.svelte';
   import Icon from './Icon.svelte';
@@ -100,7 +124,8 @@
     conversations,
     chatConfig,
     poster,
-    theme = 'dark',
+    scheme = 'auto',
+    hostScheme = '',
     greeting = '',
     starters = [],
     agentName = 'Concierge',
@@ -117,7 +142,10 @@
     conversations: ConversationsStore;
     chatConfig: ChatStoreConfig;
     poster: PawBarPoster;
-    theme?: 'light' | 'dark';
+    /** Owner's light/dark/auto choice; 'auto' follows the host page. */
+    scheme?: SchemeSetting;
+    /** What the loader read off the host page ('l' | 'd'), via the frame URL. */
+    hostScheme?: string;
     greeting?: string;
     starters?: string[];
     agentName?: string;
@@ -144,6 +172,35 @@
   // and the email-capture prompt fires naturally.
   provideContact(untrack(() => contact));
 
+  // ── Light or dark ─────────────────────────────────────────────────────────
+  // The widget used to ship dark only, which put a dark slab on the corner of
+  // every light storefront. It cannot see the page it sits on — cross-origin
+  // frame — so the loader reads the host and hands the answer over on the frame
+  // URL, and lib/scheme decides the precedence: owner → host page → the
+  // visitor's OS → dark.
+  let prefersDark = $state(
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : true,
+  );
+  // Re-resolved live, because people change their OS theme with the page open
+  // and a widget that only follows it at boot is a widget that looks broken
+  // until reload. Only reaches the outcome when nothing more specific won.
+  $effect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const q = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => (prefersDark = e.matches);
+    q.addEventListener('change', onChange);
+    return () => q.removeEventListener('change', onChange);
+  });
+
+  // The loader re-reads the HOST page on the same OS change and posts the
+  // result, which is what keeps a site that follows the OS in step with us.
+  let liveHostScheme = $state('');
+  const activeScheme: Scheme = $derived(
+    resolveScheme({ owner: scheme, host: liveHostScheme || hostScheme, prefersDark }),
+  );
+
   type View = 'bar' | 'chip' | 'panel';
   const VIEW_KEY = '__pawbar_view_v1';
 
@@ -164,17 +221,6 @@
 
   let view = $state<View>(readInitialView());
   let expanded = $state(false);
-
-  // The bar rests as a compact labelled pill and widens into the composer on
-  // hover — the whole point being that a widget on somebody else's site should
-  // not park a text input across the bottom of their page.
-  //
-  // Hover is an ENHANCEMENT, never the only way in: a touch device fires no
-  // pointerenter, so the pill is also a button that opens the panel, and
-  // focusing it by keyboard widens it the same way hovering does.
-  let barHover = $state(false);
-  let barFocus = $state(false);
-  const barOpen = $derived(view === 'panel' || barHover || barFocus);
   let contentEl: HTMLDivElement | null = $state(null);
   let composer: ReturnType<typeof Composer> | null = $state(null);
 
@@ -207,10 +253,10 @@
     poster.expand(false);
     poster.view('bar');
     persistDock('bar');
-    // Back to the resting pill, so do NOT pull focus into the composer — that
-    // would re-open the bar the visitor just closed and read as the widget
-    // refusing to go away.
-    barHover = false;
+    // Deliberately does NOT pull focus into the composer. The visitor just
+    // closed this; re-focusing its input reads as the widget refusing to go
+    // away. (It used to also clear a `barHover` flag and leave `barFocus` set,
+    // which pinned the pill open after every close — both flags are gone.)
   }
 
   /** The big reading surface. A long answer with cards is genuinely cramped in
@@ -247,6 +293,14 @@
     // Innermost layer first: the quick-actions menu, then a conversation (back
     // to the list it was opened from), then the panel itself. Escape peeling one
     // layer at a time is what keeps it from feeling like a trapdoor.
+    // The cart popover sits on top of everything the panel draws, so it peels
+    // first. Its open flag lives on the shared CartStore precisely so this
+    // handler can see it — as component-local state it was the one overlay
+    // Escape could not reach.
+    if (cart.popoverOpen) {
+      cart.popoverOpen = false;
+      return;
+    }
     if (menuOpen) {
       menuOpen = false;
       return;
@@ -358,11 +412,50 @@
   // ── Quick actions (panel header menu) ─────────────────────────────────────
   let menuOpen = $state(false);
   let menuWrapEl: HTMLDivElement | null = $state(null);
+  let menuItems: HTMLButtonElement[] = $state([]);
+  let menuIndex = $state(0);
 
   function onWindowPointerDown(e: PointerEvent) {
     if (!menuOpen) return;
     if (menuWrapEl && !menuWrapEl.contains(e.target as Node)) menuOpen = false;
   }
+
+  /** role="menu" is a PROMISE: arrow keys move between items and exactly one of
+   *  them is in the tab order. This markup claimed the role for months and
+   *  behaved like three loose buttons, so a screen-reader user was told to
+   *  expect a menu and handed something that did not work like one. Implemented
+   *  rather than dropped, because a menu is genuinely the right control here. */
+  function focusMenuItem(i: number) {
+    const usable = menuItems.filter(Boolean);
+    if (usable.length === 0) return;
+    menuIndex = (i + usable.length) % usable.length;
+    usable[menuIndex]?.focus();
+  }
+
+  function onMenuKeydown(e: KeyboardEvent) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      focusMenuItem(menuIndex + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusMenuItem(menuIndex - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusMenuItem(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusMenuItem(menuItems.length - 1);
+    }
+  }
+
+  // Opening a menu with the keyboard has to land focus INSIDE it, or the arrow
+  // keys above have nothing to move from and Tab walks straight past the menu
+  // that was just opened.
+  $effect(() => {
+    if (!menuOpen) return;
+    menuIndex = 0;
+    queueMicrotask(() => menuItems.filter(Boolean)[0]?.focus());
+  });
 
   /** "New conversation" now tells the SERVER, so the next turn genuinely starts
    *  cold. `reset()` is async for that reason; the panel stays interactive while
@@ -457,21 +550,67 @@
         case 'pawbar:host-close':
           if (view === 'panel') closePanel();
           break;
+        case 'pawbar:scheme': {
+          // The host page changed under us (the visitor switched their OS and
+          // the site follows it). The loader re-read the page; adopt it.
+          const next = (data as { s?: unknown }).s;
+          if (next === 'l' || next === 'd') liveHostScheme = next;
+          break;
+        }
+        case 'pawbar:host-pointerdown':
+          // The visitor clicked the site itself. Same outcome as clicking
+          // outside the menu inside the frame — the two used to disagree,
+          // because a frame's pointer listeners cannot see the page around it.
+          menuOpen = false;
+          cart.popoverOpen = false;
+          break;
       }
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   });
 
+  // Tell the loader when a dismissible overlay is up, so a click on the host
+  // page can close it — pointer listeners inside a frame cannot see the page
+  // around it. Declared as a window rather than left on: while it is off, a
+  // click on the customer's site sends nothing across the frame boundary.
+  $effect(() => {
+    poster.overlay(menuOpen || cart.popoverOpen);
+  });
+
   // Report docked content size (+ the root padding) so the loader fits the box.
+  // The size is computed by lib/dock-size, which reads the scroll extent as
+  // well as the laid-out box — see the note there for the deadlock that
+  // motivates it (a cap on this element silently pinned the frame forever).
   const ROOT_PAD = DOCK_PAD * 2;
+
+  /** The root's real vertical gutter. Normally DOCK_PAD top and bottom, but on
+   *  a phone the bottom grows to clear the home indicator — and the box we ask
+   *  for has to include that, or the frame is short by exactly the inset and
+   *  clips the composer it was widened to protect. Read from the element rather
+   *  than assumed, because `env()` is only resolvable at layout time. */
+  function verticalPad(el: HTMLElement): number {
+    const root = el.parentElement;
+    if (!root) return ROOT_PAD;
+    const cs = getComputedStyle(root);
+    const top = parseFloat(cs.paddingTop) || 0;
+    const bottom = parseFloat(cs.paddingBottom) || 0;
+    return top + bottom || ROOT_PAD;
+  }
+
   $effect(() => {
     if (!contentEl) return;
     const ro = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect;
-      const h = rect?.height ?? contentEl?.offsetHeight ?? 0;
-      const w = rect?.width ?? contentEl?.offsetWidth ?? 0;
-      poster.resize(h + ROOT_PAD, w + ROOT_PAD);
+      const el = contentEl;
+      if (!el) return;
+      const rect = entries[0]?.contentRect ?? { width: el.offsetWidth, height: el.offsetHeight };
+      const { w, h } = dockSize(
+        { rect, scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight },
+        ROOT_PAD,
+      );
+      // Width keeps the symmetric gutter; height takes whatever the root
+      // actually reserves, which is larger than ROOT_PAD on an inset device.
+      poster.resize(h - ROOT_PAD + verticalPad(el), w);
     });
     ro.observe(contentEl);
     return () => ro.disconnect();
@@ -486,22 +625,46 @@
      store, and "new conversation" now has to reach the server. -->
 {#snippet quickMenu()}
   {#if menuOpen}
-    <div class="menu" role="menu" aria-label="Conversation options" bind:this={menuWrapEl}>
-      <button type="button" class="menu-item" role="menuitem" onclick={newConversation}>
+    <div
+      class="menu"
+      role="menu"
+      aria-label="Conversation options"
+      bind:this={menuWrapEl}
+    >
+      <button
+        bind:this={menuItems[0]}
+        type="button"
+        class="menu-item"
+        role="menuitem"
+        tabindex={menuIndex === 0 ? 0 : -1}
+        onkeydown={onMenuKeydown}
+        onclick={newConversation}
+      >
         <Icon name="plus" size="14px" />
         <span>New conversation</span>
       </button>
       <button
+        bind:this={menuItems[1]}
         type="button"
         class="menu-item"
         role="menuitem"
+        tabindex={menuIndex === 1 ? 0 : -1}
+        onkeydown={onMenuKeydown}
         onclick={downloadTranscript}
         disabled={store.messages.length === 0}
       >
         <Icon name="send" size="14px" />
         <span>Download transcript</span>
       </button>
-      <button type="button" class="menu-item" role="menuitem" onclick={minimize}>
+      <button
+        bind:this={menuItems[2]}
+        type="button"
+        class="menu-item"
+        role="menuitem"
+        tabindex={menuIndex === 2 ? 0 : -1}
+        onkeydown={onMenuKeydown}
+        onclick={minimize}
+      >
         <Icon name="chevron-down" size="14px" />
         <span>Minimize</span>
       </button>
@@ -548,7 +711,7 @@
 
 <div
   class="pawbar-root"
-  data-pawbar-theme={theme}
+  data-pawbar-scheme={activeScheme}
   data-pawbar-view={view}
   data-pawbar-dragging={drag ? 'true' : undefined}
   role="region"
@@ -637,16 +800,7 @@
       </section>
       {/if}
 
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="bar"
-        class:open={barOpen}
-        class:docked={view !== 'panel'}
-        onpointerenter={() => (barHover = true)}
-        onpointerleave={() => (barHover = false)}
-        onfocusin={() => (barFocus = true)}
-        onfocusout={() => (barFocus = false)}
-      >
+      <div class="bar" class:docked={view !== 'panel'}>
         <button
           type="button"
           class="grip"
@@ -691,25 +845,21 @@
             />
           </svg>
         </button>
-        <!-- Both live in one grid cell so the pill can WIDEN into the composer
-             rather than swap for it. A swap would jump the bar's width in one
-             frame; sharing the cell lets the width animate while the label
-             fades out under the caret. The label is a real button, so a touch
-             device with no hover still has an obvious way in. -->
+        <!-- The composer is always here and always live. It used to sit under
+             a label in a shared grid cell, hidden at opacity 0 until hover —
+             which meant its textarea and send button stayed in the host page's
+             tab order inside an aria-hidden subtree, and which is what the
+             widening animation was for. One input, always reachable, is both
+             the simpler surface and the accessible one. -->
         <div class="bar-slot">
-          <button type="button" class="bar-label" onclick={openPanel} tabindex={barOpen ? -1 : 0}>
-            {label}
-          </button>
-          <div class="bar-composer" aria-hidden={!barOpen}>
-            <Composer
-              bind:this={composer}
-              isStreaming={store.isStreaming}
-              variant="bare"
-              placeholder={label}
-              onSend={handleBarSend}
-              onStop={() => store.stop()}
-            />
-          </div>
+          <Composer
+            bind:this={composer}
+            isStreaming={store.isStreaming}
+            variant="bare"
+            placeholder={label}
+            onSend={handleBarSend}
+            onStop={() => store.stop()}
+          />
         </div>
         {#if cart.count > 0}
           <button
@@ -771,6 +921,13 @@
     justify-content: flex-end;
     align-items: stretch;
     padding: 12px;
+    /* The composer sits at the bottom of the frame, and on a phone the bottom
+       of the frame is where the home indicator lives. 12px puts the send button
+       under it, so the gutter grows to clear it where there is one and stays
+       12px everywhere else. The old bottom tab bar carried this inset; moving
+       the nav to the top took it away with it, and the composer inherited the
+       problem the nav used to own. */
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
     font-family: var(--pawbar-font);
     color: var(--pawbar-fg);
     /* The root spans the whole iframe but is transparent chrome — only the
@@ -802,14 +959,45 @@
     min-height: 0;
     max-height: 100%;
   }
-  /* The chip AND the resting bar hug their content, so the width the
-     ResizeObserver reports shrinks the iframe box to the pill. This is what
-     stops an invisible 720px-wide frame sitting across the bottom of the host
-     page swallowing clicks either side of a 130px pill. */
+  /* The chip AND the resting bar report their own size, so the frame shrinks to
+     the content. This is what stops an invisible 720px-wide frame sitting
+     across the bottom of the host page swallowing clicks either side of it.
+
+     `flex: none` + `max-height: none` is LOAD-BEARING, and its absence was the
+     second half of the captain's "the input is cut off" report — the permanent
+     half. .pawbar-content is a flex child of a root that is exactly the frame,
+     and it carried `max-height: 100%` and the default `flex-shrink: 1`. So when
+     the composer grew to two lines the content was CLAMPED back to the frame's
+     current height, the ResizeObserver measured the clamped box, reported the
+     old height, and the frame never grew. Measured in the harness: bar 98px,
+     content box 53px, scrollHeight 98px, frame 77px — and it stayed there. A
+     deadlock, not a lag: content height was derived from the frame, and frame
+     height from the content.
+
+     The cap belongs to the PANEL, which must fit the box the loader dictates
+     (see below). While docked, the content is the authority on its own size and
+     nothing above it may have an opinion. The textarea's own 160px max-height
+     bounds the growth, and the loader still clamps the box to the viewport. */
   .pawbar-root[data-pawbar-view='chip'] .pawbar-content,
   .pawbar-root[data-pawbar-view='bar'] .pawbar-content {
+    flex: none;
+    max-height: none;
+  }
+  .pawbar-root[data-pawbar-view='chip'] .pawbar-content {
     align-self: center;
     width: fit-content;
+  }
+  /* The bar FILLS the frame the loader gave it — no stated width, because a
+     stated one is a loop. `min(360px, 100%)` lived here for exactly one
+     iteration and had the same failure as the height cap above: `100%` is the
+     frame's content box, so restoring the bar from the minimized CHIP resolved
+     it against the chip's 117px frame and the bar came back 133px wide, unable
+     to grow. The app cannot see the host viewport from inside its own box, so
+     it must not try to size itself against one — the loader owns the bar's
+     width (loader.ts BAR_W, clamped to the viewport) the same way it already
+     owned the panel's. */
+  .pawbar-root[data-pawbar-view='bar'] .pawbar-content {
+    width: 100%;
   }
   /* Fill the box the loader gave us. Both dimensions are its policy while
      open, so a streaming reply cannot resize the iframe under the visitor. */
@@ -830,81 +1018,50 @@
     box-shadow: 0 0 10px var(--pawbar-accent);
   }
 
-  /* ── Docked input bar (the product face) ────────────────────────────────── */
+  /* ── Docked input bar (the product face) ──────────────────────────────────
+     ONE width, in every state. Nothing here animates its own size: the frame
+     is sized from this element's measured box, and any width the app eases is
+     a width the frame arrives at late — which is the clip the captain saw. */
   .bar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 10px 8px 4px;
-    border-radius: 999px;
+    gap: 8px;
+    padding: 7px 8px 7px 4px;
+    border-radius: 26px;
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
     backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
-    /* Inset top highlight = the light edge that sells frosted glass. */
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), var(--pawbar-shadow);
+    /* Inset top highlight = the light edge that sells frosted glass. It is the
+       only box-shadow left on this element: the drop shadow that used to sit
+       beside it reached 2px and read as a second border (see tokens.css). */
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
+    transition: border-color var(--pawbar-duration-fast) var(--pawbar-ease),
+      box-shadow var(--pawbar-duration-fast) var(--pawbar-ease);
   }
-  /* One cell, two occupants. Width is the animated property (not a swap), so
-     the pill grows into the composer instead of jumping to it. */
-  .bar-slot {
-    display: grid;
-    min-width: 0;
-    transition: width var(--pawbar-duration) var(--pawbar-ease-emphasis);
+  /* Focus is carried by the WHOLE pill rather than by the textarea inside it,
+     because the pill is what a visitor reads as the input. Colour + shadow
+     only — a ring that changed the border WIDTH would resize the bar, and the
+     frame would be a frame behind it again. */
+  .bar:focus-within {
+    border-color: color-mix(in oklab, var(--pawbar-ring) 70%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--pawbar-wash-strong),
+      0 0 0 3px color-mix(in oklab, var(--pawbar-ring) 28%, transparent);
   }
-  .bar-slot > * {
-    grid-area: 1 / 1;
-    min-width: 0;
-  }
-
-  /* Resting width: enough for the owner's label and no more. */
-  .bar.docked .bar-slot {
-    width: 148px;
-  }
-  .bar.docked.open .bar-slot {
-    width: 296px;
-  }
-  /* Open, the column is one width and the composer simply fills the row. */
-  .bar:not(.docked) .bar-slot {
-    width: auto;
-    flex: 1;
-  }
-
-  .bar-label {
-    display: block;
+  /* Open and expanded, the bar follows the same reading column as the
+     transcript above it. Without this the composer stretched the full 1256px
+     of an expanded viewport: a caret at the far left, a send button a foot
+     away, and no relationship to the answer it sits under. Docked, and in the
+     400px column, the cap is never reached and this changes nothing. */
+  .pawbar-root[data-pawbar-view='panel'] .bar {
     width: 100%;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--pawbar-fg-muted);
-    font: inherit;
-    font-size: 13.5px;
-    text-align: left;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    cursor: pointer;
-    transition: opacity var(--pawbar-duration-fast) var(--pawbar-ease);
+    max-width: var(--pawbar-read-col);
+    align-self: center;
   }
-  .bar.open .bar-label {
-    opacity: 0;
-    pointer-events: none;
-  }
-  .bar-label:focus-visible {
-    outline: 2px solid var(--pawbar-ring);
-    outline-offset: 3px;
-    border-radius: 6px;
-  }
-
-  .bar-composer {
+  .bar-slot {
     flex: 1;
     min-width: 0;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity var(--pawbar-duration-fast) var(--pawbar-ease);
-  }
-  .bar.open .bar-composer {
-    opacity: 1;
-    pointer-events: auto;
   }
   /* Circular paw mascot — ChatPill's .mascot-avatar language, bar-sized.
      A BUTTON: clicking it opens the panel (the returning visitor's way back
@@ -921,7 +1078,6 @@
     border: 2px solid color-mix(in oklab, var(--pawbar-fg) 55%, transparent);
     background: none;
     color: color-mix(in oklab, var(--pawbar-fg) 72%, transparent);
-    box-shadow: 0 2px 8px oklch(0 0 0 / 0.25);
     cursor: pointer;
     transition: color 0.15s ease, border-color 0.15s ease;
   }
@@ -929,13 +1085,15 @@
     color: var(--pawbar-fg);
     border-color: color-mix(in oklab, var(--pawbar-fg) 75%, transparent);
   }
-  /* The bar IS the composer chrome — strip the inner composer's own shell. */
-  .bar-composer :global(form) {
+  /* The bar IS the composer chrome — strip the inner composer's own shell.
+     The focus treatment is on `.bar` above for the same reason: one surface,
+     one ring, drawn where the visitor thinks the input is. */
+  .bar-slot :global(form) {
     border: none;
     background: none;
     padding: 0;
   }
-  .bar-composer :global(form:focus-within) {
+  .bar-slot :global(form:focus-within) {
     box-shadow: none;
   }
   .grip {
@@ -956,9 +1114,12 @@
     cursor: grabbing;
     color: var(--pawbar-fg);
   }
-  /* Compact cart indicator on the docked bar — count only, opens the panel
-     (where the full CartBadge popover + checkout lives). Shown only when the
-     visitor has items. */
+  /* Compact cart indicator on the docked bar — count only, opens the panel,
+     where the full CartBadge popover + checkout lives. That sentence was FALSE
+     from the messenger refactor until 2026-08-19: CartBadge had stopped being
+     imported anywhere, so this button sent a visitor with items to a panel
+     containing no cart and no way to check out. It is mounted in both panel
+     headers again. Shown only when the visitor has items. */
   .bar-cart {
     flex: none;
     display: inline-flex;
@@ -999,7 +1160,7 @@
     background: var(--pawbar-surface);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
     backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), var(--pawbar-shadow);
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
     color: var(--pawbar-fg);
     font: inherit;
     font-size: 14px;
@@ -1025,7 +1186,7 @@
     background: var(--pawbar-surface);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.6);
     backdrop-filter: blur(var(--pawbar-blur)) saturate(1.6);
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.09), var(--pawbar-shadow);
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
     overflow: hidden;
   }
 
@@ -1064,7 +1225,7 @@
     background: var(--pawbar-surface-strong);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
     backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.08), var(--pawbar-shadow);
+    box-shadow: inset 0 1px 0 var(--pawbar-wash-strong);
   }
   .menu-item {
     display: flex;
@@ -1187,24 +1348,30 @@
     box-shadow: 0 0 8px var(--pawbar-accent);
   }
 
-  /* ── Articles view (panel body swap) ────────────────────────────────────── */
-  @keyframes pawbar-dots {
-    0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-    30% { opacity: 1; transform: translateY(-3px); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-  }
-  /* Bot-paused state: quiet, persistent, and out of the way — it sits above
-     the composer rather than in the thread so it can't be scrolled past. */
-  /* Phone: the pill face tightens like ChatPill's mobile pass (smaller
-     mascot, hidden BAR grip, tighter gaps). Lives at the END of the sheet so
-     it wins the same-specificity cascade against the component base rules.
-     CAUTION — the media query sees the IFRAME's width, not the device's: the
-     bar iframe is ~viewport-wide so ≤640px really means "phone" there, but
-     the CHIP iframe shrinks to content (~100px) and matches ALWAYS. Hiding a
-     bare `.grip` here removed the chip's drag handle on every desktop (the
-     captain's 2026-07-30 report), so the hide is scoped to the bar's grip. */
-  @media (max-width: 640px) {
+  /* Removed 2026-08-19: a `pawbar-dots` keyframe with zero references and an
+     EMPTY `@media (prefers-reduced-motion: reduce) {}` underneath it, left
+     behind by the articles-view → tab migration along with a section heading
+     for a view that no longer exists. The empty guard was the dangerous half:
+     it read as covered and covered nothing, and it is exactly the shape a
+     future animation would have been pasted next to. */
+  /* Touch: the pill face tightens like ChatPill's mobile pass (smaller mascot,
+     hidden BAR grip, tighter gaps). Lives at the END of the sheet so it wins
+     the same-specificity cascade against the component base rules.
+
+     KEYED ON THE POINTER, NOT ON WIDTH, and that is the whole point. A width
+     query inside this app measures the IFRAME, never the device — and the
+     iframe is content-sized. It read as "phone" when the bar happened to be
+     wide; the 2026-07-30 report was a bare `.grip` here removing the CHIP's
+     drag handle on every desktop, because the chip frame is ~100px and matched
+     always. Scoping the rule to `.bar .grip` treated that symptom, and then the
+     bar itself shrank to a 360px pill and took desktop drag with it — verified
+     in the harness at 1280px: the grip was `display: none` on a desktop.
+
+     Every rule in here is about a FINGER: no hover to reveal a grip, a bigger
+     touch target, less room. `(hover: none) and (pointer: coarse)` asks that
+     question directly, and it is the same answer whatever size box the widget
+     is currently drawing itself into. */
+  @media (hover: none) and (pointer: coarse) {
     .bar {
       gap: 6px;
       padding: 6px 8px;
@@ -1217,6 +1384,11 @@
       height: 26px;
       border-width: 1.5px;
     }
+  }
+  /* Genuinely about the box, not the device: the inline contact prompt is
+     capped at 88% of a panel that is only ~400px wide, and at that width the
+     cap costs more than it buys. */
+  @media (max-width: 460px) {
     .contact {
       max-width: 100%;
     }

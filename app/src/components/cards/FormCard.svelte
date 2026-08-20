@@ -43,7 +43,11 @@
     {#if card.title}
       <p class="title">{card.title}</p>
     {/if}
-    {#each card.fields ?? [] as field (field.name)}
+    <!-- Index, not field.name: the name is MODEL-EMITTED JSON, and a repeated
+         key throws at render. lib/cards refuses a card whose field names
+         collide (an ambiguous submission body is worse than no card), so this
+         is the second line rather than the only one. -->
+    {#each card.fields ?? [] as field, i (i)}
       <label class="field">
         <span class="label">{field.label}</span>
         {#if field.type === 'textarea'}

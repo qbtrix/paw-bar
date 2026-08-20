@@ -6,6 +6,9 @@
   untouched. CTA clicks post STRUCTURED action events through the cart store
   (never free text); the server validates + mutates the visitor cart. `checkout`
   is a handoff to the site's real checkout, opened in the click gesture.
+  2026-08-19: a thumbnail that fails to load removes itself instead of leaving a
+  broken-image box on the customer's own storefront, and decodes off the main
+  thread so a heavy image cannot stall a streaming reply.
 -->
 <script lang="ts">
   import type { CardItem } from '../../lib/cards';
@@ -14,6 +17,14 @@
 
   let { items }: { items: CardItem[] } = $props();
   const cart = useCart();
+
+  // Product artwork is owner/agent-supplied and lives on somebody else's CDN.
+  // A URL that 404s leaves a broken-image box on a CUSTOMER's site, which is
+  // the widget visibly failing on their storefront. HomeTab's team avatars
+  // already remove themselves on error; this is the same rule for the same
+  // reason. Held as a Set rather than by mutating the prop, so a re-render from
+  // the parent cannot resurrect a URL we already watched fail.
+  let brokenImages = $state(new Set<string>());
 
   let justAdded = $state<Record<string, boolean>>({});
 
@@ -58,10 +69,18 @@
 
 <div class="cards">
   {#each items as item (item.id || item.name)}
-    {@const img = safeImageUrl(item.image_url)}
+    {@const rawImg = item.image_url ?? ''}
+    {@const img = brokenImages.has(rawImg) ? '' : safeImageUrl(rawImg)}
     <article class="card">
       {#if img}
-        <img class="thumb" src={img} alt={item.name} loading="lazy" />
+        <img
+          class="thumb"
+          src={img}
+          alt={item.name}
+          loading="lazy"
+          decoding="async"
+          onerror={() => (brokenImages = new Set(brokenImages).add(rawImg))}
+        />
       {/if}
       <div class="body">
         <div class="titleRow">
@@ -75,7 +94,9 @@
         {/if}
         {#if item.actions.length > 0}
           <div class="ctas">
-            {#each item.actions as verb (verb)}
+            <!-- Index: lib/cards dedupes the verb list, and the CTA row is
+                 fixed-order with no state to preserve across a re-key. -->
+            {#each item.actions as verb, i (i)}
               <button
                 type="button"
                 class="cta"

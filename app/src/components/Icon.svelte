@@ -9,22 +9,24 @@
      1.75 stroke with round caps and joins, so they sit together at any size.
 
      Sized in `em` so an icon inherits the type scale of whatever it labels
-     instead of needing a size prop at every call site. -->
+     instead of needing a size prop at every call site.
+
+     2026-08-19: dropped `news`, `attach`, `emoji` and `mic` — four glyphs with
+     zero call sites. The last three were composer affordances that were planned
+     and never built, and `news` was a reserved fourth tab. Against an 80KB
+     gzipped budget, a path nobody renders is the cheapest thing in the file to
+     delete and the easiest to add back: the whole icon system is a path map. -->
 <script module lang="ts">
   export type IconName =
     | 'home'
     | 'messages'
     | 'help'
-    | 'news'
     | 'close'
     | 'back'
     | 'send'
     | 'more'
     | 'plus'
     | 'search'
-    | 'attach'
-    | 'emoji'
-    | 'mic'
     | 'chevron-down'
     | 'expand'
     | 'shrink'
@@ -36,16 +38,12 @@
     home: 'M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5',
     messages: 'M4 5.5h16v11H9l-4 3.5v-3.5H4z',
     help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.7.3-1 .8-1 1.5v.4M12 17.2v.2',
-    news: 'M4 7.5h9l5-2.5v11l-5-2.5H4zM6.5 13.5V19M18 8.5a2.5 2.5 0 0 1 0 5',
     close: 'M6 6l12 12M18 6 6 18',
     back: 'M15 5l-7 7 7 7',
     send: 'M12 19V5M6 11l6-6 6 6',
     more: 'M6 12h.01M12 12h.01M18 12h.01',
     plus: 'M12 5v14M5 12h14',
     search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14ZM16 16l4 4',
-    attach: 'M20 11.5 12.5 19a4.5 4.5 0 0 1-6.4-6.4l7.6-7.5a3 3 0 0 1 4.2 4.2l-7.5 7.6a1.5 1.5 0 0 1-2.1-2.1l7-7',
-    emoji: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9 10v.01M15 10v.01M8.5 14.5a4.5 4.5 0 0 0 7 0',
-    mic: 'M12 3.5a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-5 0V6A2.5 2.5 0 0 1 12 3.5ZM6 11a6 6 0 0 0 12 0M12 17v3.5',
     'chevron-down': 'M6 9.5 12 15l6-5.5',
     // Corner brackets, not arrows: the panel grows in place rather than moving,
     // and four arrows would promise a drag handle it does not have.

@@ -17,15 +17,22 @@
      left and comes back from the left. That direction is the whole reason a
      back button feels like going back — a symmetric fade tells the visitor
      nothing about where they are. Svelte transitions rather than CSS because
-     both surfaces are mounting and unmounting, which CSS cannot animate; the
-     two layers are absolutely positioned so they can overlap mid-flight
-     without the panel's height jumping.
+     both surfaces are mounting and unmounting; the two layers are absolutely
+     positioned so they can overlap mid-flight without the panel's height
+     jumping.
 
      The tabs mount lazily and stay mounted once visited. Mounting all three up
      front costs three fetches on open for surfaces the visitor may never look
      at; unmounting on leave throws away scroll position and a half-typed
      search. Keeping what has been seen is the behaviour that matches how people
-     actually use these. -->
+     actually use these.
+
+     2026-08-19 (captain direction): the nav moved to the TOP, as segmented
+     pills, and it now sits in a real header alongside the panel's own controls.
+     Before this the tab surface had NO close affordance at all — the only way
+     out of Home/Messages/Help was Escape or the chevron on the bar below, so
+     the two halves of the panel disagreed about whether it could be closed.
+     The header is the fix for both at once. -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { fly } from 'svelte/transition';
@@ -33,9 +40,11 @@
   import type { Article } from '../lib/articles-client';
   import type { VisitorConversation } from '../lib/conversations-client';
   import type { ChatStore } from '../store/chat.svelte';
+  import CartBadge from './CartBadge.svelte';
   import ConversationView from './ConversationView.svelte';
   import HelpTab from './tabs/HelpTab.svelte';
   import HomeTab from './tabs/HomeTab.svelte';
+  import Icon from './Icon.svelte';
   import MessagesTab from './tabs/MessagesTab.svelte';
   import TabBar, { type Tab } from './TabBar.svelte';
 
@@ -180,13 +189,57 @@
       in:fly={{ x: travel(-30), duration: duration(), easing: expoOut }}
       out:fly={{ x: travel(-30), duration: duration(0.75), easing: expoOut }}
     >
+      <header class="head">
+        <TabBar {tabs} active={tab} onselect={select} />
+        <div class="head-actions">
+          <!-- Renders nothing until the visitor has items, so this is a header
+               control on a shopping conversation and invisible on every other. -->
+          <CartBadge />
+          <!-- Expand does not live here; SHRINK does, and only while expanded.
+               Expanding is a READING affordance — you grow the surface because
+               an answer is long — and answers live in a conversation, which has
+               its own control. Carrying the button on all four surfaces cost
+               32px of a 400px header, and with a cart badge present that was
+               the difference between labelled tabs and three anonymous glyphs.
+
+               But leaving a conversation while expanded used to strand the
+               visitor full-screen with no visible way back (Escape worked;
+               nothing said so). So the way OUT appears exactly when there is
+               something to get out of — and at that point the header is a
+               viewport wide, so it costs nothing. -->
+          {#if expanded}
+            <button
+              type="button"
+              class="icon-btn"
+              onclick={onexpand}
+              aria-label="Shrink concierge"
+              aria-pressed="true"
+            >
+              <Icon name="shrink" />
+            </button>
+          {/if}
+          <button type="button" class="icon-btn" onclick={onclose} aria-label="Close concierge">
+            <Icon name="close" />
+          </button>
+        </div>
+      </header>
+
       <div class="pane">
-        <!-- Each tab is kept in the DOM once seen. `inert` rather than `hidden`:
-             both remove it from the accessibility tree and from tab order, but
-             `hidden` is display:none, which cannot be transitioned — so the
-             switch between tabs would be the one movement in the panel that
-             simply teleports. -->
-        <div class="tabpane" class:active={tab === 'home'} inert={tab !== 'home'}>
+        <!-- Each tab is kept in the DOM once seen. `inert` rather than
+             `hidden`: both remove it from the accessibility tree and from tab
+             order, but `hidden` is display:none, which cannot be transitioned —
+             so the switch between tabs would be the one movement in the panel
+             that simply teleports. `visibility` is folded in on a delay below,
+             which is what stops three full surfaces being laid out and
+             composited to show one. -->
+        <div
+          class="tabpane"
+          class:active={tab === 'home'}
+          inert={tab !== 'home'}
+          id="pawbar-pane-home"
+          role="tabpanel"
+          aria-labelledby="pawbar-pane-tab-home"
+        >
           <HomeTab
             {greeting}
             {starters}
@@ -199,7 +252,14 @@
         </div>
 
         {#if seen.has('messages')}
-          <div class="tabpane" class:active={tab === 'messages'} inert={tab !== 'messages'}>
+          <div
+            class="tabpane"
+            class:active={tab === 'messages'}
+            inert={tab !== 'messages'}
+            id="pawbar-pane-messages"
+            role="tabpanel"
+            aria-labelledby="pawbar-pane-tab-messages"
+          >
             <MessagesTab
               {conversations}
               loading={conversationsLoading}
@@ -212,7 +272,14 @@
         {/if}
 
         {#if seen.has('help')}
-          <div class="tabpane" class:active={tab === 'help'} inert={tab !== 'help'}>
+          <div
+            class="tabpane"
+            class:active={tab === 'help'}
+            inert={tab !== 'help'}
+            id="pawbar-pane-help"
+            role="tabpanel"
+            aria-labelledby="pawbar-pane-tab-help"
+          >
             <HelpTab
               {articles}
               loading={articlesLoading}
@@ -222,8 +289,6 @@
           </div>
         {/if}
       </div>
-
-      <TabBar {tabs} active={tab} onselect={select} />
     </div>
   {/if}
 </div>
@@ -251,6 +316,65 @@
     min-height: 0;
   }
 
+  .head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px 10px 10px 12px;
+    border-bottom: 1px solid var(--pawbar-border);
+  }
+
+  /* THE CONTROLS NEVER YIELD; THE NAV DOES. Both sides were `flex: none`, so
+     with a cart badge in the header the intrinsic width came to 413px inside a
+     374px header and the CLOSE BUTTON was pushed 29px past the right edge and
+     clipped away — a visitor with items in their cart had no way to close the
+     panel except Escape. Measured in the demo harness, which is the only place
+     a populated cart and a full nav have ever been on screen together.
+
+     Giving the nav `min-width: 0` lets it shrink, and TabBar drops its labels
+     to glyphs when it gets tight (a container query on .navbar), so the nav
+     degrades gracefully instead of the close button disappearing. */
+  .head > :global(.navbar) {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .head-actions {
+    flex: none;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .icon-btn {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--pawbar-fg-muted);
+    font-size: 17px;
+    cursor: pointer;
+    transition:
+      background var(--pawbar-duration-fast) var(--pawbar-ease),
+      color var(--pawbar-duration-fast) var(--pawbar-ease);
+  }
+
+  .icon-btn:hover {
+    background: var(--pawbar-wash-strong);
+    color: var(--pawbar-fg);
+  }
+
+  .icon-btn:focus-visible {
+    outline: 2px solid var(--pawbar-ring);
+    outline-offset: -2px;
+  }
+
   .pane {
     position: relative;
     flex: 1;
@@ -266,14 +390,26 @@
     opacity: 0;
     transform: translateY(calc(5px * var(--pawbar-motion-scale)));
     pointer-events: none;
+    /* Folded out of the render tree once the fade has finished. `inert` already
+       took it out of the a11y tree and the tab order, but an inert pane is
+       still laid out and composited — three whole surfaces painted to show
+       one. The delay is what keeps it visible for its own fade-out; without it
+       the leaving pane would vanish on frame zero. */
+    visibility: hidden;
     transition:
       opacity var(--pawbar-duration-fast) var(--pawbar-ease),
-      transform var(--pawbar-duration-fast) var(--pawbar-ease);
+      transform var(--pawbar-duration-fast) var(--pawbar-ease),
+      visibility 0s linear var(--pawbar-duration-fast);
   }
 
   .tabpane.active {
     opacity: 1;
     transform: none;
     pointer-events: auto;
+    visibility: visible;
+    transition:
+      opacity var(--pawbar-duration-fast) var(--pawbar-ease),
+      transform var(--pawbar-duration-fast) var(--pawbar-ease),
+      visibility 0s;
   }
 </style>
