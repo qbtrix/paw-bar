@@ -25,6 +25,11 @@
 
 import type { ConciergeChatConfig } from './chat-client';
 
+// 2026-08-21: the two GET reads here were built with `new URL()`, which throws on
+// the RELATIVE endpoint the frame actually seeds ("/api/v1"), so neither request
+// ever reached the network on a deployed bar. See scopeQuery below.
+
+
 /** Defensive bound on a list the widget renders. The server caps at 50; this is
  *  the client refusing to be talked into more by a malformed body. */
 export const CONVERSATIONS_CAP = 50;
@@ -65,18 +70,42 @@ function readRow(raw: unknown): VisitorConversation | null {
   };
 }
 
+/** The (widget, visitor) scope every read here is bound by.
+ *
+ *  Built as a query STRING appended to `config.endpoint`, never through
+ *  `new URL()`. The endpoint is a PREFIX, not an absolute URL — the frame seeds
+ *  `"endpoint": "/api/v1"` in production — and `new URL('/api/v1/...')` with no
+ *  base throws, so the two reads in this file were dying before fetch was ever
+ *  called. Nothing showed: the throw happened outside the try/catch below, so
+ *  the documented "degrades silently" contract did not apply, and the request
+ *  simply never appeared on the network.
+ *
+ *  Every sibling client (chat, cart, articles, operator-poll) has always
+ *  concatenated and let fetch resolve against the frame's own origin. This is
+ *  that, and it works for an absolute endpoint too. `openConversation` below
+ *  already did it this way, which is why conversations could be CREATED on a
+ *  deployed bar while none were ever LISTED. */
+function scopeQuery(config: ConversationsConfig, customerRef: string): string {
+  return new URLSearchParams({
+    w: config.widgetId,
+    key: config.signedKey,
+    customer_ref: customerRef,
+  }).toString();
+}
+
 /** This visitor's conversations, newest first. `[]` on any failure. */
 export async function fetchConversations(
   config: ConversationsConfig,
   customerRef: string,
 ): Promise<VisitorConversation[]> {
-  const url = new URL(`${config.endpoint}/paw-bar/conversations`);
-  url.searchParams.set('w', config.widgetId);
-  url.searchParams.set('key', config.signedKey);
-  url.searchParams.set('customer_ref', customerRef);
+  const query = scopeQuery(config, customerRef);
 
   try {
-    const res = await fetch(url.toString(), { method: 'GET', mode: 'cors', credentials: 'omit' });
+    const res = await fetch(`${config.endpoint}/paw-bar/conversations?${query}`, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+    });
     if (!res.ok) return [];
     const body = (await res.json()) as unknown;
     const rows = (body as { conversations?: unknown })?.conversations;
@@ -118,15 +147,15 @@ export async function fetchConversationMessages(
   conversationId: string,
 ): Promise<WireTurn[] | null> {
   if (!conversationId) return null;
-  const url = new URL(
-    `${config.endpoint}/paw-bar/conversations/${encodeURIComponent(conversationId)}/messages`,
-  );
-  url.searchParams.set('w', config.widgetId);
-  url.searchParams.set('key', config.signedKey);
-  url.searchParams.set('customer_ref', customerRef);
+  const path = `paw-bar/conversations/${encodeURIComponent(conversationId)}/messages`;
+  const query = scopeQuery(config, customerRef);
 
   try {
-    const res = await fetch(url.toString(), { method: 'GET', mode: 'cors', credentials: 'omit' });
+    const res = await fetch(`${config.endpoint}/${path}?${query}`, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+    });
     if (!res.ok) return null;
     const body = (await res.json()) as { messages?: unknown };
     const rows = body?.messages;

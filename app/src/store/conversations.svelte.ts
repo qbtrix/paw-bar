@@ -77,6 +77,15 @@ export class ConversationsStore {
       // returns [] for both, so the safe reading is to keep what we have.
       if (rows.length > 0 || !this.loaded) this.items = rows;
       this.loaded = true;
+    } catch {
+      // "Every read degrades to the list it already has" is this store's stated
+      // contract, and try/finally alone did not deliver it: a throw from the
+      // client escaped as an unhandled rejection and took the caller's
+      // openPanel() with it. That is not hypothetical — fetchConversations built
+      // its URL with `new URL()` outside its own try, and threw on the relative
+      // endpoint the frame seeds, on every deployed bar. Keep whatever list we
+      // already have; a Messages tab that cannot refresh should show what it
+      // last knew.
     } finally {
       this.loading = false;
       this.#inFlight = false;
