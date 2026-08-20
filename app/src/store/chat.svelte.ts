@@ -1,4 +1,9 @@
 // chat.svelte.ts — Svelte 5 runes store over the concierge SSE contract.
+// Updated 2026-08-21 (an empty answer must not erase): #hydrate adopted an empty
+// server response over the restored cache, and #persist wrote that emptiness back
+// — saveTranscript removes the row when the list is empty — so a visitor's history
+// was deleted off their own device on reload whenever the per-conversation read
+// came back empty, which it does for reasons unrelated to whether they talked.
 // Updated 2026-08-21 (resume the thread): adoptConversation carries the turns
 // with the id. A visitor who typed before the conversation list loaded had their
 // transcript filed under the ".active" sentinel; adoption took the id, wrote the
@@ -132,12 +137,32 @@ export class ChatStore {
    *  conversation id still sitting in localStorage, pointing at turns nothing
    *  could load: the pointer has no TTL and the thread does.
    *
-   *  Failure-soft in both directions. null means we could not ask — offline, or
-   *  a 404 on a pointer that has gone stale — and the cached thread stays on
-   *  screen, which is strictly better than blanking it. An empty ARRAY is the
-   *  server saying the thread really is empty, and that is adopted: a
-   *  conversation cleared server-side should not be resurrected from a stale
-   *  cache forever.
+   *  Failure-soft, and deliberately only in the direction that cannot lose data.
+   *  null means we could not ask — offline, or a 404 on a pointer that has gone
+   *  stale — and the cached thread stays on screen.
+   *
+   *  An empty ARRAY does NOT mean the visitor said nothing, and it used to be
+   *  adopted as though it did. Two ways the server answers 200 with nothing for
+   *  a conversation that really has turns:
+   *
+   *    * the messages read finds runs by session_key
+   *      `cloud:concierge:<pocket>:<conversation_id>:<agent>`, while the chat
+   *      endpoint writes `conversation.id if conversation is not None else
+   *      customer_ref`. A turn written while the conversation row was missing
+   *      carries the customer_ref spelling and is invisible to that read.
+   *    * a site with transcript retention off stores no visitor lines at all
+   *      (the endpoint's own `messages or []`).
+   *
+   *  Adopting that emptiness did not merely blank the panel: #persist writes it
+   *  back, and saveTranscript REMOVES the row when the list is empty. So the
+   *  widget asked the server a question, was told "nothing" for reasons
+   *  unrelated to whether the visitor talked, and deleted their conversation off
+   *  their own device — every reload, unrecoverably.
+   *
+   *  So an empty answer changes nothing now. The cache holding turns is itself
+   *  the evidence those turns happened. The cost is that a thread genuinely
+   *  cleared server-side lingers locally until its 7-day TTL expires — cosmetic
+   *  staleness, weighed against destroying someone's history.
    *
    *  Never clobbers a live exchange: if the visitor has started typing turns
    *  before this lands, theirs win. The fetch is only ever catching up. */
@@ -157,6 +182,8 @@ export class ChatStore {
     // the wrong thread or overwrite something newer than itself.
     if (this.conversationId !== conversationId) return;
     if (this.isStreaming || this.messages.some((m) => m.status === 'streaming')) return;
+    // Nothing to adopt, and adopting nothing DELETES the row (see above).
+    if (turns.length === 0) return;
     this.messages = turns.map((turn: WireTurn) => ({
       id: newId(),
       role: turn.role,
