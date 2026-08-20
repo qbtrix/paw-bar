@@ -94,7 +94,25 @@ describe('hydrating a conversation from the server', () => {
     expect(store.messages[0].content).toBe('offline but mine');
   });
 
-  it('adopts a genuinely empty thread', async () => {
+  // REVERSED 2026-08-21. This used to assert the opposite — that [] is "the
+  // server SAYING empty", as distinct from null meaning "could not ask", and so
+  // should be adopted rather than let a cleared thread linger in a stale cache.
+  // That reasoning had a hole: #persist writes the adopted result back, and
+  // saveTranscript REMOVES the row when the list is empty, so adopting [] did
+  // not merely blank the panel — it deleted the visitor's history off their own
+  // device, unrecoverably, on every reload.
+  //
+  // And [] is not the reliable signal it was taken for. The read finds runs by
+  // session_key `cloud:concierge:<pocket>:<conversation_id>:<agent>`, while the
+  // chat endpoint writes `conversation.id if conversation is not None else
+  // customer_ref` — so any turn written while the conversation row was missing
+  // is invisible to a per-conversation read, which answers 200 with nothing. A
+  // site with transcript retention off answers the same way.
+  //
+  // The cache holding turns is itself evidence those turns happened. Cost of the
+  // reversal: a thread genuinely cleared server-side lingers until its 7-day TTL
+  // expires. That is cosmetic; the thing it replaces was data loss.
+  it('leaves the cache alone when the server answers empty', async () => {
     saveTranscript(config.widgetId, [
       { id: 'a', role: 'user', content: 'cleared server-side', status: 'done' },
     ], CONV);
@@ -103,10 +121,8 @@ describe('hydrating a conversation from the server', () => {
     const store = new ChatStore(config);
     await settle();
 
-    // [] is the server SAYING empty, which is different from null meaning "could
-    // not ask". A conversation cleared server-side must not be resurrected from a
-    // stale cache forever.
-    await vi.waitFor(() => expect(store.messages).toHaveLength(0));
+    expect(store.messages).toHaveLength(1);
+    expect(store.messages[0].content).toBe('cleared server-side');
   });
 
   it('does not ask at all without a conversation pointer', async () => {
