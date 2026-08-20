@@ -30,6 +30,10 @@ import type { ConciergeChatConfig } from './chat-client';
 export const CONVERSATIONS_CAP = 50;
 /** Previews are server-capped at 140; clip again rather than trust the wire. */
 export const PREVIEW_MAX = 200;
+/** Defensive bound on one thread's turns, mirroring CONVERSATIONS_CAP's reason:
+ *  the server caps this too, and the client still refuses to be talked into more
+ *  by a malformed body. */
+export const MESSAGES_CAP = 200;
 
 export interface VisitorConversation {
   id: string;
@@ -85,6 +89,62 @@ export async function fetchConversations(
     return out;
   } catch {
     return [];
+  }
+}
+
+/** One turn as the wire carries it. Deliberately NOT the store's `Message`:
+ *  this module is a wire adapter and must not reach into the store for a type
+ *  (the store already imports from here, so that would be a cycle) nor mint ids,
+ *  which is the store's job. */
+export interface WireTurn {
+  role: 'user' | 'assistant';
+  content: string;
+  at: string;
+}
+
+/** One conversation's turns, oldest-first. `null` on any failure.
+ *
+ *  `null` and `[]` mean DIFFERENT things and the caller must not conflate them:
+ *  null is "could not ask" (offline, or a 404 on a stale pointer) and the caller
+ *  keeps whatever it had; [] is the server saying this thread is genuinely empty.
+ *
+ *  Roles are widened server-side beyond user|assistant — an owner typing and the
+ *  system explaining itself both appear — so anything that is not the visitor's
+ *  own line is folded onto the assistant side rather than dropped. A thread that
+ *  silently omitted the human's replies would be worse than no history at all. */
+export async function fetchConversationMessages(
+  config: ConversationsConfig,
+  customerRef: string,
+  conversationId: string,
+): Promise<WireTurn[] | null> {
+  if (!conversationId) return null;
+  const url = new URL(
+    `${config.endpoint}/paw-bar/conversations/${encodeURIComponent(conversationId)}/messages`,
+  );
+  url.searchParams.set('w', config.widgetId);
+  url.searchParams.set('key', config.signedKey);
+  url.searchParams.set('customer_ref', customerRef);
+
+  try {
+    const res = await fetch(url.toString(), { method: 'GET', mode: 'cors', credentials: 'omit' });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { messages?: unknown };
+    const rows = body?.messages;
+    if (!Array.isArray(rows)) return null;
+    const out: WireTurn[] = [];
+    for (const raw of rows.slice(-MESSAGES_CAP)) {
+      const row = raw as { role?: unknown; content?: unknown; created_at?: unknown };
+      const content = typeof row.content === 'string' ? row.content : '';
+      if (!content) continue;
+      out.push({
+        role: row.role === 'user' ? 'user' : 'assistant',
+        content,
+        at: typeof row.created_at === 'string' ? row.created_at : '',
+      });
+    }
+    return out;
+  } catch {
+    return null;
   }
 }
 
