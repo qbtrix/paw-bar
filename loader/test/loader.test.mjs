@@ -28,11 +28,12 @@ function mount({
   // The host page's own styling, which is what the colour-scheme detector reads.
   hostStyle = '',
   prefersDark = false,
+  path = '/products',
 } = {}) {
   const dom = new JSDOM(
     `<!doctype html><html><head><style>${hostStyle}</style></head><body></body></html>`,
     {
-      url: HOST_ORIGIN + '/products',
+      url: HOST_ORIGIN + path,
       runScripts: 'dangerously',
       pretendToBeVisual: true,
     },
@@ -617,4 +618,28 @@ test('an OS change on a page that states its own scheme changes nothing', () => 
 
   assert.equal(posts.length, 1);
   assert.equal(posts[0].s, 'l');
+});
+
+// ── ?pawbar=off ─────────────────────────────────────────────────────────────
+// The owner's appearance preview frames the REAL published site and overlays its
+// own owner-preview bar (the one that takes live token updates). Without this the
+// framed page grows a SECOND bar — the public embed on the SAVED look, sitting
+// behind the one being edited, and the wrong one is the one that responds.
+test('?pawbar=off keeps the loader from mounting anything', () => {
+  const { window } = mount({ path: '/products?pawbar=off' });
+
+  assert.equal(window.document.querySelector('iframe'), null, 'mounted a frame anyway');
+  assert.equal(window.PawBar, undefined, 'exposed its API anyway');
+});
+
+test('a normal page still mounts — the guard is not a blanket off switch', () => {
+  const { window } = mount({ path: '/products' });
+
+  assert.ok(window.document.querySelector('iframe'), 'did not mount');
+});
+
+test('an unrelated query string does not suppress', () => {
+  const { window } = mount({ path: '/products?utm_source=x&pawbar=on' });
+
+  assert.ok(window.document.querySelector('iframe'), 'a non-off value suppressed it');
 });
