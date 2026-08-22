@@ -245,7 +245,7 @@
   .empty-action {
     padding: 9px 16px;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--pawbar-radius-pill);
     background: var(--pawbar-accent);
     color: var(--pawbar-accent-fg);
     font: inherit;
@@ -269,7 +269,7 @@
   .skeleton {
     display: block;
     background: var(--pawbar-wash-strong);
-    border-radius: 6px;
+    border-radius: var(--pawbar-radius-2xs);
     animation: pulse 1.6s var(--pawbar-ease) infinite;
   }
 

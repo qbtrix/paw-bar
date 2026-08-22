@@ -10,6 +10,10 @@
 // 2026-07-15 bar-first docking (captain direction): the docked resting state is
 // {pawbar:overlay,on} tells this loader an in-frame menu/popover is showing, so
 // a click on the HOST page answers {pawbar:host-pointerdown} and dismisses it.
+// {pawbar:bar,compact,expanded} (2026-08-22) is the docked bar's resting-width
+// INTENT — the app says which state it is in, this loader owns both widths
+// (BAR_W_REST / BAR_W) and eases between them. Never a measured width: see
+// BAR_W_REST for the clipping bug that distinction exists to prevent.
 // a center-bottom BAR (width is loader policy, BAR_W) that the app can flip to a
 // minimized CHIP ({pawbar:view}). {pawbar:resize,h,w} sizes the docked box —
 // height always, width only for the chip (the bar width is loader policy; using
@@ -50,6 +54,25 @@ const DRAG_MIN_PX = 4;
 // its own width because it is genuinely content-sized ("Ask" is as wide as the
 // word), and nothing derives from it.
 const BAR_W = 384;
+// The COMPACT resting width (2026-08-22). The bar can rest as a narrow pill and
+// widen to BAR_W when the visitor hovers, focuses or starts typing — the
+// behaviour that was removed on 2026-08-19, rebuilt so that it cannot clip.
+//
+// It is loader policy for the same reason BAR_W is, and the reason is the whole
+// design: the app declares an INTENT ({pawbar:bar,compact,expanded}), never a
+// measured width, and this file runs the ONE transition between the two numbers
+// while the app stays width:100% of whatever box it is given. The old morph had
+// the app easing its own width, a ResizeObserver reporting each intermediate
+// value, and this loader starting a fresh eased transition toward a target the
+// content had already passed — the frame permanently a step behind the content
+// it was clipping. Content that fills its frame cannot overflow it, however the
+// frame is moving.
+//
+// 236 is sized to hold the mascot plus the resting question ("Ask about this
+// site") without truncating it; the app hides the grip, the minimize control
+// and the send button while it rests, so this is not BAR_W's contents squeezed
+// into two thirds of the room.
+const BAR_W_REST = 236;
 const DEFAULT_BAR_H = 96;
 const DEFAULT_CHIP = { w: 240, h: 72 };
 const MIN_H = 48;
@@ -91,6 +114,9 @@ const BOX_MS = 260;
 const BOX_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
 
 type DockView = 'bar' | 'chip' | 'panel';
+/** How a box write travels. 'none' snaps, 'box' eases all four edges, 'width'
+ *  eases the horizontal pair and applies height instantly — see setBox. */
+type Motion = 'none' | 'box' | 'width';
 
 interface PawBarApi {
   open(): void;
@@ -206,6 +232,19 @@ function suppressed(win: LoaderWindow): boolean {
   // Separate from `overlay`, which is the transient drag state, so a window
   // resize mid-expand re-applies fullscreen instead of collapsing the panel.
   let expanded = false;
+  // The docked bar's resting width, as declared by the app. `barCompact` is the
+  // owner's setting (and is false on a coarse pointer, where there is no hover
+  // to expand with); `barOpen` is whether the visitor is in it right now.
+  let barCompact = false;
+  let barOpen = false;
+  // When the in-flight bar width transition is due to finish. A content resize
+  // that lands mid-expand must not kill it: applyDock('none') rewrites
+  // `transition` to none, which would abandon the eased width wherever it had
+  // got to and snap the rest. Inside this window a resize re-applies with
+  // 'width' instead, so the height it is reporting still lands instantly (the
+  // frame may never be shorter than the content it clips) while the width keeps
+  // travelling to the same target.
+  let barMotionUntil = 0;
   let anchor: { cx: number; by: number } | null = readAnchor(win);
   let dragFrom: { x: number; y: number; w: number; h: number } | null = null;
   const size = {
@@ -229,7 +268,8 @@ function suppressed(win: LoaderWindow): boolean {
     // frame — there is no invisible slack either side of it eating clicks on
     // the host page, which is what an app-reported width was protecting against
     // back when the bar rested at 148px and grew on hover. It does neither now.
-    const wantW = view === 'bar' ? BAR_W : size[view].w;
+    const wantW =
+      view === 'bar' ? (barCompact && !barOpen ? BAR_W_REST : BAR_W) : size[view].w;
     const w = Math.min(wantW, maxW);
     const wantH = view === 'panel' ? PANEL_MAX_H : size[view].h;
     const h = vh ? clamp(wantH, MIN_H, vh - VIEWPORT_MARGIN) : Math.max(MIN_H, wantH);
@@ -256,30 +296,40 @@ function suppressed(win: LoaderWindow): boolean {
    *      pointer, which feels broken rather than smooth)
    *    - a window resize (the box is tracking a viewport that already moved)
    */
-  function setBox(x: string, y: string, w: string, h: string, animate: boolean): void {
+  function setBox(x: string, y: string, w: string, h: string, motion: Motion): void {
+    const m = reduced() ? 'none' : motion;
+    // 'width' eases the horizontal pair ONLY, and leaves height to apply in the
+    // same frame it arrives. That distinction is what lets the compact bar
+    // expand on hover without re-opening the clipping bug: the frame is the
+    // clip boundary for everything the app draws, so a HEIGHT that lags content
+    // shows as a cut-off composer — but a WIDTH may ease freely, because the
+    // app is width:100% of this box and its content reflows to whatever the
+    // frame currently is rather than to some target of its own.
     iframe.style.transition =
-      animate && !reduced()
+      m === 'box'
         ? `left ${BOX_MS}ms ${BOX_EASE}, top ${BOX_MS}ms ${BOX_EASE}, width ${BOX_MS}ms ${BOX_EASE}, height ${BOX_MS}ms ${BOX_EASE}`
-        : 'none';
+        : m === 'width'
+          ? `left ${BOX_MS}ms ${BOX_EASE}, width ${BOX_MS}ms ${BOX_EASE}`
+          : 'none';
     iframe.style.left = x;
     iframe.style.top = y;
     iframe.style.width = w;
     iframe.style.height = h;
   }
 
-  function applyDock(animate = false): void {
+  function applyDock(motion: Motion = 'none'): void {
     // Expanded on request, or a viewport with no room for a column beside the
     // page. Checked here so a window resize re-decides on every reflow.
     if (expanded || panelIsSheet()) {
-      goFullscreen(animate);
+      goFullscreen(motion);
       return;
     }
     const b = dockBox();
-    setBox(b.x + 'px', b.y + 'px', b.w + 'px', b.h + 'px', animate);
+    setBox(b.x + 'px', b.y + 'px', b.w + 'px', b.h + 'px', motion);
   }
 
-  function goFullscreen(animate = false): void {
-    setBox('0px', '0px', '100vw', '100vh', animate);
+  function goFullscreen(motion: Motion = 'none'): void {
+    setBox('0px', '0px', '100vw', '100vh', motion);
   }
 
   (doc.body || doc.documentElement).appendChild(iframe);
@@ -349,6 +399,8 @@ function suppressed(win: LoaderWindow): boolean {
           h?: unknown;
           w?: unknown;
           view?: unknown;
+          compact?: unknown;
+          expanded?: unknown;
           phase?: unknown;
           x?: unknown;
           y?: unknown;
@@ -381,7 +433,21 @@ function suppressed(win: LoaderWindow): boolean {
         // for a beat before the frame caught up (the captain's 2026-08-19
         // report). The app stopped animating its width in the same change; this
         // is the half that guarantees the frame can never lag content again.
-        applyDock(false);
+        applyDock(Date.now() < barMotionUntil ? 'width' : 'none');
+        break;
+      }
+      case 'pawbar:bar': {
+        // The docked bar's resting width. Honoured only while the bar is the
+        // view: the chip and the open column have their own policy above, and a
+        // stray intent arriving during either would argue with it.
+        const compact = data.compact === true;
+        const open = data.expanded === true;
+        if (compact === barCompact && open === barOpen) break;
+        barCompact = compact;
+        barOpen = open;
+        if (view !== 'bar') break;
+        barMotionUntil = Date.now() + BOX_MS;
+        applyDock('width');
         break;
       }
       case 'pawbar:view': {
@@ -393,7 +459,7 @@ function suppressed(win: LoaderWindow): boolean {
             expanded = false;
           }
           // Animated: bar↔chip is a state the visitor asked for and can watch.
-          applyDock(true);
+          applyDock('box');
         }
         break;
       }
@@ -412,11 +478,11 @@ function suppressed(win: LoaderWindow): boolean {
         overlay = false;
         // THE open. The box grows from the pill to the column while the panel
         // flies in inside it, so the two read as one movement.
-        applyDock(true);
+        applyDock('box');
         break;
       case 'pawbar:expand':
         expanded = data.on === true;
-        applyDock(true);
+        applyDock('box');
         break;
       case 'pawbar:overlay':
         watchHostPointer(data.on === true);
@@ -425,7 +491,7 @@ function suppressed(win: LoaderWindow): boolean {
         view = dockView;
         overlay = false;
         expanded = false;
-        applyDock(true);
+        applyDock('box');
         break;
       case 'pawbar:drag': {
         if (data.phase === 'start') {
@@ -473,14 +539,14 @@ function suppressed(win: LoaderWindow): boolean {
     open(): void {
       view = 'panel';
       overlay = false;
-      applyDock(true);
+      applyDock('box');
       postToFrame({ type: 'pawbar:host-open' });
     },
     close(): void {
       view = dockView;
       overlay = false;
       expanded = false;
-      applyDock(true);
+      applyDock('box');
       postToFrame({ type: 'pawbar:host-close' });
     },
   };

@@ -643,3 +643,103 @@ test('an unrelated query string does not suppress', () => {
 
   assert.ok(window.document.querySelector('iframe'), 'a non-off value suppressed it');
 });
+
+// ── The compact docked bar (2026-08-22) ─────────────────────────────────────
+// The bar can rest narrow and widen to its full width when the visitor hovers,
+// focuses or starts typing. It is the behaviour that was deleted on 2026-08-19,
+// and the reason it was deleted is the reason these tests exist: the old morph
+// had the APP easing its own width and this loader chasing the reports, so the
+// frame ran permanently behind the content it was clipping and the composer was
+// visibly cut off mid-expand.
+//
+// The rebuild inverts that. The app sends an INTENT, the loader owns both
+// widths and runs the only transition, and the app fills whatever box it gets.
+// What follows pins the three properties that keep it that way.
+
+/** Send a frame message that will actually be honoured (origin + source). */
+function fromFrame(window, iframe, data) {
+  window.dispatchEvent(
+    messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow }),
+  );
+}
+
+test('a compact bar rests NARROWER than a full one', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const full = iframe.style.width;
+
+  fromFrame(window, iframe, { type: 'pawbar:bar', compact: true, expanded: false });
+  const rest = iframe.style.width;
+
+  assert.notEqual(rest, full);
+  assert.ok(
+    parseInt(rest, 10) < parseInt(full, 10),
+    `resting width ${rest} should be under the full ${full}`,
+  );
+});
+
+test('expanding returns it to exactly the full bar width', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const full = iframe.style.width;
+
+  fromFrame(window, iframe, { type: 'pawbar:bar', compact: true, expanded: false });
+  assert.notEqual(iframe.style.width, full);
+
+  fromFrame(window, iframe, { type: 'pawbar:bar', compact: true, expanded: true });
+  // The SAME width a non-compact bar rests at — the expanded state is not a
+  // third size, it is the ordinary bar.
+  assert.equal(iframe.style.width, full);
+});
+
+test('the expansion eases WIDTH but never HEIGHT', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  fromFrame(window, iframe, { type: 'pawbar:bar', compact: true, expanded: false });
+
+  const t = iframe.style.transition;
+  assert.match(t, /width/);
+  // THE LOAD-BEARING ASSERTION. The frame is the clip boundary for everything
+  // the app draws, so a height that eases toward its target is a height that is
+  // too small for the content for a quarter of a second — which is exactly what
+  // "the input looks cut off" was. Width may ease freely because the app is
+  // width:100% of this box and reflows to whatever it currently is.
+  assert.doesNotMatch(t, /height/);
+});
+
+test('a content resize mid-expand does not snap the width', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  fromFrame(window, iframe, { type: 'pawbar:bar', compact: true, expanded: true });
+
+  // The app reports a new height while the width is still travelling — a two
+  // line composer, say. applyDock() would otherwise rewrite `transition` to
+  // 'none' and abandon the eased width wherever it had reached.
+  fromFrame(window, iframe, { type: 'pawbar:resize', h: 132 });
+
+  assert.equal(iframe.style.height, '132px', 'the reported height lands instantly');
+  assert.match(iframe.style.transition, /width/, 'the width keeps travelling');
+  assert.doesNotMatch(iframe.style.transition, /height/);
+});
+
+test('a bar intent is ignored while the panel is open', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  fromFrame(window, iframe, { type: 'pawbar:open' });
+  const open = iframe.style.width;
+
+  // The open column has its own policy. A stray resting-width intent arriving
+  // from a bar that is no longer the view must not argue with it.
+  fromFrame(window, iframe, { type: 'pawbar:bar', compact: true, expanded: false });
+  assert.equal(iframe.style.width, open);
+});
+
+test('a bar that never declares itself compact is unchanged', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const before = iframe.style.width;
+  // What a touch device sends (no hover to expand with), and what any frame
+  // served before this shipped sends: nothing at all.
+  fromFrame(window, iframe, { type: 'pawbar:bar', compact: false, expanded: false });
+  assert.equal(iframe.style.width, before);
+});

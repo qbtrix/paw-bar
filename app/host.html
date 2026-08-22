@@ -73,7 +73,7 @@
       });
 
       // ── the loader's box protocol, minimally ──────────────────────────────
-      const PANEL_W = 400, PANEL_MAX_H = 720, BAR_W = 384, MARGIN = 24;
+      const PANEL_W = 400, PANEL_MAX_H = 720, BAR_W = 384, BAR_W_REST = 236, MARGIN = 24;
       const PANEL_MIN_VW = 460, PANEL_MIN_VH = 620;
       const frame = document.createElement('iframe');
       // ?demo swaps in the fake-backend page, so the harness can show a
@@ -110,6 +110,9 @@
       document.body.appendChild(frame);
 
       let view = 'bar', dockView = 'bar', expanded = false;
+      // Mirrors loader.ts: the docked bar's resting width is an INTENT the app
+      // declares, never a width it measures, and this side owns both numbers.
+      let barCompact = false, barOpen = false, barMotionUntil = 0;
       const size = { bar: { w: BAR_W, h: 96 }, chip: { w: 240, h: 72 }, panel: { w: PANEL_W, h: PANEL_MAX_H } };
 
       const sheet = () =>
@@ -119,9 +122,15 @@
       // Mirrors loader.ts: the visitor's OS setting suppresses the box
       // animation. Read live, since people change it while a page is open.
       const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-      function apply(animate) {
-        frame.style.transition = animate && !reduced()
-          ? ['left', 'top', 'width', 'height'].map((k) => `${k} ${BOX_MS}ms ${BOX_EASE}`).join(', ')
+      // 'none' | 'box' | 'width'. 'width' eases the horizontal pair only and
+      // lets height land in the frame it arrives — mirroring loader.ts, where
+      // that distinction is what lets the bar expand on hover without the frame
+      // ever being shorter than the content it is clipping.
+      function apply(motion) {
+        const m = reduced() ? 'none' : (motion === true ? 'box' : motion || 'none');
+        const keys = m === 'box' ? ['left', 'top', 'width', 'height'] : m === 'width' ? ['left', 'width'] : null;
+        frame.style.transition = keys
+          ? keys.map((k) => `${k} ${BOX_MS}ms ${BOX_EASE}`).join(', ')
           : 'none';
         if (expanded || sheet()) {
           Object.assign(frame.style, { left: '0px', top: '0px', width: '100vw', height: '100vh' });
@@ -131,7 +140,7 @@
         // The bar's width is loader POLICY, not an app report — see
         // loader.ts BAR_W. An app that sizes itself against the frame it is
         // already inside cannot grow back out of a small one.
-        const wantW = view === 'bar' ? BAR_W : size[view].w;
+        const wantW = view === 'bar' ? (barCompact && !barOpen ? BAR_W_REST : BAR_W) : size[view].w;
         const w = Math.min(wantW, maxW);
         const wantH = view === 'panel' ? PANEL_MAX_H : size[view].h;
         const h = Math.min(Math.max(wantH, 48), innerHeight - MARGIN);
@@ -158,16 +167,25 @@
             // content it is clipping, which is exactly the "input looks cut off
             // for a beat" bug — and a harness that reproduces the bug the
             // loader no longer has is worse than no harness.
-            apply(false);
+            apply(Date.now() < barMotionUntil ? 'width' : 'none');
             break;
+          case 'pawbar:bar': {
+            const compact = d.compact === true, open = d.expanded === true;
+            if (compact === barCompact && open === barOpen) break;
+            barCompact = compact; barOpen = open;
+            if (view !== 'bar') break;
+            barMotionUntil = Date.now() + BOX_MS;
+            apply('width');
+            break;
+          }
           case 'pawbar:view':
             view = d.view;
             if (d.view !== 'panel') { dockView = d.view; expanded = false; }
-            apply(true);
+            apply('box');
             break;
-          case 'pawbar:open': view = 'panel'; apply(true); break;
-          case 'pawbar:expand': expanded = d.on === true; apply(true); break;
-          case 'pawbar:close': view = dockView; expanded = false; apply(true); break;
+          case 'pawbar:open': view = 'panel'; apply('box'); break;
+          case 'pawbar:expand': expanded = d.on === true; apply('box'); break;
+          case 'pawbar:close': view = dockView; expanded = false; apply('box'); break;
           case 'pawbar:overlay': watchHostPointer(d.on === true); break;
         }
       });

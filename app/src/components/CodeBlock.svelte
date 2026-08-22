@@ -34,7 +34,7 @@
   .code {
     margin: 0.5em 0;
     border: 1px solid var(--pawbar-border);
-    border-radius: 12px;
+    border-radius: var(--pawbar-radius-sm);
     overflow: hidden;
     background: color-mix(in oklab, var(--pawbar-fg) 4%, transparent);
   }
@@ -59,7 +59,7 @@
     border: none;
     cursor: pointer;
     padding: 2px 6px;
-    border-radius: 6px;
+    border-radius: var(--pawbar-radius-2xs);
   }
   .copy:hover {
     color: var(--pawbar-fg);

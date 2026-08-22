@@ -57,6 +57,19 @@ export interface PawBarConfig {
   /** What the resting pill says. Owner-set ("Ask about Ocean Supply"); empty
    *  falls back to our generic copy in the shell rather than rendering blank. */
   launcherLabel: string;
+  /** How wide the docked bar rests (2026-08-22).
+   *
+   *  'full'    — the bar always occupies its whole width, composer and all.
+   *              What every bar has done since the hover morph was removed.
+   *  'compact' — it rests as a narrow pill and widens to the full composer on
+   *              hover or focus. The behaviour the morph used to provide, minus
+   *              the clipping: the LOADER animates the frame and the app just
+   *              fills it, so there is no longer an app-side width for the box
+   *              to chase (see GlassShell's header and loader.ts BAR_W_REST).
+   *
+   *  Defaults to 'compact' — a resting widget on somebody else's site should
+   *  ask for as little of their page as it can and grow when it is wanted. */
+  barResting: 'full' | 'compact';
 }
 
 /** Read a string array off the boot config, dropping anything that isn't a
@@ -123,5 +136,9 @@ export function readConfig(): PawBarConfig {
     // long value cannot stretch the resting pill across the host's page.
     launcherLabel:
       typeof boot?.launcherLabel === 'string' ? boot.launcherLabel.trim().slice(0, 40) : '',
+    // Anything that is not the literal 'full' reads as 'compact', so a backend
+    // that has never heard of this field gets the new resting behaviour rather
+    // than a widget stuck in a mode nobody chose.
+    barResting: boot?.barResting === 'full' ? 'full' : 'compact',
   };
 }
