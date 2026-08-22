@@ -84,7 +84,7 @@
     margin: 8px 0;
     padding: 12px;
     border: 1px solid var(--pawbar-border);
-    border-radius: 14px;
+    border-radius: var(--pawbar-radius-md);
     background: var(--pawbar-assistant-bubble);
   }
   .title {
@@ -111,7 +111,7 @@
     box-sizing: border-box;
     padding: 8px 10px;
     border: 1px solid var(--pawbar-border);
-    border-radius: 9px;
+    border-radius: var(--pawbar-radius-xs);
     background: color-mix(in oklab, var(--pawbar-fg) 4%, transparent);
     color: var(--pawbar-fg);
     resize: vertical;
@@ -138,7 +138,7 @@
     font-size: 12.5px;
     font-weight: 500;
     padding: 7px 14px;
-    border-radius: 9px;
+    border-radius: var(--pawbar-radius-xs);
     border: 1px solid transparent;
     background: var(--pawbar-accent);
     color: var(--pawbar-accent-fg);

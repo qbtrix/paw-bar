@@ -133,6 +133,7 @@
     agentSubtitle = 'The team can also help',
     avatars = [],
     launcherLabel = '',
+    barResting = 'compact',
     parentOrigin = '',
   }: {
     store: ChatStore;
@@ -157,6 +158,9 @@
      *  reads as a widget), so this is an appearance field with a default that
      *  works when they never set one. */
     launcherLabel?: string;
+    /** 'compact' rests the docked bar narrow and widens it on hover/focus;
+     *  'full' keeps it at its whole width always. Owner setting. */
+    barResting?: 'full' | 'compact';
     parentOrigin?: string;
   } = $props();
 
@@ -221,6 +225,48 @@
 
   let view = $state<View>(readInitialView());
   let expanded = $state(false);
+
+  // ── The docked bar's resting width (2026-08-22) ───────────────────────────
+  // The captain's report was that the bar "doesn't expand on hover". It used
+  // to, and the expansion was removed on 2026-08-19 because of HOW it was
+  // built, not because of what it did: the app animated its own width, the
+  // ResizeObserver reported every frame of that animation, and the loader
+  // chased it with a second eased transition — so the frame ran permanently
+  // behind its own contents and the composer was clipped mid-morph.
+  //
+  // This is the same behaviour rebuilt the other way round. The app declares an
+  // INTENT (`poster.bar`), the loader owns both widths and runs ONE transition,
+  // and the bar stays `width: 100%` of whatever box it is handed. There is no
+  // app-side width for anything to chase, and content that fills its frame
+  // cannot overflow it however the frame is moving.
+  //
+  // HOVER IS AN ENHANCEMENT, NEVER THE ONLY WAY IN. A touch visitor has no
+  // hover, so on a coarse pointer the bar simply rests full-width — the same
+  // widget everyone has had since August, rather than a pill that can only be
+  // opened by a gesture the device cannot make.
+  const canHover =
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(hover: hover) and (pointer: fine)').matches
+      : false;
+  const compactBar = $derived(barResting === 'compact' && canHover);
+
+  let barHover = $state(false);
+  let barFocus = $state(false);
+  // Held open while there is unsent text. Collapsing the field someone is
+  // typing into, because their pointer drifted off a 216px pill, would be a
+  // worse bug than never expanding at all.
+  let barDraft = $state(false);
+  const barOpen = $derived(!compactBar || barHover || barFocus || barDraft);
+
+  // One post per actual change of intent. `view` gates it because the panel and
+  // the chip have their own box policy in the loader, and a stray bar intent
+  // arriving while the column is open would argue with it.
+  $effect(() => {
+    const compact = compactBar;
+    const open = barOpen;
+    if (view !== 'bar') return;
+    poster.bar(compact, open);
+  });
   let contentEl: HTMLDivElement | null = $state(null);
   let composer: ReturnType<typeof Composer> | null = $state(null);
 
@@ -817,7 +863,28 @@
       </section>
       {/if}
 
-      <div class="bar" class:docked={view !== 'panel'}>
+      <!-- pointerenter/leave rather than mouseenter: one handler covers mouse,
+           pen and (harmlessly) touch, and `canHover` has already decided
+           whether any of this applies. focusin/focusout carry the keyboard
+           visitor, who never hovers anything. -->
+      <!-- role/label because the pointer handlers below make this a static
+           element with listeners. It is an honest description rather than a
+           silencer: the bar IS a labelled group of controls (drag, open,
+           compose, send, minimize), and naming it gives a screen-reader
+           visitor the same "this is the concierge" orientation that a sighted
+           one gets from the mascot. The handlers themselves are pure
+           enhancement — every control inside is reachable without them. -->
+      <div
+        class="bar"
+        role="group"
+        aria-label="Concierge"
+        class:docked={view !== 'panel'}
+        class:compact={compactBar && view === 'bar' && !barOpen}
+        onpointerenter={() => (barHover = true)}
+        onpointerleave={() => (barHover = false)}
+        onfocusin={() => (barFocus = true)}
+        onfocusout={() => (barFocus = false)}
+      >
         <button
           type="button"
           class="grip"
@@ -876,6 +943,7 @@
             placeholder={label}
             onSend={handleBarSend}
             onStop={() => store.stop()}
+            ondraft={(has) => (barDraft = has)}
           />
         </div>
         {#if cart.count > 0}
@@ -1044,7 +1112,7 @@
     align-items: center;
     gap: 8px;
     padding: 7px 8px 7px 4px;
-    border-radius: 26px;
+    border-radius: var(--pawbar-radius-input);
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
@@ -1079,6 +1147,54 @@
   .bar-slot {
     flex: 1;
     min-width: 0;
+  }
+
+  /* ── Compact rest (2026-08-22) ───────────────────────────────────────────
+     NOTHING HERE SETS A WIDTH. The bar is `width: 100%` of the box the loader
+     hands it in every state, and the loader animates that box between
+     BAR_W_REST and BAR_W. An easing width on this element is precisely the bug
+     that got the previous hover morph deleted, and the rule that replaced it —
+     the app never sizes itself against its own frame — is what this respects.
+     All that changes here is WHICH CONTROLS ARE PRESENT, so a 236px pill is a
+     mascot and a question rather than five controls fighting for 90px.
+
+     `display: none`, never `opacity: 0`. The old morph faded the composer out
+     and left its textarea and send button in the host page's tab order inside
+     an aria-hidden subtree — a keyboard visitor could tab into an input that
+     was not on screen. Removing the elements removes them from the accessibility
+     tree and the tab order together, and the first Tab into the bar lands on
+     the textarea, fires focusin, and expands it. */
+  .bar.compact > .grip,
+  .bar.compact > .icon-btn {
+    display: none;
+  }
+  /* Only the send affordance, never the stop button: a compact bar is by
+     definition a resting one, but scoping it this way means a streaming reply
+     can never hide the visitor's way to stop it. */
+  .bar.compact :global(.send:not(.stop)) {
+    display: none;
+  }
+  /* A resting pill is a fixed width and the label on it is the OWNER'S, up to
+     forty characters of it, so some of them cannot fit and one of them will
+     always be the one that doesn't. Ellipsis rather than a hard clip: "Ask
+     about Ocean Supp" reads as a broken widget, "Ask about Ocean…" reads as a
+     widget with a long name.
+
+     Safe precisely because it is scoped to `.compact`, which is the resting
+     state and therefore the EMPTY one — a draft forces the bar open (barDraft),
+     so nowrap can never fight the autosizing textarea it shares an element
+     with. The moment the visitor hovers, focuses or types, this rule is gone
+     and the field wraps normally. */
+  .bar.compact :global(textarea) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* The pill is the whole target while it rests — a visitor should not have to
+     find the 30px mascot to open a widget that is already asking them a
+     question. The textarea keeps its own text cursor inside. */
+  .bar.compact {
+    cursor: pointer;
   }
   /* Circular paw mascot — ChatPill's .mascot-avatar language, bar-sized.
      A BUTTON: clicking it opens the panel (the returning visitor's way back
@@ -1121,7 +1237,7 @@
     width: 26px;
     height: 34px;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--pawbar-radius-xs);
     background: none;
     color: var(--pawbar-fg-muted);
     cursor: grab;
@@ -1145,7 +1261,7 @@
     height: 28px;
     padding: 0 10px;
     border: 1px solid var(--pawbar-border);
-    border-radius: 999px;
+    border-radius: var(--pawbar-radius-pill);
     background: none;
     color: var(--pawbar-fg);
     font: inherit;
@@ -1172,7 +1288,7 @@
     align-items: center;
     gap: 8px;
     padding: 11px 16px;
-    border-radius: 999px;
+    border-radius: var(--pawbar-radius-pill);
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
@@ -1218,7 +1334,7 @@
     width: 28px;
     height: 28px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--pawbar-radius-xs);
     background: none;
     color: var(--pawbar-fg-muted);
     cursor: pointer;
@@ -1237,7 +1353,7 @@
     flex-direction: column;
     min-width: 190px;
     padding: 5px;
-    border-radius: 12px;
+    border-radius: var(--pawbar-radius-sm);
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-surface-strong);
     -webkit-backdrop-filter: blur(var(--pawbar-blur)) saturate(1.5);
@@ -1250,7 +1366,7 @@
     gap: 9px;
     padding: 8px 9px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--pawbar-radius-xs);
     background: none;
     color: var(--pawbar-fg);
     font: inherit;
@@ -1273,7 +1389,7 @@
     align-self: flex-start;
     max-width: min(88%, 420px);
     padding: 12px 14px;
-    border-radius: 16px;
+    border-radius: var(--pawbar-radius-md);
     border-bottom-left-radius: 6px;
     border: 1px solid var(--pawbar-border);
     background: var(--pawbar-assistant-bubble);
@@ -1310,7 +1426,7 @@
     flex: 1;
     min-width: 0;
     padding: 7px 12px;
-    border-radius: 999px;
+    border-radius: var(--pawbar-radius-pill);
     border: 1px solid var(--pawbar-border);
     background: color-mix(in oklab, var(--pawbar-fg) 4%, transparent);
     color: var(--pawbar-fg);
@@ -1331,7 +1447,7 @@
     flex: none;
     padding: 7px 13px;
     border: none;
-    border-radius: 999px;
+    border-radius: var(--pawbar-radius-pill);
     background: var(--pawbar-accent);
     color: var(--pawbar-accent-fg);
     font: inherit;

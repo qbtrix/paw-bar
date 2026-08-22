@@ -164,7 +164,7 @@
     min-width: 0;
     max-width: 100%;
     padding: 3px;
-    border-radius: 14px;
+    border-radius: var(--pawbar-radius-md);
     background: var(--pawbar-nav-track);
     border: 1px solid var(--pawbar-border);
     overflow-x: auto;
@@ -182,7 +182,7 @@
     flex: none;
     padding: 6px 11px;
     border: 1px solid transparent;
-    border-radius: 11px;
+    border-radius: var(--pawbar-radius-sm);
     background: transparent;
     color: var(--pawbar-nav-fg);
     font: inherit;
@@ -241,7 +241,7 @@
     min-width: 15px;
     height: 15px;
     padding: 0 4px;
-    border-radius: 8px;
+    border-radius: var(--pawbar-radius-xs);
     font-size: 9.5px;
     font-weight: 700;
     line-height: 15px;

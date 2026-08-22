@@ -179,7 +179,7 @@
     margin: 0;
     max-width: min(92%, 420px);
     padding: 5px 12px;
-    border-radius: 999px;
+    border-radius: var(--pawbar-radius-pill);
     border: 1px solid var(--pawbar-border);
     background: color-mix(in oklab, var(--pawbar-fg) 4%, transparent);
     color: var(--pawbar-fg-muted);
@@ -218,7 +218,7 @@
     /* A generous radius against a tight tail corner. The asymmetry is what
        says which side a turn came from at a glance, which matters more than
        the fill colour for anyone who cannot separate the two. */
-    border-radius: 18px;
+    border-radius: var(--pawbar-radius-bubble);
   }
   .row.user .bubble {
     background: var(--pawbar-user-bubble);
@@ -283,7 +283,7 @@
     border: none;
     cursor: pointer;
     padding: 2px 7px;
-    border-radius: 7px;
+    border-radius: var(--pawbar-radius-2xs);
   }
   .sources-toggle svg {
     transition: transform 0.15s ease;
@@ -308,7 +308,7 @@
     align-items: center;
     max-width: 100%;
     padding: 4px 10px;
-    border-radius: 999px;
+    border-radius: var(--pawbar-radius-pill);
     border: 1px solid var(--pawbar-border);
     background: color-mix(in oklab, var(--pawbar-fg) 5%, transparent);
     color: var(--pawbar-fg-muted);
@@ -335,7 +335,7 @@
     border: none;
     cursor: pointer;
     padding: 2px 7px;
-    border-radius: 7px;
+    border-radius: var(--pawbar-radius-2xs);
   }
   .actions button:hover {
     color: var(--pawbar-fg);

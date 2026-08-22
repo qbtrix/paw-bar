@@ -55,17 +55,25 @@
      Translucent because we sit in an iframe over an unknown host bg; the blur
      is applied on the panel element, not here. The alpha floor is high enough
      that a light host page reads as frosted glass rather than washing the
-     surface out to a flat grey slab. */
-  --pawbar-surface: oklch(0.165 0.014 264 / 0.86);
-  --pawbar-surface-strong: oklch(0.2 0.018 264 / 0.94);
+     surface out to a flat grey slab.
+
+     Retuned 2026-08-22: the ground went one step deeper and gained chroma
+     (0.014 → 0.022), and the raised step opened up. The old scale was four
+     greys a third of a step apart with barely any hue in them, so the glass
+     read as smoked plastic and a card sitting ON the panel was almost exactly
+     the panel. More separation between the steps is what makes the surfaces
+     legible as surfaces; more chroma is what makes the material read as
+     tinted glass rather than grey. */
+  --pawbar-surface: oklch(0.155 0.022 265 / 0.86);
+  --pawbar-surface-strong: oklch(0.195 0.026 265 / 0.95);
   /* One step up, for elements that sit ON the panel and must read as raised
      without a border: the home cards, the active nav pill, a hovered row. */
-  --pawbar-surface-raised: oklch(0.255 0.02 264 / 0.92);
+  --pawbar-surface-raised: oklch(0.245 0.026 265 / 0.93);
   /* One step DOWN — a recessed well. The nav track and the composer field are
      the two places the surface should read as carved into the panel rather
      than resting on it, which is what separates a segmented control from a row
      of buttons. */
-  --pawbar-surface-sunken: oklch(0.12 0.012 264 / 0.55);
+  --pawbar-surface-sunken: oklch(0.105 0.018 265 / 0.55);
 
   /* ── Text ───────────────────────────────────────────────────────────────── */
   --pawbar-fg: color-mix(in oklab, var(--pawbar-ink) 93%, transparent);
@@ -79,28 +87,59 @@
      Hover grounds and hairline fills. These are tokens because the components
      used to spell them as literal white, which goes invisible the moment an
      owner sets a light surface — the single largest reason the override path
-     did not work. */
-  --pawbar-wash: color-mix(in oklab, var(--pawbar-ink) 5%, transparent);
-  --pawbar-wash-strong: color-mix(in oklab, var(--pawbar-ink) 8%, transparent);
+     did not work.
 
-  /* ── Lines + focus ──────────────────────────────────────────────────────── */
-  --pawbar-border: color-mix(in oklab, var(--pawbar-ink) 11%, transparent);
+     The STRENGTH is its own token so the owner gets a "how present are the
+     surfaces" dial without being handed a colour picker for a value that must
+     stay a mix of ink — a literal here is the white-on-white bug returning by
+     the front door. The percentage is the input; the colour stays derived. */
+  --pawbar-wash-strength: 5%;
+  --pawbar-wash: color-mix(in oklab, var(--pawbar-ink) var(--pawbar-wash-strength), transparent);
+  --pawbar-wash-strong: color-mix(
+    in oklab,
+    var(--pawbar-ink) calc(var(--pawbar-wash-strength) * 1.6),
+    transparent
+  );
+
+  /* ── Lines + focus ──────────────────────────────────────────────────────
+     Same shape as the washes: one ownable strength, both lines derived from
+     it. An owner who wants a borderless widget sets 0 and gets one, instead of
+     hunting eleven component rules. */
+  --pawbar-line-strength: 11%;
+  --pawbar-border: color-mix(in oklab, var(--pawbar-ink) var(--pawbar-line-strength), transparent);
   /* A touch brighter, for an edge that has to survive sitting on a raised
      surface rather than on the panel ground. */
-  --pawbar-border-strong: color-mix(in oklab, var(--pawbar-ink) 17%, transparent);
-  --pawbar-ring: oklch(0.62 0.19 258 / 0.55);
+  --pawbar-border-strong: color-mix(
+    in oklab,
+    var(--pawbar-ink) calc(var(--pawbar-line-strength) * 1.55),
+    transparent
+  );
+  /* Derived from the accent, because a focus ring is the accent doing its job.
+     It was an independent literal of the same blue, which meant an owner who
+     re-skinned the accent kept a stock-blue ring on every focused control. */
+  --pawbar-ring: color-mix(in oklab, var(--pawbar-accent) 72%, transparent);
 
   /* ── Accent — quiet authority blue (no green, per the billing/brand palette) */
-  --pawbar-accent: oklch(0.62 0.19 258);
+  --pawbar-accent: oklch(0.645 0.2 262);
   --pawbar-accent-fg: oklch(0.99 0 0);
 
   /* ── Bubbles ─────────────────────────────────────────────────────────────
      The owner (a human from the site's team) is a THIRD speaker, so it gets its
      own accent-tinted surface: not the visitor's solid accent, not the bot's
-     neutral. */
-  --pawbar-user-bubble: oklch(0.62 0.19 258 / 0.95);
+     neutral.
+
+     ALL THREE NOW DERIVE. Until 2026-08-22 these were three literals that
+     merely happened to spell the same blue as --pawbar-accent, and the backend
+     emits an accent override and nothing else. So an owner who set their brand
+     colour to orange got an orange send button and an orange glow dot sitting
+     above a transcript of BLUE bubbles with a BLUE focus ring — the single
+     most visible way the white-label path looked broken while the token map it
+     sent was entirely correct. Deriving them means one setting re-skins the
+     conversation, which is what picking a brand colour was always supposed to
+     mean. An owner who wants them apart can still override each by name. */
+  --pawbar-user-bubble: var(--pawbar-accent);
   --pawbar-assistant-bubble: color-mix(in oklab, var(--pawbar-ink) 6%, transparent);
-  --pawbar-owner-bubble: oklch(0.62 0.19 258 / 0.16);
+  --pawbar-owner-bubble: color-mix(in oklab, var(--pawbar-accent) 18%, transparent);
 
   /* ── Danger + the unread signal ──────────────────────────────────────────
      Notification counts are their own token: they must stay legible when an
@@ -115,8 +154,11 @@
      image replaces it via --pawbar-hero-image. Its foreground is deliberately
      NOT derived from ink: the hero is a coloured field or a photograph in both
      themes, so its type stays light whichever way round the rest goes. */
-  --pawbar-hero-from: oklch(0.46 0.14 262);
-  --pawbar-hero-to: oklch(0.19 0.03 262);
+  /* Derived from the accent for the same reason the bubbles now are: a hero
+     that stayed stock blue under an owner's own brand colour was the widget
+     contradicting itself in its largest single field of colour. */
+  --pawbar-hero-from: color-mix(in oklab, var(--pawbar-accent) 78%, oklch(0.2 0.03 265));
+  --pawbar-hero-to: color-mix(in oklab, var(--pawbar-accent) 12%, oklch(0.17 0.025 265));
   --pawbar-hero-fg: oklch(0.99 0 0 / 0.96);
   --pawbar-hero-fg-quiet: oklch(1 0 0 / 0.62);
   --pawbar-hero-height: 168px;
@@ -140,9 +182,56 @@
      gutter that makes an exchange read as an exchange. */
   --pawbar-read-col: 760px;
 
-  /* ── Shape + type ───────────────────────────────────────────────────────── */
+  /* ── Shape ──────────────────────────────────────────────────────────────
+     ONE owner input, a whole widget's worth of corners. --pawbar-radius used
+     to be exactly that — one input — and it reached seven declarations out of
+     roughly sixty: the panel, four cards and a couple of list rows. Every
+     other corner in the widget was a hard-coded literal (26px, 18px, 14px,
+     12px, 11px, 10px, 9px, 8px, 7px, 6px), so an owner who dragged the radius
+     slider to 0 got a sharp panel full of rounded cards, rounded rows, rounded
+     buttons and rounded bubbles. The setting was real and it did almost
+     nothing, which is worse than not offering it.
+
+     So the steps below are DERIVED, and every literal in every component is
+     replaced by the step it was nearest to. The multipliers are chosen to
+     reproduce today's look exactly at the 20px default (0.7 → 14, 0.6 → 12,
+     0.4 → 8, 0.3 → 6), so this is a no-op for a widget nobody has re-shaped
+     and a real one for a widget somebody has. At 0 the whole surface goes
+     square together; at 32 it goes soft together.
+
+     TWO things deliberately do NOT follow it:
+
+     --pawbar-radius-pill is the shape of a thing whose corners are not a style
+     choice — a count badge, an avatar ring, a scrollbar thumb. Squaring those
+     at radius 0 turns a notification dot into a notification square.
+
+     --pawbar-radius-input is the composer and the docked bar it lives in. It
+     FOLLOWS the slider like everything else — "the radius only affects
+     everything except the main input bar" was the captain reporting the bug,
+     not asking for the exception, and an input still rounded while the panel
+     around it went square is the most visible way the setting looks broken.
+
+     It gets its own step rather than using --pawbar-radius directly because the
+     input is a ~46px-tall bar and reads differently from a card: 1.3 reproduces
+     the hard-coded 26px it has always had at the 20px default, reaches 0 with
+     everything else at 0, and passes the half-height mark (23px) around radius
+     18 — so most of the slider's upper range is a true pill and the bottom is
+     genuinely square. An owner who wants the input to disagree with the rest of
+     the widget can still override this one token by name. */
   --pawbar-radius: 20px;
-  --pawbar-radius-sm: 12px;
+  --pawbar-radius-lg: var(--pawbar-radius);
+  --pawbar-radius-md: calc(var(--pawbar-radius) * 0.7);
+  --pawbar-radius-sm: calc(var(--pawbar-radius) * 0.6);
+  --pawbar-radius-xs: calc(var(--pawbar-radius) * 0.4);
+  /* The message bubble gets its own step because it is the shape the visitor
+     sees most — every turn of the conversation is one — and at 0.7 it read as
+     a card rather than as speech. */
+  --pawbar-radius-bubble: calc(var(--pawbar-radius) * 0.9);
+  --pawbar-radius-2xs: calc(var(--pawbar-radius) * 0.3);
+  --pawbar-radius-pill: 999px;
+  --pawbar-radius-input: calc(var(--pawbar-radius) * 1.3);
+
+  /* ── Type + material ────────────────────────────────────────────────────── */
   --pawbar-blur: 28px;
   --pawbar-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 

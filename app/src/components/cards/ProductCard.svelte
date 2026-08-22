@@ -126,7 +126,7 @@
     gap: 12px;
     padding: 10px;
     border: 1px solid var(--pawbar-border);
-    border-radius: 14px;
+    border-radius: var(--pawbar-radius-md);
     background: var(--pawbar-assistant-bubble);
   }
   .thumb {
@@ -134,7 +134,7 @@
     width: 64px;
     height: 64px;
     object-fit: cover;
-    border-radius: 10px;
+    border-radius: var(--pawbar-radius-xs);
     background: color-mix(in oklab, var(--pawbar-fg) 8%, transparent);
   }
   .body {
@@ -178,7 +178,7 @@
     font-size: 12.5px;
     font-weight: 500;
     padding: 6px 12px;
-    border-radius: 9px;
+    border-radius: var(--pawbar-radius-xs);
     border: 1px solid var(--pawbar-border);
     background: none;
     color: var(--pawbar-fg);

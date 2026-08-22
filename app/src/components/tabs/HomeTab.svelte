@@ -316,7 +316,7 @@
   .starter {
     padding: 7px 12px;
     border: 1px solid var(--pawbar-border);
-    border-radius: 999px;
+    border-radius: var(--pawbar-radius-pill);
     background: transparent;
     color: var(--pawbar-fg-muted);
     font: inherit;

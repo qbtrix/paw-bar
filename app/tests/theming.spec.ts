@@ -53,10 +53,23 @@ const files: Source[] = Object.entries(SOURCES).map(([path, text]) => ({
 
 const tokens = (): string => files.find((f) => f.rel === 'styles/tokens.css')!.text;
 
-const declaration = (name: string): string | undefined =>
-  tokens()
-    .split('\n')
-    .find((line) => line.trim().startsWith(`${name}:`));
+/** A whole declaration — `--name:` through its `;` — newlines and all.
+ *
+ *  Line-based until 2026-08-22, which made this guard sensitive to FORMATTING
+ *  rather than to the rule it is guarding. A declaration long enough to wrap
+ *  (--pawbar-wash-strong and --pawbar-border-strong both now carry a nested
+ *  calc()) read as `color-mix(` with the ink on the following line, and the
+ *  check failed on a value that satisfies it perfectly. The inverse is why
+ *  this got fixed rather than the CSS reflowed: a wrapped declaration whose
+ *  value was a literal white would have been just as invisible to a line
+ *  reader, so this now catches a case it used to miss. */
+const declaration = (name: string): string | undefined => {
+  const css = tokens();
+  const at = css.indexOf(`${name}:`);
+  if (at === -1) return undefined;
+  const stop = css.indexOf(';', at);
+  return css.slice(at, stop === -1 ? undefined : stop + 1);
+};
 
 describe('white-label scale', () => {
   it('found the sources it is meant to be checking', () => {

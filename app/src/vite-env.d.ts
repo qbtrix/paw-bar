@@ -42,6 +42,9 @@ interface PawBarBootConfig {
   avatars?: string[];
   /** The resting pill's copy, e.g. "Ask about Ocean Supply". */
   launcherLabel?: string;
+  /** How the docked bar rests: 'full' (always its whole width) or 'compact'
+   *  (a narrow pill that widens on hover/focus). Absent → 'compact'. */
+  barResting?: 'full' | 'compact';
 }
 
 interface Window {

@@ -120,7 +120,7 @@
     height: 28px;
     padding: 0 10px;
     border: 1px solid var(--pawbar-border);
-    border-radius: 999px;
+    border-radius: var(--pawbar-radius-pill);
     background: none;
     color: var(--pawbar-fg);
     font: inherit;
@@ -143,7 +143,7 @@
     width: 240px;
     padding: 10px;
     border: 1px solid var(--pawbar-border);
-    border-radius: 12px;
+    border-radius: var(--pawbar-radius-sm);
     background: var(--pawbar-surface-strong);
     -webkit-backdrop-filter: blur(var(--pawbar-blur));
     backdrop-filter: blur(var(--pawbar-blur));
@@ -195,7 +195,7 @@
     margin-top: 4px;
     padding: 9px;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--pawbar-radius-xs);
     background: var(--pawbar-accent);
     color: var(--pawbar-accent-fg);
     font: inherit;

@@ -38,6 +38,7 @@
     variant = 'panel',
     onSend,
     onStop,
+    ondraft,
   }: {
     isStreaming?: boolean;
     placeholder?: string;
@@ -47,11 +48,25 @@
     variant?: 'panel' | 'bare';
     onSend: (text: string) => void;
     onStop: () => void;
+    /** Fires when the field goes from empty to holding something, and back.
+     *
+     *  The docked bar needs it (2026-08-22): a compact bar collapses when the
+     *  pointer leaves, and collapsing out from under someone who is halfway
+     *  through a sentence would be the worst moment to do it. Deliberately a
+     *  BOOLEAN and not the text — the shell has no business seeing what a
+     *  visitor is typing, and a draft that has not been sent should not exist
+     *  anywhere but in this field. */
+    ondraft?: (hasDraft: boolean) => void;
   } = $props();
 
   let value = $state('');
   let el: HTMLTextAreaElement | null = $state(null);
-  const canSend = $derived(value.trim().length > 0 && !isStreaming);
+  const hasDraft = $derived(value.trim().length > 0);
+  const canSend = $derived(hasDraft && !isStreaming);
+
+  $effect(() => {
+    ondraft?.(hasDraft);
+  });
 
   export function focus() {
     el?.focus();
@@ -141,7 +156,7 @@
     gap: 8px;
     padding: 8px 8px 8px 6px;
     border: 1px solid var(--pawbar-border);
-    border-radius: 24px;
+    border-radius: var(--pawbar-radius-input);
     background: var(--pawbar-surface-sunken);
   }
   .composer:focus-within {
