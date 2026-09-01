@@ -168,12 +168,15 @@ test('open docks a COLUMN, not a viewport overlay — the host page keeps its cl
   // ever restores goFullscreen() here, this is the test that says why not.
   assert.notEqual(iframe.style.width, '100vw');
   assert.notEqual(iframe.style.height, '100vh');
-  // jsdom viewport is 1024x768: PANEL_W 400 → left (1024-400)/2 = 312,
-  // height min(PANEL_MAX_H 720, 768-24) = 720 → top 768-720 = 48.
-  assert.equal(iframe.style.width, '400px');
-  assert.equal(iframe.style.height, '720px');
-  assert.equal(iframe.style.left, '312px');
-  assert.equal(iframe.style.top, '48px');
+  // jsdom viewport is 1024x768: PANEL_W 520 → left (1024-520)/2 = 252.
+  // PANEL_MAX_H 840 is over this viewport, so the height clamps to
+  // 768-24 = 744 → top 768-744 = 24. That clamp is why PANEL_MIN_VH was not
+  // raised alongside the height: a short viewport shortens the column instead
+  // of tipping it into a full-screen sheet.
+  assert.equal(iframe.style.width, '520px');
+  assert.equal(iframe.style.height, '744px');
+  assert.equal(iframe.style.left, '252px');
+  assert.equal(iframe.style.top, '24px');
 
   window.dispatchEvent(
     messageEvent(window, { data: { type: 'pawbar:close' }, origin: FRAME_ORIGIN, source: iframe.contentWindow }),
@@ -192,8 +195,8 @@ test('the open panel ignores resize reports — a streaming reply cannot resize 
   window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 437, w: 300 }));
   // Both panel dimensions are loader policy. If the box tracked content, every
   // token of a streamed answer would resize the iframe under the visitor.
-  assert.equal(iframe.style.height, '720px');
-  assert.equal(iframe.style.width, '400px');
+  assert.equal(iframe.style.height, '744px');
+  assert.equal(iframe.style.width, '520px');
   // After close, content reports size the docked box again.
   window.dispatchEvent(fromFrame({ type: 'pawbar:close' }));
   window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 72 }));
@@ -223,8 +226,8 @@ test('expand is opt-in and reversible: full-viewport, then back to the column', 
   window.dispatchEvent(fromFrame({ type: 'pawbar:expand', on: true }));
   assert.equal(iframe.style.width, '100vw');
   window.dispatchEvent(fromFrame({ type: 'pawbar:expand', on: false }));
-  assert.equal(iframe.style.width, '400px');
-  assert.equal(iframe.style.height, '720px');
+  assert.equal(iframe.style.width, '520px');
+  assert.equal(iframe.style.height, '744px');
 });
 
 test('the docked bar is centered at the bottom, and its width is POLICY, not a report', () => {
@@ -376,8 +379,8 @@ test('window.PawBar.open() docks the same column the message path does', () => {
   // widget. This used to call goFullscreen() while the message path docked a
   // column, so which door the visitor came through decided whether the frame
   // covered the page — and only one of the two was ever looked at.
-  assert.equal(iframe.style.width, '400px');
-  assert.equal(iframe.style.height, '720px');
+  assert.equal(iframe.style.width, '520px');
+  assert.equal(iframe.style.height, '744px');
   assert.notEqual(iframe.style.width, '100vw');
 });
 
@@ -742,4 +745,110 @@ test('a bar that never declares itself compact is unchanged', () => {
   // served before this shipped sends: nothing at all.
   fromFrame(window, iframe, { type: 'pawbar:bar', compact: false, expanded: false });
   assert.equal(iframe.style.width, before);
+});
+
+// --------------------------------------------------------------------------- #
+// The blurred host-page scrim (2026-09-01)
+//
+// The open messenger is meant to replace the browsing rather than sit beside it,
+// so the page behind it is blurred and dimmed. The tests below exist to keep the
+// IMPLEMENTATION honest, not just the effect: the obvious way to paint a backdrop
+// is to make the iframe full-viewport and draw it inside, and that is exactly the
+// modal the August work removed. A host-document div blurs the page AND hands the
+// dismissing click back; a full-viewport frame can do neither.
+// --------------------------------------------------------------------------- #
+
+/** The scrim is the loader's only non-iframe node in the host document. */
+function scrimOf(window) {
+  return window.document.querySelector('div[aria-hidden="true"]');
+}
+
+test('opening the messenger blurs the host page — with a div, not a bigger iframe', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  assert.equal(scrimOf(window), null, 'nothing is added to the page until it is opened');
+
+  fromFrame(window, iframe, { type: 'pawbar:open' });
+
+  const scrim = scrimOf(window);
+  assert.ok(scrim, 'the host page gets a scrim');
+  assert.equal(scrim.style.opacity, '1');
+  // THE point of this test. If someone paints the backdrop by growing the frame
+  // instead, the column stops being a column and every click on the page is
+  // swallowed by an iframe that cannot hand it back.
+  onlyIframe(window);
+  assert.equal(iframe.style.width, '520px', 'the frame is still the column');
+  // Under the frame, over the page. Getting this backwards blurs the messenger.
+  assert.ok(Number(scrim.style.zIndex) < Number(iframe.style.zIndex));
+  // A dim always paints, even where backdrop-filter does not.
+  assert.match(scrim.style.backgroundColor, /rgba\(/);
+});
+
+test('closing the messenger releases the page — and stops eating its clicks', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  fromFrame(window, iframe, { type: 'pawbar:open' });
+  assert.equal(scrimOf(window).style.pointerEvents, 'auto');
+
+  fromFrame(window, iframe, { type: 'pawbar:close' });
+
+  const scrim = scrimOf(window);
+  assert.equal(scrim.style.opacity, '0');
+  // Left interactive through the fade-out, the scrim would eat the visitor's
+  // first click back onto the site — the click they just asked for by closing.
+  assert.equal(scrim.style.pointerEvents, 'none');
+});
+
+test('pressing the blurred page closes the messenger', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const posts = [];
+  Object.defineProperty(iframe.contentWindow, 'postMessage', {
+    value: (data, targetOrigin) => posts.push({ data, targetOrigin }),
+    configurable: true,
+  });
+  fromFrame(window, iframe, { type: 'pawbar:open' });
+
+  scrimOf(window).dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+
+  // Back to the resting bar, and the app is TOLD rather than left believing it
+  // is still open — it owns the panel's own state.
+  assert.equal(iframe.style.width, '384px');
+  assert.ok(
+    posts.some((p) => p.data.type === 'pawbar:host-close'),
+    'the frame is told the visitor closed it',
+  );
+  assert.ok(
+    posts.every((p) => p.targetOrigin === FRAME_ORIGIN),
+    'never broadcast to "*"',
+  );
+});
+
+test('pressing the page with an in-frame menu open dismisses the MENU, not the messenger', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  fromFrame(window, iframe, { type: 'pawbar:open' });
+  // A quick menu / cart popover is showing inside the frame.
+  fromFrame(window, iframe, { type: 'pawbar:overlay', on: true });
+
+  scrimOf(window).dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+
+  // The capture listener has already told the frame to dismiss the menu. Taking
+  // the whole conversation away on the same press would punish the visitor for
+  // trying to get back to it.
+  assert.equal(iframe.style.width, '520px', 'the messenger is still open');
+});
+
+test('a frame that declines to render takes the scrim with it', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  fromFrame(window, iframe, { type: 'pawbar:open' });
+  assert.ok(scrimOf(window));
+
+  fromFrame(window, iframe, { type: 'pawbar:dead' });
+
+  // A dead frame can never post pawbar:close, so a scrim left behind would blur
+  // and swallow the entire page with nothing on top of it to dismiss it.
+  assert.equal(scrimOf(window), null);
+  assert.equal(window.document.querySelectorAll('iframe').length, 0);
 });

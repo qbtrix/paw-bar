@@ -24,7 +24,32 @@ import { gzipSync } from 'node:zlib';
 // 2.5KB gzipped is still a rounding error against any page this embeds in, and
 // the ceiling still exists — it is a ceiling, not a target. If a change wants
 // the next 512 bytes, it should have to argue for them the same way.
-const BUDGET_BYTES = 2560;
+//
+// RAISED 2026-09-01, 2560 -> 3072, for the blurred host-page scrim. Arguing for
+// it the way the note above asks:
+//
+// Same reasoning as the colour-scheme raise, and it is not a coincidence — both
+// features exist because the loader is the ONLY code we run in the customer's
+// document. A cross-origin frame cannot blur the page around it, cannot dim it,
+// and cannot take a click on it. Painting the backdrop from inside the frame
+// means making the frame full-viewport, which is precisely the modal the
+// 2026-08-19 work removed: `pointer-events` inside a frame cannot hand a click
+// back to the document underneath, so that version swallows every click on the
+// page. The host-document div is not the cheap way to do this; it is the only
+// way that leaves the site usable.
+//
+// The scrim costs 324 gzipped bytes and put the file at 2,773. What was measured
+// and rejected:
+//   * CSS.supports() -> style-property detection: saved 25 bytes, kept.
+//   * dropping the no-blur fallback dim: saves 21 bytes and makes the scrim
+//     INVISIBLE wherever backdrop-filter is unsupported or switched off, which
+//     leaves a 520px column floating over sharp live content. 21 bytes is not
+//     worth a feature that silently does nothing on some browsers.
+// Nothing else in it is optional: the element, its one listener, the open/close
+// toggle and the teardown are the feature.
+//
+// Still a ceiling. The next change to want 512 bytes argues for them here too.
+const BUDGET_BYTES = 3072;
 
 const path = new URL('../dist/loader.js', import.meta.url);
 const raw = readFileSync(path);

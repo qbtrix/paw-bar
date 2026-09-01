@@ -27,6 +27,17 @@
 // the same visual spot; a sub-DRAG_MIN_PX "drag" is a click on the grip and
 // adopts nothing (else the default-centered dock gets silently pinned).
 //
+// 2026-09-01 THE OPEN MESSENGER REPLACES THE BROWSING (captain direction). Two
+// changes that are really one product decision: the docked column grew from
+// 400x720 to 520x840 (PANEL_W / PANEL_MAX_H), and the host page behind it is now
+// blurred and dimmed by a SCRIM this loader paints — a plain div in the host
+// document, under the frame, that also takes the click that dismisses the panel.
+// It is a host-document element rather than a full-viewport iframe on purpose:
+// see the SCRIM_* block for why the obvious implementation is the modal the
+// 2026-08-19 work removed. This deliberately reverses "the host page stays
+// usable while the bar is open" — an open bar is now the foreground, and one
+// click on the page puts it back.
+//
 // SECURITY: inbound messages are honoured ONLY when event.origin === the frame
 // origin AND event.source === the iframe's own contentWindow. Every outbound
 // post pins targetOrigin to the frame origin — never "*". Idempotent; exposes
@@ -90,13 +101,58 @@ const VIEWPORT_MARGIN = 24; // keep the dock off the very edge on small screens
 // report their own. The app cannot know the host viewport from inside a 96px
 // bar at the moment it opens, and a height that tracked content would resize
 // the iframe on every streamed token.
-const PANEL_W = 400;
-const PANEL_MAX_H = 720;
+//
+// WIDENED 2026-09-01 (captain direction). 400x720 was sized as a chat column
+// beside a page the visitor was still reading. The product it has to carry now
+// is the opposite: an open bar is meant to REPLACE the browsing, so the answer
+// — not the page behind it — is the thing being read. A 400px column wraps a
+// code block or a product card into a ribbon and puts every table into a
+// horizontal scroller. 520 holds ~72 characters of prose at the app's body
+// size, which is a reading measure rather than a chat gutter.
+const PANEL_W = 520;
+const PANEL_MAX_H = 840;
 // Under this there is no room for a column beside the page, so the messenger
 // takes the screen. That is the ordinary mobile sheet — the one place where
 // covering the page is right, because there is no "beside" on a phone.
-const PANEL_MIN_VW = 460;
+//
+// VW tracks PANEL_W and must stay ahead of it: at exactly PANEL_W the "column"
+// is the whole viewport with no page either side of it, which is a sheet
+// wearing a column's rounded corners. 600 leaves 40px of page on each flank at
+// the threshold. VH is deliberately NOT raised to match PANEL_MAX_H — the
+// height already clamps to the viewport in dockBox(), so a short laptop gets a
+// shorter column rather than a full-screen takeover it never asked for.
+const PANEL_MIN_VW = 600;
 const PANEL_MIN_VH = 620;
+
+// ── The host page behind an open messenger (2026-09-01) ───────────────────────
+// A blurred, dimmed scrim painted on the HOST page, under the frame.
+//
+// This deliberately reverses the 2026-08-19 decision that the host page stays
+// usable while the bar is open, and the reversal is a product call rather than
+// a regression: an open bar is now meant to replace the browsing, so the page
+// behind it should read as set aside rather than as something still being used.
+// The scrim is what makes a 520px column read as the foreground instead of a
+// widget parked over live content.
+//
+// IT IS A HOST-DOCUMENT ELEMENT, NOT A BIGGER IFRAME, and that distinction is
+// the whole reason this is safe. Making the frame full-viewport to paint a
+// backdrop is what the August work removed: `pointer-events` inside a frame
+// cannot hand a click back to the document underneath, so a full-viewport frame
+// swallows every click on the page whether or not it paints anything. A plain
+// div in the host document blurs the page, takes the click itself, and closes
+// the panel with it — one click back to the page rather than none.
+//
+// Blur AND dim, not blur alone: `backdrop-filter` is unsupported often enough
+// (and disabled by some privacy settings) that a scrim relying on it alone
+// would be invisible on those pages, leaving the column floating over sharp
+// live content. The rgba dim is the floor that always paints; the blur is the
+// enhancement on top of it.
+const SCRIM_BLUR_PX = 10;
+const SCRIM_DIM = 'rgba(9,11,15,0.42)';
+// The dim carries the whole effect where the blur cannot paint, so it has to be
+// heavier there — the same 0.42 over an unblurred page reads as a faint tint
+// rather than a page that has been set aside.
+const SCRIM_DIM_NO_BLUR = 'rgba(9,11,15,0.58)';
 
 // The box GROWS into the open column instead of snapping to it. This has to
 // live in the loader because the loader owns the iframe rect: the app can only
@@ -317,7 +373,84 @@ function suppressed(win: LoaderWindow): boolean {
     iframe.style.height = h;
   }
 
+  // The scrim is created on FIRST OPEN, never at boot. The loader runs on
+  // someone else's page and should add exactly one node to it until the visitor
+  // actually asks for something; a permanently parked full-viewport div — even
+  // an invisible one — is a thing host pages trip over (their own outside-click
+  // handlers, their screenshot tooling, their DOM diffing).
+  let scrim: HTMLDivElement | null = null;
+  let scrimOn = false;
+
+  function ensureScrim(): HTMLDivElement {
+    if (scrim) return scrim;
+    const el = doc.createElement('div');
+    // Inert to assistive tech: it is a visual treatment of the page behind the
+    // messenger, not content, and the messenger itself is the thing to read.
+    el.setAttribute('aria-hidden', 'true');
+    // Does this browser actually PAINT a backdrop-filter? Property-presence on
+    // the style object rather than CSS.supports(): it asks the same question in
+    // a fraction of the bytes, and this file has a gzip budget. The answer
+    // matters because the dim has to carry the whole effect where the blur
+    // cannot paint — see SCRIM_DIM_NO_BLUR.
+    const bs = el.style as CSSStyleDeclaration & { webkitBackdropFilter?: string };
+    const blur = 'backdropFilter' in bs || 'webkitBackdropFilter' in bs;
+    el.style.cssText =
+      'position:fixed;left:0;top:0;width:100%;height:100%;border:0;margin:0;' +
+      // One below the frame's 2147483647. The frame must stay on top of the
+      // scrim it sits in front of, and both on top of the page.
+      'padding:0;z-index:2147483646;opacity:0;pointer-events:none;' +
+      'background-color:' +
+      (blur ? SCRIM_DIM : SCRIM_DIM_NO_BLUR);
+    if (blur) bs.webkitBackdropFilter = bs.backdropFilter = `blur(${SCRIM_BLUR_PX}px)`;
+    // Pointerdown rather than click: a click only lands after the pointer goes
+    // back UP on the same element, so a visitor who presses on the scrim and
+    // drifts a few pixels gets nothing. This is a dismissal, and dismissals
+    // should answer the press.
+    el.addEventListener('pointerdown', (ev: Event): void => {
+      // An in-frame menu is showing, and the capture listener below has already
+      // told the frame to dismiss it. Closing the whole panel on the same press
+      // would take away the conversation the visitor was only trying to get
+      // back to.
+      if (overlayOpen) return;
+      ev.preventDefault();
+      view = dockView;
+      overlay = false;
+      expanded = false;
+      applyDock('box');
+      postToFrame({ type: 'pawbar:host-close' });
+    });
+    (doc.body || doc.documentElement).appendChild(el);
+    scrim = el;
+    return el;
+  }
+
+  /** Show or hide the scrim. Idempotent — applyDock() runs on every window
+   *  resize, and re-writing `opacity` to the value it already holds would
+   *  restart the fade under a visitor who is only resizing their window. */
+  function setScrim(on: boolean): void {
+    if (on === scrimOn) return;
+    scrimOn = on;
+    // Nothing to hide if it was never built — the common case, since most
+    // visitors never open the bar at all.
+    if (!on && !scrim) return;
+    const el = ensureScrim();
+    el.style.transition = reduced() ? 'none' : `opacity ${BOX_MS}ms ${BOX_EASE}`;
+    // The frame is growing from a pill into a column over the same BOX_MS with
+    // the same curve, so the page recedes exactly as the messenger arrives.
+    el.style.opacity = on ? '1' : '0';
+    // Only ever a click target while it is actually covering the page. Left on
+    // through the fade-out it would eat the visitor's first click back onto the
+    // site, which is the click they just asked for by dismissing us.
+    el.style.pointerEvents = on ? 'auto' : 'none';
+  }
+
   function applyDock(motion: Motion = 'none'): void {
+    // The page behind us is dimmed for exactly as long as the messenger is
+    // open. Here rather than in the message handler because this is the ONE
+    // function every state change routes through — an open, a close, a
+    // programmatic PawBar.open(), and a window resize that re-decides whether
+    // the column has become a sheet.
+    setScrim(view === 'panel');
     // Expanded on request, or a viewport with no room for a column beside the
     // page. Checked here so a window resize re-decides on every reflow.
     if (expanded || panelIsSheet()) {
@@ -470,6 +603,14 @@ function suppressed(win: LoaderWindow): boolean {
         // dock sliver shouldn't linger over the page.
         watchHostPointer(false);
         iframe.remove();
+        // Take the scrim with it. A frame that has declined to render can never
+        // post `pawbar:close`, so a scrim left behind would blur and swallow
+        // the whole page with nothing on top of it to dismiss it.
+        if (scrim) {
+          scrim.remove();
+          scrim = null;
+          scrimOn = false;
+        }
         break;
       case 'pawbar:open':
         // Not goFullscreen() any more. The open messenger is a docked column,
