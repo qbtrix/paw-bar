@@ -323,7 +323,7 @@
   }
 
   /** The big reading surface. A long answer with cards is genuinely cramped in
-   *  a 400px column, so the expand control exists — but it is opt-in and
+   *  a 520px column, so the expand control exists — but it is opt-in and
    *  reversible, which is the difference between it and opening as a modal. */
   function toggleExpand() {
     expanded = !expanded;
@@ -1138,7 +1138,7 @@
      transcript above it. Without this the composer stretched the full 1256px
      of an expanded viewport: a caret at the far left, a send button a foot
      away, and no relationship to the answer it sits under. Docked, and in the
-     400px column, the cap is never reached and this changes nothing. */
+     520px column, the cap is never reached and this changes nothing. */
   .pawbar-root[data-pawbar-view='panel'] .bar {
     width: 100%;
     max-width: var(--pawbar-read-col);
@@ -1519,7 +1519,7 @@
     }
   }
   /* Genuinely about the box, not the device: the inline contact prompt is
-     capped at 88% of a panel that is only ~400px wide, and at that width the
+     capped at 88% of a panel that is only ~520px wide, and at that width the
      cap costs more than it buys. */
   @media (max-width: 460px) {
     .contact {

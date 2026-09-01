@@ -175,7 +175,7 @@
   --pawbar-nav-fg-active: color-mix(in oklab, var(--pawbar-ink) 98%, transparent);
   --pawbar-nav-active-bg: var(--pawbar-surface-raised);
 
-  /* The reading column. The panel is 400px wide docked, so this only bites once
+  /* The reading column. The panel is 520px wide docked, so this only bites once
      the visitor expands to the big surface — at which point the transcript and
      the composer both centre on it instead of spanning a 1280px viewport.
      Sized for measure: bubbles cap at 640px, and the rest is the left/right

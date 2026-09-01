@@ -96,7 +96,7 @@
     padding: 18px 16px 20px;
     flex: 1;
     min-height: 0;
-    /* A READING COLUMN, not a full-bleed row. In the 400px panel this resolves
+    /* A READING COLUMN, not a full-bleed row. In the 520px panel this resolves
        to the plain 16px gutter and nothing changes. Expanded to a 1280px
        viewport it centres the turns instead of throwing the visitor's bubble
        against the right edge and the answer against the left — half a metre

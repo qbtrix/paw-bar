@@ -98,7 +98,7 @@
         </button>
         {#if menu}{@render menu()}{/if}
       </div>
-      <!-- A long answer with cards is genuinely cramped in a 400px column, so
+      <!-- A long answer with cards is still cramped in a 520px column, so
            the reading surface can grow. Opt-in and reversible — which is the
            difference between this and opening as a modal in the first place. -->
       <button

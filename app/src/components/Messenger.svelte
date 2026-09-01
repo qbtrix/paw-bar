@@ -199,7 +199,7 @@
                Expanding is a READING affordance — you grow the surface because
                an answer is long — and answers live in a conversation, which has
                its own control. Carrying the button on all four surfaces cost
-               32px of a 400px header, and with a cart badge present that was
+               32px of a 520px header, and with a cart badge present that was
                the difference between labelled tabs and three anonymous glyphs.
 
                But leaving a conversation while expanded used to strand the

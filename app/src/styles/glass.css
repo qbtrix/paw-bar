@@ -53,7 +53,7 @@ body {
 /* ── Scrollbars ────────────────────────────────────────────────────────────
    Every scrolling surface in the widget is inside a dark frosted panel, and the
    platform default is a light chunky slab that paints over the panel's own
-   rounded corner. On Windows it is also ~17px of a 400px column, which is real
+   rounded corner. On Windows it is also ~17px of a 520px column, which is real
    measure lost from the one place the visitor is reading.
 
    Both syntaxes on purpose: the standard properties are what Firefox honours,
