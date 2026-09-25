@@ -1,6 +1,11 @@
 // tests/message-row.spec.ts — the transcript survives repeated citations.
 // Created 2026-08-19.
 //
+// 2026-09-26: plus the provenance line — "Grounded in this site's knowledge"
+// used to render on every finished answer, sourced or not. It now shows only
+// when the answer carries at least one source (tests at the bottom of the
+// describe).
+//
 // THE BUG THIS EXISTS FOR: MessageRow keyed its source chips on `source.url`,
 // and Svelte throws `each_key_duplicate` on a keyed block with two identical
 // keys — at RENDER time, in the production bundle, with no <svelte:boundary>
@@ -102,6 +107,18 @@ describe('MessageRow source chips', () => {
     expect(toggle.getAttribute('aria-label')).toBeNull();
     expect(toggle.textContent).toContain('Sources');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('does not claim "grounded" when the answer has no sources', () => {
+    const target = render({ content: 'Yes, we ship worldwide.' });
+    expect(target.querySelector('.footer'), 'the footer (Copy) still shows').not.toBeNull();
+    expect(target.querySelector('.provenance')).toBeNull();
+    expect(target.textContent).not.toContain('Grounded');
+  });
+
+  it('claims "grounded" when the answer has at least one source', () => {
+    const target = render({ sources: [{ title: 'Shipping', url: 'https://x.example/s' }] });
+    expect(target.querySelector('.provenance')?.textContent).toBe("Grounded in this site's knowledge");
   });
 
   it('does not offer a rating it throws away', () => {
