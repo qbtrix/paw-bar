@@ -54,6 +54,17 @@
 // drop). With no valid origin (missing, '*', has a path, non-http) relative
 // hrefs are dropped as before. And `input` now survives only as a disabled
 // type=checkbox (GFM task list); every other input type is removed.
+//
+// 2026-09-26 (security review, C1): tables were wrapped for mobile scroll by a
+// regex over the SANITIZED string. The serializer leaves `<` unescaped inside
+// attribute values, so a title like `"<table onmouseover=alert(1) x="` got the
+// wrapper's `class="…"` spliced into it, breaking the attribute open, and
+// {@html} re-parsed a live <table onmouseover>. Sanitize now returns a DOM
+// fragment; tables are wrapped as nodes and the result serialized once, with
+// no string post-processing. `title` is dropped from the allowlist, data-* and
+// aria-* are off (MARKDOWN_PURIFY_FLAGS), bare `#frag` / `?query` / empty
+// hrefs are dropped rather than resolved to the host's home page, and
+// setLinkBase normalises an equivalent origin (`https://x:443`, trailing `/`).
 
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -70,13 +81,19 @@ export const MARKDOWN_ALLOWED_TAGS = [
 ] as const;
 
 // Exactly what marked emits on this path (fences are intercepted upstream):
-// href/title on links, align on table cells, start on <ol>, type/disabled/
+// href on links (title dropped 2026-09-26: a tooltip adds nothing here and it
+// was the attribute the C1 payload rode in), align on table cells, start on <ol>, type/disabled/
 // checked on task-list checkboxes. colspan/rowspan/scope keep merged-cell
 // tables intact. target/rel are deliberately absent — the link hook is their
 // only writer.
 export const MARKDOWN_ALLOWED_ATTR = [
-  'href', 'title', 'align', 'start', 'type', 'disabled', 'checked', 'colspan', 'rowspan', 'scope',
+  'href', 'align', 'start', 'type', 'disabled', 'checked', 'colspan', 'rowspan', 'scope',
 ] as const;
+
+// data-* and aria-* are allowed by DOMPurify's defaults even under an explicit
+// ALLOWED_ATTR. Nothing marked emits here needs either, and aria-label /
+// aria-hidden let a reply say one thing to a screen reader and show another.
+export const MARKDOWN_PURIFY_FLAGS = { ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false } as const;
 
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
@@ -91,8 +108,13 @@ export function setLinkBase(origin: string | null | undefined): void {
   linkBase = null;
   if (!origin) return;
   try {
+    // Normalise (so `https://shop.example:443` and a trailing `/` are fine),
+    // but refuse anything carrying a path, query, hash or credentials: that is
+    // not an origin, and guessing which part was meant is worse than dropping.
     const u = new URL(origin);
-    if ((u.protocol === 'https:' || u.protocol === 'http:') && u.origin === origin) linkBase = origin;
+    const bare =
+      u.pathname === '/' && !u.search && !u.hash && !u.username && !u.password && !/[?#]/.test(origin);
+    if ((u.protocol === 'https:' || u.protocol === 'http:') && bare) linkBase = u.origin;
   } catch {
     /* not a URL — leave the base unset */
   }
@@ -112,6 +134,10 @@ function safeHref(href: string): string | null {
   }
   if (absolute) return SAFE_LINK_PROTOCOLS.has(absolute.protocol) ? href : null;
   if (!linkBase) return null;
+  // A bare fragment/query (`#faq`, `?q=1`) or empty href refers to the WIDGET's
+  // own document; resolving it would silently point at the host's home page.
+  // The URL parser strips leading C0 controls/spaces, so this regex does too.
+  if (/^[\x00-\x20]*(?:[#?]|$)/.test(href)) return null;
   try {
     const resolved = new URL(href, linkBase + '/');
     return resolved.origin === linkBase ? resolved.href : null;
@@ -187,14 +213,23 @@ export function renderMarkdown(text: string): string {
   // strikethrough, autolinks, task lists) and treat single newlines as
   // <br> so multi-line replies look the way users typed them.
   const raw = markdown.parse(text) as string;
-  const sanitized = getPurifier().sanitize(raw, {
+  const fragment = getPurifier().sanitize(raw, {
+    ...MARKDOWN_PURIFY_FLAGS,
     ALLOWED_ATTR: [...MARKDOWN_ALLOWED_ATTR],
     ALLOWED_TAGS: [...MARKDOWN_ALLOWED_TAGS],
+    RETURN_DOM_FRAGMENT: true,
   });
-  // Wrap tables in a scrollable container for mobile.
-  return sanitized
-    .replace(/<table/g, '<div class="pawbar-table-wrapper"><table')
-    .replace(/<\/table>/g, '</table></div>');
+  // Wrap tables in a scrollable container for mobile — in the DOM, NEVER with
+  // a string replace on sanitized output (see the security-review note above).
+  for (const table of fragment.querySelectorAll('table')) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'pawbar-table-wrapper';
+    table.replaceWith(wrapper);
+    wrapper.append(table);
+  }
+  const out = document.createElement('div');
+  out.append(fragment);
+  return out.innerHTML;
 }
 
 /** Return the index of the opener of a still-open triple-backtick fence in
