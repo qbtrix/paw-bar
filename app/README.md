@@ -1,6 +1,8 @@
 <!-- README.md — glass concierge app. Created 2026-07-15 (A3). Documents the
      boot contract, build output, and commands for the loader (A2) + frame
-     endpoint (A1) + smoke (A4) that integrate with this bundle. -->
+     endpoint (A1) + smoke (A4) that integrate with this bundle.
+     2026-09-27: added "Design without a backend", which documents the
+     demo.html / host.html dev pages and their ?state= presets. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -29,7 +31,8 @@ window.__PAWBAR__ = {
 ```
 
 With no global (plain `vite dev`) it falls back to localhost dev defaults — a
-real streamed reply still needs a running backend (that's the A4 smoke).
+real streamed reply still needs a running backend (that's the A4 smoke). To
+work on the UI with no backend at all, use the demo pages below.
 
 ### postMessage lifecycle (app → loader)
 
@@ -60,6 +63,31 @@ bun run size     # enforce the ≤80KB gz main-chunk budget
 bun run test     # vitest: sse parser, DOMPurify allowlist pin, store flow + stop()
 bun run check    # svelte-check (types + a11y)
 ```
+
+## Design without a backend
+
+`bun run dev` also serves two dev-only pages. Vite's build entry is
+`index.html`, so neither ships. `demo.html` stubs `fetch` before the app boots
+and answers with the shapes the router really returns, SSE frames included,
+so every surface can be designed with no server running.
+
+```bash
+cd app
+bun install --frozen-lockfile
+bun run dev
+```
+
+| URL | What you get |
+|---|---|
+| `localhost:5173/demo.html` | The widget alone, with `fetch` stubbed. Streamed replies (with code and sources), a conversation list, the cart and an owner reply all work with no server. |
+| `demo.html?state=thread` | Opens straight into a populated conversation |
+| `demo.html?state=cart` | Items in the cart, so the checkout controls show |
+| `demo.html?state=light` | The light theme |
+| `demo.html?state=long` | A very long streamed reply, for layout and scrolling |
+| `localhost:5173/host.html?demo` | The widget inside a fake customer page, using the real loader's frame protocol. This is how it actually looks on a site. |
+
+Run `bun run dev` from `app/`, not the repo root. The root `package.json` has
+no `dev` script. Edits hot-reload in both pages.
 
 ## Action loop (C2) — cards + cart + checkout
 
