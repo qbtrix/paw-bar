@@ -3,6 +3,10 @@
   tests/sandbox/fixtures/frame.html — stand-in for the Paw Bar frame, served at
   /paw-bar/frame WITH a `Content-Security-Policy: sandbox ...` header.
   Created 2026-09-26.
+  Updated 2026-09-26 (security review): the hostile links point at a third,
+  attacker origin (__ATTACKER_ORIGIN__, templated by servers.ts) rather than the
+  host, and a NAMED-target link was added (target="paw_named"), the one link
+  shape that opens a popup with a live opener in every engine.
 
   One control per browser capability the glass app relies on (or must be
   denied), each reporting its outcome as DOM text the Playwright spec reads
@@ -21,6 +25,7 @@
   <body>
     <!-- BLOCKED: both of these try to navigate the host page. -->
     <a id="top-link" target="_top" href="#">top link</a>
+    <a id="named-link" target="paw_named" href="#">named-target link</a>
     <button id="top-script" type="button">top.location = ...</button>
     <div id="top-script-result"></div>
 
@@ -59,7 +64,12 @@
       const pwned = hostOrigin + '/pwned';
       const $ = (id) => document.getElementById(id);
 
-      $('top-link').href = pwned;
+      // The links go to the attacker's page, not straight to /pwned: where a
+      // browser turns one into a popup, that page tries opener.top.location.
+      const attackerLanding =
+        '__ATTACKER_ORIGIN__/landing?h=' + encodeURIComponent(hostOrigin);
+      $('top-link').href = attackerLanding;
+      $('named-link').href = attackerLanding;
 
       $('top-script').addEventListener('click', () => {
         // Firefox throws on a blocked top navigation; Chromium only logs.
