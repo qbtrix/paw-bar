@@ -1,5 +1,5 @@
 {
-  "_comment": "Renamed 2026-07-08 to Paw Bar (package paw-bar-widget). Rename-only change; no behavior refactor.",
+  "_comment": "Renamed 2026-07-08 to Paw Bar (package paw-bar-widget). Rename-only change; no behavior refactor. 2026-09-26: test:sandbox runs the frame-sandbox e2e (playwright.sandbox.config.ts, three engines; build the loader first).",
   "name": "paw-bar-widget",
   "version": "0.1.0",
   "description": "Embeddable customer-facing widget for Paw OS pockets. Zero framework deps, <10KB gzipped.",
@@ -20,7 +20,8 @@
     "build:loader": "node loader/build.mjs",
     "size:loader": "node loader/scripts/check-size.mjs",
     "typecheck:loader": "tsc -p loader/tsconfig.json --noEmit",
-    "test:loader": "node --test 'loader/test/*.test.mjs'"
+    "test:loader": "node --test 'loader/test/*.test.mjs'",
+    "test:sandbox": "playwright test -c playwright.sandbox.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.55.0",

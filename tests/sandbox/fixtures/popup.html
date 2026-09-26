@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  tests/sandbox/fixtures/popup.html — the page a popup from the sandboxed frame
+  opens (an article or checkout, in the real app). Served WITHOUT any CSP
+  header, so the only way it can end up sandboxed is by inheriting the frame's
+  sandbox, which allow-popups-to-escape-sandbox is there to prevent.
+  Created 2026-09-26.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>sandbox fixture popup</title>
+  </head>
+  <body>
+    <div id="script-ran"></div>
+    <!-- A real submission (a navigation), not a prevented submit event. -->
+    <form id="checkout" action="/popup-done" method="get">
+      <input type="hidden" name="paid" value="yes" />
+      <button id="pay" type="submit">pay</button>
+    </form>
+    <!-- The discriminator: allow-modals is NOT in the frame's flag set, so an
+         alert() only shows if this page escaped the sandbox. -->
+    <button id="alert" type="button">alert()</button>
+    <script>
+      document.getElementById('script-ran').textContent = 'ran';
+      document.getElementById('alert').addEventListener('click', () => {
+        alert('popup is a normal top-level page');
+      });
+    </script>
+  </body>
+</html>

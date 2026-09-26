@@ -1,0 +1,139 @@
+<!doctype html>
+<!--
+  tests/sandbox/fixtures/frame.html — stand-in for the Paw Bar frame, served at
+  /paw-bar/frame WITH a `Content-Security-Policy: sandbox ...` header.
+  Created 2026-09-26.
+  Updated 2026-09-26 (security review): the hostile links point at a third,
+  attacker origin (__ATTACKER_ORIGIN__, templated by servers.ts) rather than the
+  host, and a NAMED-target link was added (target="paw_named"), the one link
+  shape that opens a popup with a live opener in every engine.
+
+  One control per browser capability the glass app relies on (or must be
+  denied), each reporting its outcome as DOM text the Playwright spec reads
+  through frameLocator(). Controls that need transient user activation
+  (window.open, clipboard) are buttons the spec clicks, never script calls.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>sandbox fixture frame</title>
+    <style>
+      body { font: 13px system-ui, sans-serif; margin: 8px; }
+      a, button, input { display: block; margin: 4px 0; }
+    </style>
+  </head>
+  <body>
+    <!-- BLOCKED: both of these try to navigate the host page. -->
+    <a id="top-link" target="_top" href="#">top link</a>
+    <a id="named-link" target="paw_named" href="#">named-target link</a>
+    <button id="top-script" type="button">top.location = ...</button>
+    <div id="top-script-result"></div>
+
+    <!-- BLOCKED: allow-modals is not granted, so alert() must be swallowed. -->
+    <button id="alert" type="button">alert()</button>
+    <div id="alert-result"></div>
+
+    <!-- WORKS: the composer's pattern — Enter in a text field submits. -->
+    <form id="composer">
+      <input id="composer-input" type="text" name="q" autocomplete="off" />
+    </form>
+    <div id="form-result"></div>
+
+    <!-- WORKS: popups, both routes the app uses. -->
+    <button id="open-btn" type="button">window.open</button>
+    <a id="blank-link" target="_blank" rel="noopener" href="/popup">target=_blank</a>
+
+    <!-- WORKS: the transcript download is an <a download> of a Blob. -->
+    <a id="download" download="transcript.txt" href="#">download</a>
+
+    <!-- WORKS: localStorage (visitor id, transcript cache). -->
+    <button id="ls-set" type="button">set localStorage</button>
+    <div id="ls-value"></div>
+
+    <!-- WORKS where the engine allows it: copy-to-clipboard. -->
+    <button id="clip-btn" type="button">copy</button>
+    <div id="clip-result"></div>
+
+    <div id="ready"></div>
+
+    <script>
+      // The loader passes the host origin as `po`; the fixture uses it the way
+      // the app does (postMessage target) and as the attack's destination.
+      const params = new URLSearchParams(location.search);
+      const hostOrigin = params.get('po') || '';
+      const pwned = hostOrigin + '/pwned';
+      const $ = (id) => document.getElementById(id);
+
+      // The links go to the attacker's page, not straight to /pwned: where a
+      // browser turns one into a popup, that page tries opener.top.location.
+      const attackerLanding =
+        '__ATTACKER_ORIGIN__/landing?h=' + encodeURIComponent(hostOrigin);
+      $('top-link').href = attackerLanding;
+      $('named-link').href = attackerLanding;
+
+      $('top-script').addEventListener('click', () => {
+        // Firefox throws on a blocked top navigation; Chromium only logs.
+        try {
+          top.location = pwned;
+          $('top-script-result').textContent = 'no-throw';
+        } catch (e) {
+          $('top-script-result').textContent = 'threw:' + (e && e.name);
+        }
+      });
+
+      $('alert').addEventListener('click', () => {
+        alert('from the sandboxed frame');
+        $('alert-result').textContent = 'returned';
+      });
+
+      $('composer').addEventListener('submit', (e) => {
+        e.preventDefault();
+        $('form-result').textContent = 'submitted:' + $('composer-input').value;
+      });
+
+      $('open-btn').addEventListener('click', () => {
+        window.open(location.origin + '/popup?via=window.open', '_blank', 'noopener,noreferrer');
+      });
+
+      const blob = new Blob(['paw bar transcript\n'], { type: 'text/plain' });
+      $('download').href = URL.createObjectURL(blob);
+
+      const LS_KEY = 'pawbar-sandbox-test';
+      function readLs() {
+        try {
+          $('ls-value').textContent = 'value:' + (localStorage.getItem(LS_KEY) ?? '(none)');
+        } catch (e) {
+          $('ls-value').textContent = 'error:' + (e && e.name);
+        }
+      }
+      $('ls-set').addEventListener('click', () => {
+        try {
+          localStorage.setItem(LS_KEY, 'kept');
+        } catch (e) {
+          /* reported by readLs below */
+        }
+        readLs();
+      });
+      readLs();
+
+      $('clip-btn').addEventListener('click', () => {
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+          $('clip-result').textContent = 'err:NoClipboardAPI';
+          return;
+        }
+        navigator.clipboard.writeText('paw-bar-clip').then(
+          () => ($('clip-result').textContent = 'ok'),
+          (e) => ($('clip-result').textContent = 'err:' + (e && e.name)),
+        );
+      });
+
+      // Ask the loader for the open column, as the app does. It also makes every
+      // control above visible and clickable (the resting bar box is 96px tall),
+      // and proves the loader's postMessage protocol survives the sandbox.
+      if (hostOrigin && parent !== window) {
+        parent.postMessage({ type: 'pawbar:open' }, hostOrigin);
+      }
+      $('ready').textContent = 'ready';
+    </script>
+  </body>
+</html>

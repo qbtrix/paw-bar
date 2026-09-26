@@ -1,4 +1,9 @@
 // loader/test/loader.test.mjs — jsdom unit tests for the glass-bar loader (A2).
+// Updated 2026-09-26: frame sandbox tests (end of file) — the exact flag string,
+// no top-navigation token, and the attribute already present at the moment
+// `src` is assigned (sandbox flags apply on navigation, so a setAttribute after
+// src would leave the first load unsandboxed). mount() gained `beforeLoad` so a
+// test can instrument the window before the loader runs.
 // Created 2026-07-15: loads the built dist/loader.js IIFE inside a jsdom host
 // page and proves the security-critical contract deterministically —
 //   • config off the <script> tag → correct frame URL (key/w/po, encoded),
@@ -29,6 +34,9 @@ function mount({
   hostStyle = '',
   prefersDark = false,
   path = '/products',
+  // Runs against the fresh window BEFORE the loader IIFE, so a test can
+  // instrument the DOM the loader is about to use.
+  beforeLoad = null,
 } = {}) {
   const dom = new JSDOM(
     `<!doctype html><html><head><style>${hostStyle}</style></head><body></body></html>`,
@@ -58,6 +66,7 @@ function mount({
       removeEventListener() {},
     };
   };
+  if (beforeLoad) beforeLoad(window);
   appendLoader(window, { endpoint, siteKey, widgetId });
   return window;
 }
@@ -851,4 +860,62 @@ test('a frame that declines to render takes the scrim with it', () => {
   // and swallow the entire page with nothing on top of it to dismiss it.
   assert.equal(scrimOf(window), null);
   assert.equal(window.document.querySelectorAll('iframe').length, 0);
+});
+
+// ── Frame sandbox (2026-09-26) ──────────────────────────────────────────────
+// The browser-level backstop behind the app's link sanitizer: a reply link with
+// target="_top" must not be able to navigate the customer's page. The real
+// browser behaviour of this flag set is proven in tests/sandbox (Playwright,
+// three engines); these tests pin the loader's side of the contract.
+
+const FRAME_SANDBOX =
+  'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
+
+test('the frame is sandboxed with exactly the agreed flag set', () => {
+  const window = mount();
+  assert.equal(onlyIframe(window).getAttribute('sandbox'), FRAME_SANDBOX);
+});
+
+test('the sandbox never grants top navigation, in any of its forms', () => {
+  const window = mount();
+  const tokens = (onlyIframe(window).getAttribute('sandbox') ?? '').split(/\s+/);
+  assert.ok(
+    !tokens.some((t) => t.startsWith('allow-top-navigation')),
+    'no allow-top-navigation / -by-user-activation / -to-custom-protocols',
+  );
+  for (const t of ['allow-modals', 'allow-pointer-lock', 'allow-orientation-lock', 'allow-presentation']) {
+    assert.ok(!tokens.includes(t), `${t} must not be granted`);
+  }
+});
+
+test('the sandbox is on the element BEFORE its src is assigned', () => {
+  // Sandbox flags take effect on the frame's next navigation, so a sandbox set
+  // after src lets the first load (the one that matters) run unsandboxed. Record
+  // what the attribute says at the instant src is written, via the property or
+  // the attribute route.
+  const seen = [];
+  const window = mount({
+    beforeLoad(w) {
+      const proto = w.HTMLIFrameElement.prototype;
+      const desc = Object.getOwnPropertyDescriptor(proto, 'src');
+      Object.defineProperty(proto, 'src', {
+        configurable: true,
+        get: desc.get,
+        set(v) {
+          seen.push(this.getAttribute('sandbox'));
+          desc.set.call(this, v);
+        },
+      });
+      const setAttr = w.Element.prototype.setAttribute;
+      w.Element.prototype.setAttribute = function (name, v) {
+        if (this instanceof w.HTMLIFrameElement && String(name).toLowerCase() === 'src') {
+          seen.push(this.getAttribute('sandbox'));
+        }
+        return setAttr.call(this, name, v);
+      };
+    },
+  });
+  onlyIframe(window);
+  assert.ok(seen.length >= 1, 'src was assigned');
+  for (const s of seen) assert.equal(s, FRAME_SANDBOX, 'sandbox present when src is set');
 });
