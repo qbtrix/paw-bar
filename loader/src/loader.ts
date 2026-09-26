@@ -52,15 +52,24 @@
 
 const LOADED_FLAG = '__pawBarLoaderLoaded';
 const FRAME_PATH = '/paw-bar/frame';
-// The frame's sandbox. Each flag is here because the glass app needs it: scripts
-// + same-origin (it is an app, and keeps the visitor id and transcript cache in
-// its own localStorage), forms (the composer and two in-chat forms submit),
-// popups + popups-to-escape-sandbox (articles and checkout open via window.open
-// and target=_blank links, and those pages must NOT inherit this sandbox, or a
-// checkout page cannot run), downloads (the transcript Blob download).
+// The frame's sandbox. Each flag is here because the glass app needs it:
+// scripts (it is an app); same-origin, for two reasons: the visitor id and
+// transcript cache live in the frame's localStorage, and an opaque origin sends
+// `Origin: null` on its API calls, which fails the API's frame-origin gate
+// (nothing fetches with credentials, so this is not about cookies); forms (the
+// composer and two in-chat forms submit); popups + popups-to-escape-sandbox
+// (articles and checkout open via window.open and target=_blank links, and those
+// third-party pages should run as ordinary pages rather than inherit this
+// sandbox, e.g. without it they cannot raise a dialog); downloads (the
+// transcript Blob download).
 // Deliberately absent: every allow-top-navigation variant (the point of all
 // this), allow-modals, allow-pointer-lock, allow-orientation-lock and
 // allow-presentation. Keep in step with the server's CSP sandbox header.
+// Known gap, measured 2026-09-26: an escaped popup keeps its opener unless it
+// was opened noopener. In Firefox a link with a NAMED target (target="x") opens
+// such a popup, and from it `opener.top.location = ...` navigates the host page.
+// The app's sanitizer forces target=_blank rel=noopener on every link, which
+// closes that; tests/sandbox pins the behaviour per engine.
 export const FRAME_SANDBOX =
   'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
 // v2: the anchor is the box's CENTER-BOTTOM point {cx, by}, not a top-left —
