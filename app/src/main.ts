@@ -18,6 +18,9 @@
 // the poll that delivers the site owner's own replies into the thread. It is
 // constructed AFTER the chat store so it seeds its `after` cursor from the
 // restored transcript; the shell starts/stops the loop with the panel.
+// 2026-09-26 (reply links): calls setLinkBase(config.parentOrigin) before
+// mount, so site-relative links in agent replies (`/returns`) resolve to the
+// host page instead of rendering as dead text (lib/markdown.ts validates it).
 import { mount } from 'svelte';
 import './styles/tokens.css';
 import './styles/glass.css';
@@ -31,8 +34,14 @@ import { OperatorStore } from './store/operator.svelte';
 import { createPoster } from './lib/postmessage';
 import { applyTokens } from './lib/tokens';
 import { installPreviewTokenListener } from './lib/preview-tokens';
+import { setLinkBase } from './lib/markdown';
 
 const config = readConfig();
+
+// Site-relative links in agent replies (`/returns`) resolve against the host
+// page. setLinkBase validates it and ignores anything that is not an exact
+// http(s) origin, in which case such links are dropped rather than guessed.
+setLinkBase(config.parentOrigin);
 
 const target = document.getElementById('pawbar-app') ?? document.body;
 

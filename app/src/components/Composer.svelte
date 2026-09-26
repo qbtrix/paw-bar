@@ -27,10 +27,24 @@
   • `aria-keyshortcuts` states the Enter binding rather than leaving it to be
     discovered. A textarea that submits on Enter is a surprise worth declaring,
     and a placeholder cannot carry it (it disappears the moment they type).
+
+  2026-09-26 (message cap): the paw_bar chat endpoint rejects a message over
+  8,000 characters with a 400, which the widget can only show as a generic
+  failure. The textarea now carries maxlength=MAX_MESSAGE_CHARS (lib/composer/
+  limits.ts), so typing and pasting stop at the cap, and submit refuses
+  anything over it too (prefill() sets the value programmatically, which
+  maxlength does not police). From MESSAGE_LIMIT_HINT_AT on, a quiet hint reads
+  "Messages can be up to 8,000 characters." It sits in a role="status" region
+  that is always mounted, so it is announced politely, and its text changes
+  only when the threshold is crossed, never per keystroke; the textarea points
+  at it with aria-describedby only while it is showing. The form became a
+  two-column grid so the hint can take a full-width row under the input
+  without the send button wrapping.
 -->
 <script lang="ts">
   import { autosize } from '../lib/composer/autosize';
   import { filesFromPaste } from '../lib/composer/paste-file';
+  import { MAX_MESSAGE_CHARS, MESSAGE_LIMIT_HINT_AT } from '../lib/composer/limits';
 
   let {
     isStreaming = false,
@@ -62,7 +76,10 @@
   let value = $state('');
   let el: HTMLTextAreaElement | null = $state(null);
   const hasDraft = $derived(value.trim().length > 0);
-  const canSend = $derived(hasDraft && !isStreaming);
+  const overLimit = $derived(value.trim().length > MAX_MESSAGE_CHARS);
+  const nearLimit = $derived(value.length >= MESSAGE_LIMIT_HINT_AT);
+  const canSend = $derived(hasDraft && !overLimit && !isStreaming);
+  const hintId = $props.id();
 
   $effect(() => {
     ondraft?.(hasDraft);
@@ -123,6 +140,8 @@
     onpaste={onPaste}
     aria-label="Message"
     aria-keyshortcuts="Enter"
+    maxlength={MAX_MESSAGE_CHARS}
+    aria-describedby={nearLimit ? hintId : undefined}
   ></textarea>
   {#if isStreaming}
     <button type="button" class="send stop" onclick={onStop} aria-label="Stop">
@@ -147,13 +166,22 @@
       </svg>
     </button>
   {/if}
+  <!-- Always mounted so a screen reader has a status region to hear; its text
+       only changes when the threshold is crossed. -->
+  <span id={hintId} class="limit-hint" role="status">
+    {#if nearLimit}<span class="limit-text">Messages can be up to {MAX_MESSAGE_CHARS.toLocaleString('en-US')} characters.</span>{/if}
+  </span>
 </form>
 
 <style>
   .composer {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
+    /* Two columns (field, send) plus a full-width row for the limit hint. A
+       grid rather than a wrapping flex row, so the send button can never wrap
+       under the field. */
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    column-gap: 8px;
     padding: 8px 8px 8px 6px;
     border: 1px solid var(--pawbar-border);
     border-radius: var(--pawbar-radius-input);
@@ -173,7 +201,6 @@
     padding: 0;
   }
   textarea {
-    flex: 1;
     resize: none;
     border: none;
     outline: none;
@@ -198,7 +225,6 @@
     text-overflow: ellipsis;
   }
   .send {
-    flex: none;
     width: 34px;
     height: 34px;
     display: inline-flex;
@@ -230,6 +256,18 @@
   .send:focus-visible {
     outline: 2px solid var(--pawbar-ring);
     outline-offset: 2px;
+  }
+  .limit-hint {
+    grid-column: 1 / -1;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--pawbar-fg-muted);
+  }
+  /* Padding lives on the text, so the always-mounted region takes no space
+     while it is empty. */
+  .limit-text {
+    display: block;
+    padding: 4px 4px 0 10px;
   }
   .send.stop {
     background: color-mix(in oklab, var(--pawbar-fg) 14%, transparent);

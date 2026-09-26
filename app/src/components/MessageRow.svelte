@@ -36,6 +36,12 @@
   visible text "Sources", which is WCAG 2.5.3 (Label in Name) — a voice-control
   user saying "click Sources" got no match. `aria-expanded` already carries the
   open/closed state, so the label never needed to restate it.
+
+  2026-09-26: the provenance line ("Grounded in this site's knowledge") now
+  shows ONLY when the answer carries at least one source. It used to render on
+  every finished assistant answer, so an answer backed by nothing still claimed
+  to be grounded — the trust story above was being told about replies it was
+  not true of. With zero sources the footer is just Copy.
 -->
 <script lang="ts">
   import type { Message } from '../store/chat.svelte';
@@ -115,8 +121,8 @@
 
     {#if showFooter}
       <div class="footer">
-        <span class="provenance">Grounded in this site's knowledge</span>
         {#if sources.length > 0}
+          <span class="provenance">Grounded in this site's knowledge</span>
           <button
             type="button"
             class="sources-toggle"
