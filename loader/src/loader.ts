@@ -38,6 +38,13 @@
 // usable while the bar is open" — an open bar is now the foreground, and one
 // click on the page puts it back.
 //
+// 2026-09-26 THE FRAME IS SANDBOXED (FRAME_SANDBOX). A reply link with
+// target="_top" could otherwise navigate the customer's whole page. The app's
+// sanitizer blocks that already; the sandbox is the browser-level backstop, and
+// the server sends the same flags as a `Content-Security-Policy: sandbox` header
+// on the frame response. The browser enforces the stricter of the two. The
+// attribute is set BEFORE src, because sandbox flags apply on navigation.
+//
 // SECURITY: inbound messages are honoured ONLY when event.origin === the frame
 // origin AND event.source === the iframe's own contentWindow. Every outbound
 // post pins targetOrigin to the frame origin — never "*". Idempotent; exposes
@@ -45,6 +52,17 @@
 
 const LOADED_FLAG = '__pawBarLoaderLoaded';
 const FRAME_PATH = '/paw-bar/frame';
+// The frame's sandbox. Each flag is here because the glass app needs it: scripts
+// + same-origin (it is an app, and keeps the visitor id and transcript cache in
+// its own localStorage), forms (the composer and two in-chat forms submit),
+// popups + popups-to-escape-sandbox (articles and checkout open via window.open
+// and target=_blank links, and those pages must NOT inherit this sandbox, or a
+// checkout page cannot run), downloads (the transcript Blob download).
+// Deliberately absent: every allow-top-navigation variant (the point of all
+// this), allow-modals, allow-pointer-lock, allow-orientation-lock and
+// allow-presentation. Keep in step with the server's CSP sandbox header.
+export const FRAME_SANDBOX =
+  'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
 // v2: the anchor is the box's CENTER-BOTTOM point {cx, by}, not a top-left —
 // a top-left pins the smaller chip to the bar's left edge when views flip.
 const POS_KEY = '__pawbar_pos_v2';
@@ -265,6 +283,10 @@ function suppressed(win: LoaderWindow): boolean {
   const iframe = doc.createElement('iframe');
   iframe.title = 'Site concierge';
   iframe.setAttribute('allow', 'clipboard-write');
+  // BEFORE src, not after: sandbox flags take effect on the frame's next
+  // navigation, so setting them once src is assigned would leave the first load
+  // (the only one) unsandboxed. The unit test pins this ordering.
+  iframe.setAttribute('sandbox', FRAME_SANDBOX);
   // Inline styles are required here: the loader runs on a foreign page and must
   // neither depend on nor inject a stylesheet. One fixed, borderless box;
   // max-*:100v* is a CSS safety net so it can never exceed the viewport.
