@@ -84,6 +84,8 @@
   • Activity 'resume' is the continue pill after a page navigation: the pill
     reads the last answer's first line, with no dot and no announcement,
     because nothing new happened.
+  • With no logo (or one that fails to load) the mark is the Lucide
+    paw-print on the accent circle, not a blank circle (captain, 2026-09-27).
   • No visitor menu (captain, 2026-09-27: a ⋯ holding seven items confused
     people). Each action sits where it is used instead:
       – `onshowconversations`: a clock icon in the card's top row.
@@ -678,7 +680,15 @@
     {:else if logoSrc && !logoFailed}
       <img class="brand" src={logoSrc} alt="" decoding="async" onerror={() => (logoFailed = true)} />
     {:else}
-      <span class="mark"></span>
+      <!-- Lucide "paw-print" (ISC licence), the default when the site has no logo. -->
+      <span class="mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="4" r="2" />
+          <circle cx="18" cy="8" r="2" />
+          <circle cx="20" cy="16" r="2" />
+          <path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z" />
+        </svg>
+      </span>
     {/if}
   </span>
 {/snippet}
@@ -1063,10 +1073,17 @@
     object-fit: contain;
   }
   .mark {
+    display: grid;
+    place-items: center;
     width: 100%;
     height: 100%;
     border-radius: 50%;
     background: var(--pawbar-accent, #111114);
+    color: var(--pawbar-accent-fg, #fff);
+  }
+  .mark svg {
+    width: 62%;
+    height: 62%;
   }
   .trigger {
     flex: 1;
