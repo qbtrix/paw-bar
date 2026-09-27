@@ -5,7 +5,7 @@
     "": {
       "name": "paw-bar-glass",
       "dependencies": {
-        "@ripple-ui/core": "./vendor/ripple-ui-core-0.5.0.tgz",
+        "@ripple-ui/core": "./vendor/ripple-ui-core-0.6.0.tgz",
       },
       "devDependencies": {
         "@sveltejs/vite-plugin-svelte": "6.2.4",
@@ -107,7 +107,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@ripple-ui/core": ["@ripple-ui/core@./vendor/ripple-ui-core-0.5.0.tgz", { "dependencies": { "esm-env": "^1.2.2", "zod": "^4.0.0" }, "peerDependencies": { "svelte": "^5.0.0" }, "optionalPeers": ["svelte"] }, "sha512-o3XYc2k48Fy4vzC73cnoMkh4zFok47aLc49Zwwi/SURErrN9SatHMlS3eOgSj+uhBIX7ddlTAo8fS7FqS+TVLw=="],
+    "@ripple-ui/core": ["@ripple-ui/core@./vendor/ripple-ui-core-0.6.0.tgz", { "dependencies": { "esm-env": "^1.2.2", "zod": "^4.0.0" }, "peerDependencies": { "svelte": "^5.0.0" }, "optionalPeers": ["svelte"] }, "sha512-XNo8uK8Fw82YAjnVifZTT9Epf8Tys++dhHyI16KEbcP3a5Si0dDo8kSFAr4gjWC1yI86MajHVc2rCUd2MoAEYQ=="],
 
     "@rollup/rollup-android-arm-eabi": ["@rollup/rollup-android-arm-eabi@4.62.2", "", { "os": "android", "cpu": "arm" }, "sha512-6o7ZLZK+BeenkZCFNDXqpbjw9bD6nuWonvS/lwQJp7NoVVxm6p3qE7qQ5jGuBjiFsgvqjD8mZAU5oWxTmbOeOg=="],
 

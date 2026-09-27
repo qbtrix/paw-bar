@@ -1,0 +1,349 @@
+{
+  "schema": "ripple.manifest.slim/v1",
+  "spec": {
+    "uiField": "ui",
+    "stateField": "state",
+    "version": "1.0",
+    "aliasesNotAllowed": [
+      "root",
+      "tree",
+      "view",
+      "body",
+      "content"
+    ],
+    "description": "A Ripple spec is a JSON object with two top-level fields that matter for rendering: `ui` (the node tree the renderer mounts — REQUIRED) and `state` (the StateManager seed — required when any node uses `bind` or reads `{state.*}`). The renderable tree field is named `ui` exactly — never `root`, `tree`, `view`, `body`, or `content`. Specs that use those aliases will not render.",
+    "example": {
+      "version": "1.0",
+      "state": {
+        "draft": "",
+        "items": []
+      },
+      "ui": {
+        "type": "flex",
+        "props": {
+          "direction": "column",
+          "gap": "12px"
+        },
+        "children": [
+          {
+            "type": "input",
+            "bind": "draft",
+            "props": {
+              "placeholder": "Add an item"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "actions": {
+    "set": {
+      "description": "Assign `value` to the state path `target`. The most common action — use it to update any state field.",
+      "shape": {
+        "action": "\"set\"",
+        "target": "string — state path, e.g. \"modalOpen\" or \"user.name\"",
+        "value?": "any — value to assign. Supports {state.x} expressions."
+      },
+      "example": {
+        "action": "set",
+        "target": "modalOpen",
+        "value": false
+      }
+    },
+    "toggle": {
+      "description": "Flip a boolean target, or toggle membership of `value` in an array target.",
+      "shape": {
+        "action": "\"toggle\"",
+        "target": "string — state path. If boolean, value is inverted; if array, `value` is added or removed.",
+        "value?": "any — when target is an array, the membership toggle key."
+      },
+      "example": {
+        "action": "toggle",
+        "target": "expanded"
+      }
+    },
+    "push": {
+      "description": "Append `value` to the array at `target`. Creates the array if undefined.",
+      "shape": {
+        "action": "\"push\"",
+        "target": "string — state path to an array.",
+        "value?": "any — item to append."
+      },
+      "example": {
+        "action": "push",
+        "target": "todos",
+        "value": {
+          "id": 1,
+          "text": "New task",
+          "done": false
+        }
+      }
+    },
+    "remove": {
+      "description": "Remove an item from the array at `target` — by `value` (equality match) or by `index`.",
+      "shape": {
+        "action": "\"remove\"",
+        "target": "string — state path to an array.",
+        "value?": "any — first matching item is removed.",
+        "index?": "number — remove by position instead."
+      },
+      "example": {
+        "action": "remove",
+        "target": "todos",
+        "index": 0
+      }
+    },
+    "open": {
+      "description": "Set the target state path to `true`. Idiomatic shortcut for opening a modal or dialog whose `value` is bound to that path.",
+      "shape": {
+        "action": "\"open\"",
+        "target": "string — state path that controls the modal/dialog open state."
+      },
+      "example": {
+        "action": "open",
+        "target": "confirmDeleteOpen"
+      }
+    },
+    "emit": {
+      "description": "Emit a custom event up to the host. Use to hand control back to the host pipeline (e.g. \"submit complete, take it from here\").",
+      "shape": {
+        "action": "\"emit\"",
+        "target?": "string — event name.",
+        "value?": "any — event payload."
+      },
+      "example": {
+        "action": "emit",
+        "target": "submitted",
+        "value": "{state.formData}"
+      }
+    }
+  },
+  "widgets": [
+    {
+      "type": "text",
+      "category": "display",
+      "description": "A run of plain text. No markdown: put formatting in the reply prose instead.",
+      "props": {
+        "content": {
+          "type": "string",
+          "required": true,
+          "description": "The text."
+        },
+        "tone": {
+          "type": "\"default\" | \"muted\"",
+          "required": false,
+          "description": "muted for secondary lines."
+        }
+      },
+      "example": {
+        "type": "text",
+        "props": {
+          "content": "Ships in 2 working days."
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "category": "display",
+      "description": "A short title for a block.",
+      "props": {
+        "content": {
+          "type": "string",
+          "required": true,
+          "description": "The title, under 200 characters."
+        },
+        "level": {
+          "type": "2 | 3 | 4",
+          "required": false,
+          "description": "Heading level. Default 3."
+        }
+      },
+      "example": {
+        "type": "heading",
+        "props": {
+          "content": "Your options"
+        }
+      }
+    },
+    {
+      "type": "badge",
+      "category": "display",
+      "description": "A short status label, such as stock or delivery time.",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "description": "Under 80 characters."
+        },
+        "tone": {
+          "type": "\"neutral\" | \"success\" | \"warning\" | \"danger\"",
+          "required": false,
+          "description": "Default neutral."
+        }
+      },
+      "example": {
+        "type": "badge",
+        "props": {
+          "label": "In stock",
+          "tone": "success"
+        }
+      }
+    },
+    {
+      "type": "button",
+      "category": "input",
+      "description": "A button. on_click runs local actions (set, toggle, ...) or an emit the bar acts on: target \"add_to_cart\" with value { product_id, qty? }, or target \"checkout\". Any other emit is ignored.",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "description": "Button text, under 60 characters."
+        },
+        "variant": {
+          "type": "\"primary\" | \"secondary\"",
+          "required": false,
+          "description": "primary for the one main action."
+        },
+        "disabled": {
+          "type": "boolean",
+          "required": false,
+          "description": "Disable the button."
+        }
+      },
+      "events": {
+        "on_click": {
+          "type": "EventAction",
+          "required": false,
+          "description": "Action run on click."
+        }
+      },
+      "example": {
+        "type": "button",
+        "props": {
+          "label": "Add to cart",
+          "variant": "primary"
+        },
+        "on_click": {
+          "action": "emit",
+          "target": "add_to_cart",
+          "value": {
+            "product_id": "wetsuit-43"
+          }
+        }
+      }
+    },
+    {
+      "type": "stack",
+      "category": "layout",
+      "description": "Lays its children out in a column (default) or a wrapping row. The only layout widget.",
+      "props": {
+        "direction": {
+          "type": "\"column\" | \"row\"",
+          "required": false,
+          "description": "Default column."
+        },
+        "gap": {
+          "type": "\"sm\" | \"md\" | \"lg\"",
+          "required": false,
+          "description": "Default md."
+        },
+        "align": {
+          "type": "\"start\" | \"center\" | \"end\"",
+          "required": false,
+          "description": "Default start."
+        }
+      },
+      "example": {
+        "type": "stack",
+        "props": {
+          "direction": "row",
+          "gap": "sm"
+        },
+        "children": [
+          {
+            "type": "badge",
+            "props": {
+              "label": "In stock",
+              "tone": "success"
+            }
+          },
+          {
+            "type": "text",
+            "props": {
+              "content": "Ships tomorrow",
+              "tone": "muted"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "product-card",
+      "category": "commerce",
+      "description": "Products from the site's catalog with add-to-cart and checkout buttons. Give catalog ids only; the server fills in name, price and image.",
+      "props": {
+        "ids": {
+          "type": "string[]",
+          "required": true,
+          "description": "Catalog product ids, most relevant first."
+        }
+      },
+      "example": {
+        "type": "product-card",
+        "props": {
+          "ids": [
+            "wetsuit-43",
+            "booties-5mm"
+          ]
+        }
+      }
+    },
+    {
+      "type": "form",
+      "category": "input",
+      "description": "Collects the details a gated action needs, then submits it for the business to approve. verb must be a declared gated action and every field name one of its args.",
+      "props": {
+        "verb": {
+          "type": "string",
+          "required": true,
+          "description": "The gated action, e.g. \"book_visit\"."
+        },
+        "title": {
+          "type": "string",
+          "required": false,
+          "description": "Short title."
+        },
+        "submit_label": {
+          "type": "string",
+          "required": false,
+          "description": "Button text."
+        },
+        "fields": {
+          "type": "Array<{ name: string; label: string; type: \"text\" | \"tel\" | \"email\" | \"number\" | \"textarea\" }>",
+          "required": true,
+          "description": "At most 8 fields, names unique."
+        }
+      },
+      "example": {
+        "type": "form",
+        "props": {
+          "verb": "book_visit",
+          "title": "Book a fitting",
+          "submit_label": "Request",
+          "fields": [
+            {
+              "name": "name",
+              "label": "Name",
+              "type": "text"
+            },
+            {
+              "name": "phone",
+              "label": "Phone",
+              "type": "tel"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

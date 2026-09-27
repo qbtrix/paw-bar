@@ -15,6 +15,10 @@
   "Card unavailable" fallback instead of throwing at render. Inside the new
   bar's thread (inBarThread), product cards render through BarCatalog and the
   fallback drops role=status: the thread is the bar's one live region.
+  2026-09-27 (spec cards): a fence whose JSON has a `ui` object is a Ripple
+  spec, not a legacy card. lib/spec-card.ts bounds it (size, nodes, depth) and
+  it renders through SpecCard with the bar's own widgets; a spec over a bound
+  takes the same "Card unavailable" line. Legacy cards are unchanged.
 -->
 <script lang="ts">
   import { parseCard, isRenderable } from '../../lib/cards';
@@ -23,15 +27,20 @@
   import BarCatalog from '../bar/BarCatalog.svelte';
   import { useCart } from '../../store/cart.svelte';
   import { inBarThread } from './thread';
+  import { parseSpecCard } from '../../lib/spec-card';
+  import SpecCard from '../spec-widgets/SpecCard.svelte';
 
   let { json }: { json: string } = $props();
-  const card = $derived(parseCard(json));
+  const specCard = $derived(parseSpecCard(json));
+  const card = $derived(specCard.kind === 'legacy' ? parseCard(json) : null);
   // Both renderers act through the cart store; without one a card can do nothing.
   const cart = useCart();
   const thread = inBarThread();
 </script>
 
-{#if cart && card && isRenderable(card) && card.kind === 'form'}
+{#if cart && specCard.kind === 'spec'}
+  <SpecCard spec={specCard.spec} />
+{:else if cart && card && isRenderable(card) && card.kind === 'form'}
   <FormCard {card} />
 {:else if cart && card && isRenderable(card) && thread}
   <BarCatalog items={card.items} />

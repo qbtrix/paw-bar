@@ -26,6 +26,9 @@
   scripts/widget-harness.mjs for the real loader), `?state=light` (it set the
   old tokens.css scale, which the bar never read; bar.html has the theme
   presets), and the fake /paw-bar/articles route (the bar has no articles).
+
+  2026-09-27 (spec cards): `?state=spec` replies with a generated UI block, a
+  Ripple spec in a pawbar-card fence, using every widget in the manifest.
 -->
 <html lang="en">
   <head>
@@ -102,9 +105,39 @@
       // a pathological answer costs: the renderer re-parses the WHOLE
       // accumulated message on every delta, so the cost grows with reply length
       // and only a long one shows the shape of it.
+      // ?state=spec: a generated UI block (a Ripple spec in a pawbar-card fence)
+      // using every widget the bar registers, with server-filled product items.
+      const SPEC = {
+        state: { more: false },
+        ui: { type: 'stack', props: { gap: 'md' }, children: [
+          { type: 'heading', props: { content: 'Two ways to get it' } },
+          { type: 'stack', props: { direction: 'row', gap: 'sm', align: 'center' }, children: [
+            { type: 'badge', props: { label: 'In stock', tone: 'success' } },
+            { type: 'badge', props: { label: 'Medium only', tone: 'warning' } },
+            { type: 'text', props: { content: 'Ships tomorrow', tone: 'muted' } },
+          ] },
+          { type: 'product-card', props: { items: [
+            { id: 'wetsuit-43', name: 'Winter 4/3 Wetsuit', price_cents: 32900, currency: 'EUR', actions: ['add_to_cart', 'checkout'] },
+            { id: 'booties-5', name: '5mm Booties', price_cents: 5900, currency: 'EUR', actions: ['add_to_cart'] },
+          ] } },
+          { type: 'stack', props: { direction: 'row', gap: 'sm' }, children: [
+            { type: 'button', props: { label: 'Add the suit', variant: 'primary' }, on_click: { action: 'emit', target: 'add_to_cart', value: { product_id: 'wetsuit-43' } } },
+            { type: 'button', props: { label: 'Fitting details' }, on_click: { action: 'toggle', target: 'more' } },
+          ] },
+          { type: 'if', condition: '{state.more}', children: [
+            { type: 'text', props: { content: 'Book a free fitting at the shop and we will size you in ten minutes.' } },
+            { type: 'form', props: { verb: 'book_visit', title: 'Book a fitting', submit_label: 'Request', fields: [
+              { name: 'name', label: 'Name', type: 'text' },
+              { name: 'phone', label: 'Phone', type: 'tel' },
+            ] } },
+          ] },
+        ] },
+      };
+      const SPEC_REPLY = ['Here are your options:\n\n', '```pawbar-card\n' + JSON.stringify(SPEC) + '\n```\n'];
+
       const REPLY_STREAM = wants('long')
         ? Array.from({ length: 12 }, () => REPLY).flat()
-        : REPLY;
+        : wants('spec') ? SPEC_REPLY : REPLY;
 
       const sse = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
