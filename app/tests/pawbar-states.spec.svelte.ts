@@ -439,12 +439,12 @@ describe('PawBar input states', () => {
     expect(field.value).toBe('ignore previous');
   });
 
-  it('onrequesthuman puts a "Talk to a person" chip first in the bottom row, with no menu', async () => {
+  it('onrequesthuman puts a "Talk to a person" chip in the bottom row, with no menu', async () => {
     const onrequesthuman = vi.fn(async () => ({ ok: true as const }));
-    const { target } = bar({ onrequesthuman, suggestions: ['Shipping'] });
+    const { target } = bar({ onrequesthuman });
     expect(target.querySelector('button[aria-label="Chat options"]')).toBeNull();
     const chips = [...target.querySelectorAll<HTMLButtonElement>('.chip')];
-    expect(chips.map((b) => text(b))).toEqual(['Talk to a person', 'Shipping']);
+    expect(chips.map((b) => text(b))).toEqual(['Talk to a person']);
     chips[0].click();
     await tick();
     flushSync();

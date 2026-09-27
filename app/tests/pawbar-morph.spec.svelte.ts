@@ -1,7 +1,8 @@
 // tests/pawbar-morph.spec.svelte.ts — the single-component PawBar (2026-09-27).
 // Covers which face shows when: hover opens it for a mouse only, click opens
 // and focuses the field, a draft holds it open after the pointer leaves,
-// Escape folds it back, and Enter sends.
+// Escape folds it back, and Enter sends. 2026-09-27: no suggestion chips; the
+// only chip is "Talk to a person".
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
@@ -38,7 +39,7 @@ function render(extra: Record<string, unknown> = {}) {
   const onsend = vi.fn();
   live = mount(PawBar, {
     target,
-    props: { suggestions: ['Build your new Q3', 'Explore all features'], onsend, ...extra },
+    props: { onsend, ...extra },
   });
   flushSync();
   // Hover and focus are tracked on the host, which also holds the menu; the
@@ -126,10 +127,10 @@ describe('PawBar morph', () => {
     expect(root.classList.contains('expanded')).toBe(false);
   });
 
-  it('a chip sends its text by default', async () => {
-    const { target, onsend, host } = render();
+  it('the card has no suggestion chips, only the person chip when there is a human path', () => {
+    const { target, host } = render({ onrequesthuman: vi.fn() });
     pointer(host, 'pointerenter');
-    target.querySelector<HTMLButtonElement>('.chip.primary')!.click();
-    expect(onsend).toHaveBeenCalledWith('Build your new Q3');
+    const chips = [...target.querySelectorAll('.chip')];
+    expect(chips.map((c) => c.textContent?.trim())).toEqual(['Talk to a person']);
   });
 });

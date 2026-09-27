@@ -143,6 +143,8 @@
     mount), the window is the viewport and is used as before.
     `onopenchange` reports the card opening and closing, and
     `outsidePress()` / `closeChat()` are exported, all for the shell.
+  • No suggestion chips (captain, 2026-09-27): the `suggestions` prop is gone
+    along with PawBar's; the agent's starters are not shown anywhere.
   • Header (captain, 2026-09-27: the ✕ belongs at the top, not in the
     input). Whenever the thread shows, a slim row sits at the top of the
     frame: the conversations clock on the left, full screen (`expandable`)
@@ -225,7 +227,6 @@
   let {
     messages = [],
     placeholder,
-    suggestions = [],
     expanded = $bindable(false),
     logo,
     logoSrc = '',
@@ -273,7 +274,6 @@
   }: {
     messages?: BarMessage[];
     placeholder?: string;
-    suggestions?: string[];
     expanded?: boolean;
     logo?: Snippet;
     /** The site's brand logo, shown in the resting pill. */
@@ -1165,7 +1165,6 @@
     narrow={viewportW < 360}
     {expandable}
     footer={history ? listFooter : undefined}
-    {suggestions}
     {logo}
     {logoSrc}
     {launcher}
