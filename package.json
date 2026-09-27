@@ -1,22 +1,11 @@
 {
-  "_comment": "Renamed 2026-07-08 to Paw Bar (package paw-bar-widget). Rename-only change; no behavior refactor. 2026-09-26: test:sandbox runs the frame-sandbox e2e (playwright.sandbox.config.ts, three engines; build the loader first).",
+  "_comment": "Renamed 2026-07-08 to Paw Bar (package paw-bar-widget). Rename-only change; no behavior refactor. 2026-09-26: test:sandbox runs the frame-sandbox e2e (playwright.sandbox.config.ts, three engines; build the loader first). 2026-09-27: removed the old zero-dependency vanilla widget (src/, build.mjs, scripts/check-size.mjs, dist/widget.js) and the scripts, Playwright config, tests and fields that only served it (main, files, build, test, test:size, clean, http-server). The package now builds and tests the loader; the widget app lives in app/.",
   "name": "paw-bar-widget",
   "version": "0.1.0",
-  "description": "Embeddable customer-facing widget for Paw OS pockets. Zero framework deps, <10KB gzipped.",
+  "description": "Paw Bar: the embed loader (loader/) and the iframe chat app (app/) for Paw OS sites.",
   "private": true,
   "type": "module",
-  "main": "dist/widget.js",
-  "files": [
-    "dist/widget.js",
-    "dist/widget.js.map",
-    "src/",
-    "README.md"
-  ],
   "scripts": {
-    "build": "node build.mjs",
-    "test": "playwright test",
-    "test:size": "node scripts/check-size.mjs",
-    "clean": "rm -rf dist",
     "build:loader": "node loader/build.mjs",
     "size:loader": "node loader/scripts/check-size.mjs",
     "typecheck:loader": "tsc -p loader/tsconfig.json --noEmit",
@@ -26,7 +15,6 @@
   "devDependencies": {
     "@playwright/test": "1.55.0",
     "esbuild": "0.25.0",
-    "http-server": "14.1.1",
     "jsdom": "29.0.1",
     "typescript": "5.8.3"
   },
