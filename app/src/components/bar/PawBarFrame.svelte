@@ -131,7 +131,9 @@
     field there would type into a conversation the visitor is not looking
     at. `onnewconversation` runs only when the current thread has turns (an
     empty one is already new; the button just goes back to it). Leaving the
-    list brings the field back with focus in it and the draft intact. None of it is in a ⋯ menu any
+    list brings the field back with focus in it and the draft intact. The
+    header's right side is a ✕ that closes the bar outright (PawBar
+    closeChat), matching the ✕ on the card. None of it is in a ⋯ menu any
     more (captain, 2026-09-27), and `resizable` (the visitor size menu) is
     off by default. The list is a plain region, never inside the
     live log, and Escape inside it goes back to the thread. A conversation
@@ -877,8 +879,11 @@
             Back
           </button>
           <h2 class="history-title">Conversations</h2>
-          <!-- Balances Back so the title sits in the middle. -->
-          <span class="history-spacer" aria-hidden="true"></span>
+          <button type="button" class="list-close" aria-label="Close chat" title="Close" onclick={() => bar?.closeChat()}>
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+            </svg>
+          </button>
         </div>
         <ul class="history-list">
           {#each conversations as c (c.id)}
@@ -1277,8 +1282,27 @@
     align-items: center;
     gap: 8px;
   }
-  .history-spacer {
+  /* As wide as Back, so the title stays in the middle; the glyph sits at
+     the far end. */
+  .list-close {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
     width: 64px;
+    height: 28px;
+    padding: 0 6px;
+    border: none;
+    border-radius: min(var(--pawbar-radius, 8px), 8px);
+    background: none;
+    color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
+    cursor: pointer;
+  }
+  .list-close:hover {
+    color: var(--pawbar-frame-fg, #f2f2f5);
+  }
+  .list-close:focus-visible {
+    outline: 2px solid var(--pawbar-ring, currentColor);
+    outline-offset: 2px;
   }
   .new-conversation {
     display: flex;

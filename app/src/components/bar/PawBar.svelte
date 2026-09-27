@@ -96,6 +96,15 @@
     the frame's conversation list uses it for one "New conversation" button,
     because a field there would type into a conversation the visitor is not
     looking at.
+    A ✕ (Close chat) sits at the end of the top row on every card, both
+    launchers and full screen alike (captain, 2026-09-27: closing on an
+    outside click is not discoverable enough). It is a real close: it leaves
+    full screen and the Talk-to-a-person panel, and folds the card even with
+    a draft typed, which would otherwise hold it open. The draft is kept for
+    the next open. Hover cannot reopen it until the pointer has left the
+    bar, because the surface reshaping under a still pointer fires a fresh
+    pointerenter. `closeChat()` is exported for the frame's list header.
+    Escape still peels one layer at a time and keeps a drafted card open.
     ⋯ is left for the sizes, and only when the owner turns on `resizable`
     (now off by default). Low-frequency items (privacy, delete my data)
     belong there when they arrive.
@@ -287,9 +296,17 @@
   let focusInside = $state(false);
   let menuOpen = $state(false);
   let contactOpen = $state(false);
+  // Set by ✕: nothing but a new open (a pin, a fresh hover, focus back in the
+  // card) brings the card back, not even the draft it is holding.
+  let dismissed = $state(false);
   const open = $derived(
-    expanded || fullscreen || hovering || focusInside || menuOpen || contactOpen || value.trim().length > 0,
+    expanded ||
+      fullscreen ||
+      (!dismissed && (hovering || focusInside || menuOpen || contactOpen || value.trim().length > 0)),
   );
+  $effect(() => {
+    if (expanded || fullscreen) dismissed = false;
+  });
   let leaveTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => {
@@ -369,7 +386,18 @@
   function onEnter(e: PointerEvent) {
     if (e.pointerType !== 'mouse' || isIcon) return;
     clearTimeout(leaveTimer);
+    if (hoverLocked) return;
     hovering = true;
+    dismissed = false;
+  }
+  // After ✕ the pointer is usually still over the bar, and the surface
+  // reshaping under it fires a fresh pointerenter, which reopened the card on
+  // the spot. Hover stays off until the pointer is seen outside the boundary.
+  let hoverLocked = false;
+  function onWindowPointermove(e: PointerEvent) {
+    if (!hoverLocked) return;
+    const inside = boundary ?? hostEl;
+    if (inside && !inside.contains(e.target as Node)) hoverLocked = false;
   }
   // A short grace period so skimming the edge does not flicker it shut.
   function onLeave(e: PointerEvent) {
@@ -382,6 +410,7 @@
   // card would reopen the moment it closed.
   function onFocusIn(e: FocusEvent) {
     focusInside = !!(e.target as Element | null)?.closest?.('.card, .menu');
+    if (focusInside) dismissed = false;
   }
   function onFocusOut(e: FocusEvent) {
     if (!hostEl?.contains(e.relatedTarget as Node | null)) focusInside = false;
@@ -392,6 +421,15 @@
     expanded = true;
     await tick();
     fieldEl?.focus();
+  }
+
+  /** ✕: close for real, from any layer, whatever is typed. */
+  export async function closeChat() {
+    contactOpen = false;
+    setFullscreen(false);
+    dismissed = true;
+    hoverLocked = true;
+    await close();
   }
 
   async function close() {
@@ -582,7 +620,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
+<svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} onpointermove={onWindowPointermove} />
 
 {#snippet dots()}
   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -707,13 +745,11 @@
             </button>
           {/if}
           {@render menuButton()}
-          {#if isIcon && !fullscreen}
-            <button type="button" class="icon" aria-label="Close chat" onclick={close}>
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
-              </svg>
-            </button>
-          {/if}
+          <button type="button" class="icon" aria-label="Close chat" title="Close" onclick={closeChat}>
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+            </svg>
+          </button>
         </div>
         {#if contactOpen}
           <div class="contact" role="group" aria-labelledby="pb-contact-title" transition:fade={swap}>

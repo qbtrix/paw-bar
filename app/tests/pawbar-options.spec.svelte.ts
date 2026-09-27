@@ -4,6 +4,10 @@
 // (an icon in the card's top row; Escape leaves it before closing anything), the icon launcher (click-only, ✕ to close), and theme presets
 // (applied as --pawbar-* properties, cleared when switching), and the owner's
 // corner `radius`, which beats the theme's and is clamped to 0–40px.
+// 2026-09-27: ✕ closes the card on both launchers and from full screen, even
+// with a draft typed (the draft comes back on the next open), a pointer left
+// over the bar cannot hover it back open until it leaves, and the
+// conversation list has its own ✕.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
@@ -37,8 +41,9 @@ afterEach(() => {
 function render(extra: Record<string, unknown> = {}) {
   const target = document.createElement('div');
   document.body.append(target);
-  const props = $state({ messages: [], onsend: vi.fn(), ...extra });
-  live = mount(PawBarFrame, { target, props });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const props: Record<string, any> = $state({ messages: [], onsend: vi.fn(), ...extra });
+  live = mount(PawBarFrame, { target, props: props as never });
   flushSync();
   return { target, props };
 }
@@ -125,6 +130,83 @@ describe('icon launcher', () => {
     flushSync();
     expect(q(target, '.card')).toBeNull();
     expect(q(target, '.launch')).not.toBeNull();
+  });
+});
+
+describe('close (✕)', () => {
+  const closeBtn = (t: HTMLElement) => q<HTMLButtonElement>(t, '.card button[aria-label="Close chat"]')!;
+  const type = (t: HTMLElement, v: string) => {
+    const f = q<HTMLTextAreaElement>(t, 'textarea')!;
+    f.value = v;
+    f.dispatchEvent(new Event('input'));
+    flushSync();
+  };
+
+  it('the bar launcher has one too, and it closes the card', async () => {
+    const { target, props } = render({ expanded: true });
+    closeBtn(target).click();
+    await tick();
+    flushSync();
+    expect(q(target, '.card')).toBeNull();
+    expect(q(target, '.pill')).not.toBeNull();
+    expect(props.expanded).toBe(false);
+  });
+
+  it('closes even with a draft typed, and the draft comes back on the next open', async () => {
+    const { target, props } = render({ expanded: true });
+    type(target, 'half a question');
+    closeBtn(target).click();
+    await tick();
+    flushSync();
+    expect(q(target, '.card')).toBeNull();
+
+    props.expanded = true;
+    flushSync();
+    expect(q<HTMLTextAreaElement>(target, 'textarea')!.value).toBe('half a question');
+  });
+
+  it('a pointer still over the bar does not reopen it; leaving and coming back does', async () => {
+    const { target } = render({ expanded: true });
+    const wrap = q(target, '.frame-wrap')!;
+    const enter = () => {
+      wrap.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+      flushSync();
+    };
+    enter();
+    closeBtn(target).click();
+    await tick();
+    flushSync();
+    enter();
+    expect(q(target, '.card')).toBeNull();
+
+    document.body.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse' }));
+    enter();
+    expect(q(target, '.card')).not.toBeNull();
+  });
+
+  it('closes from full screen in one go', async () => {
+    const { target } = render({ expanded: true, fullscreen: true });
+    closeBtn(target).click();
+    await tick();
+    flushSync();
+    expect(q(target, '.frame-wrap')!.dataset.full).toBeUndefined();
+    expect(q(target, '.card')).toBeNull();
+  });
+
+  it('the conversation list has its own ✕ that closes the bar', async () => {
+    const { target } = render({
+      expanded: true,
+      messages: [{ id: 'u1', role: 'user', content: 'hi', status: 'done' }],
+      onopenconversation: vi.fn(),
+    });
+    q<HTMLButtonElement>(target, 'button[aria-label="Your conversations"]')!.click();
+    await tick();
+    flushSync();
+    q<HTMLButtonElement>(target, '.list-close')!.click();
+    await tick();
+    flushSync();
+    expect(q(target, '.card')).toBeNull();
+    expect(q(target, '.history-row')).toBeNull();
   });
 });
 
