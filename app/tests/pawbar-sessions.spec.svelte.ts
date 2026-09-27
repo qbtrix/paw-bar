@@ -7,6 +7,7 @@
 // scrolled up, and an emptied thread starts over. The bar's own state
 // survives a page load per tab: it comes back closed as a continue pill (no
 // dot, no announcement), the draft returns on the first pin and not on load,
+// the scroll position is saved on pagehide,
 // and nothing is written before the first open or while consent is required.
 // The AI disclosure is always under the open bar and cannot be blanked.
 // Consent holds a send until Accept, then sends it once.
@@ -243,6 +244,19 @@ describe('across page loads (V12)', () => {
     const saved = readBarSession('w1')!;
     expect(saved.open).toBe(true);
     expect(saved.draft).toBe('and to Bergen?');
+  });
+
+  it('the scroll position is taken when the page goes away, not at the last state change', () => {
+    frame({ persistKey: 'w1', messages: thread, expanded: true, fullscreen: true });
+    const el = document.querySelector<HTMLElement>('.thread')!;
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(el, 'clientHeight', { configurable: true, value: 300 });
+    el.scrollTop = 100;
+    el.dispatchEvent(new Event('scroll'));
+    flushSync();
+    expect(readBarSession('w1')!.scroll).toBeNull();
+    window.dispatchEvent(new Event('pagehide'));
+    expect(readBarSession('w1')!.scroll).toBe(100);
   });
 
   it('a bar that was open comes back closed, as a continue pill with no dot and no announcement', () => {

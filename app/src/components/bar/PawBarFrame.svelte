@@ -135,7 +135,9 @@
     follows again.
   • `persistKey` (the widget id) keeps the bar's own state per tab in
     sessionStorage (lib/bar-session): pinned, full screen, the draft, the
-    scroll position. On the next page a bar that was open comes back CLOSED,
+    scroll position. It is written on every state change and again on
+    `pagehide`, because scrolling changes no state and the position that
+    matters is the one at the moment of the click that left the page. On the next page a bar that was open comes back CLOSED,
     as a continue pill with the last answer's first line (activity
     'resume'); opening it restores full screen and the scroll position. The
     draft is handed back on the first pin, never on load, because a draft
@@ -799,7 +801,7 @@
   const leave = $derived({ duration: prefersReducedMotion.current ? 0 : 120 });
 </script>
 
-<svelte:window bind:innerHeight={viewportH} bind:innerWidth={viewportW} />
+<svelte:window bind:innerHeight={viewportH} bind:innerWidth={viewportW} onpagehide={snapshot} />
 
 {#snippet turnNote(m: BarMessage)}
   <p class="meta turn-note" class:error={m.status === 'error'} data-side={m.role === 'user' ? 'user' : 'bot'} in:fade={soft}>
