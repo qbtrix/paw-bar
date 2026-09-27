@@ -37,6 +37,8 @@
         arrives, or forever under an old loader, the screen's available size
         stands in. Never this window's: this window is the iframe, sized from
         the content, and sizing content against it is a feedback loop.
+  • The agent's conversation starters (config.starters) are not shown
+    (captain, 2026-09-27); the bar has no chips for them.
   • The stage sets a system font for the bar to inherit: in the iframe there
     is no site font, and glass.css (shared bundle) points the body at a token
     only the old shell defines, which left every word in Times.
@@ -275,7 +277,6 @@
     persistKey={config.widgetId}
     placeholder={config.launcherLabel || undefined}
     greeting={config.greeting}
-    suggestions={config.starters}
     logoSrc={config.logo}
     launcher={config.launcher}
     side={config.side}

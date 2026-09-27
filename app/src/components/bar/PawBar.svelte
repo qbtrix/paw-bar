@@ -11,8 +11,8 @@
             left or right (`side`). No hover; a click opens the card, which
             grows out of that corner, and ✕ or Escape puts it back.
 
-  Opened, both become the same card: textarea + ⋯ on top, suggestion chips +
-  send below. The card stays open while the pointer is over it, focus is in
+  Opened, both become the same card: the textarea on top, "Talk to a person"
+  and send below. The card stays open while the pointer is over it, focus is in
   it, the size menu is up, or it holds a draft, so nothing half-typed is lost.
   `expanded` is a bindable pin for opening it programmatically.
 
@@ -86,6 +86,11 @@
     because nothing new happened.
   • With no logo (or one that fails to load) the mark is the Lucide
     paw-print on the accent circle, not a blank circle (captain, 2026-09-27).
+  • No suggestion chips (captain, 2026-09-27): the agent's conversation
+    starters used to sit in the chips row beside "Talk to a person", where
+    they read as the widget's own controls and stayed mid-conversation. The
+    `suggestions` / `onsuggestion` props are gone; the row holds only the
+    person chip.
   • No visitor menu (captain, 2026-09-27: a ⋯ holding seven items confused
     people). Each action sits where it is used instead:
       – `onshowconversations`: a clock icon in the card's top row.
@@ -180,7 +185,6 @@
 
   let {
     placeholder = 'Ask anything…',
-    suggestions = [],
     expanded = $bindable(false),
     logo,
     logoSrc = '',
@@ -205,15 +209,12 @@
     chrome = true,
     narrow = false,
     footer,
-    onsuggestion,
     boundary = null,
     onopenchange,
     onsizechange,
     onready,
   }: {
     placeholder?: string;
-    /** Chips on the expanded card. The first reads as primary. */
-    suggestions?: string[];
     expanded?: boolean;
     /** Replaces the default round mark. */
     logo?: Snippet;
@@ -258,8 +259,6 @@
     /** Replaces the whole card (field, icons, chips, Send) while it is set.
      *  The draft is kept and comes back with the field. */
     footer?: Snippet;
-    /** Defaults to sending the chip's text. */
-    onsuggestion?: (text: string) => void;
     boundary?: HTMLElement | null;
     onopenchange?: (open: boolean) => void;
     onsizechange?: (size: BarSize) => void;
@@ -584,11 +583,6 @@
   // change. It empties as soon as the card opens, where the thread speaks.
   const announce = $derived(!open && (activity === 'unread' || activity === 'team') ? activityName : '');
 
-  function pick(text: string) {
-    if (onsuggestion) onsuggestion(text);
-    else send(text);
-  }
-
   function onFieldKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       // Swallowed mid-reply: no send, no newline, the draft stays.
@@ -846,9 +840,6 @@
                 {handoffPending ? 'Waiting for the team' : 'Talk to a person'}
               </button>
             {/if}
-            {#each suggestions as s, i (s)}
-              <button type="button" class="chip" class:primary={i === 0} onclick={() => pick(s)}>{s}</button>
-            {/each}
           </div>
           {#if streaming}
             <button type="button" class="send stop" bind:this={stopEl} aria-label="Stop reply" onclick={stop} in:fade={swap}>
@@ -1320,15 +1311,9 @@
   .chip:hover {
     background: color-mix(in oklab, currentColor 7%, transparent);
   }
-  .chip.primary {
-    border-color: transparent;
-    background: var(--pawbar-accent, #111114);
-    color: var(--pawbar-accent-fg, #fff);
-  }
   /* Hover on filled controls is a halo, not a lighter or darker fill: the
      accent is the site's, and "mix with white" does nothing to a white accent
      and too much to a pale one. A ring of the accent itself reads on both. */
-  .chip.primary:hover,
   .send.ready:hover {
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--pawbar-accent, #111114) 22%, transparent);
   }
