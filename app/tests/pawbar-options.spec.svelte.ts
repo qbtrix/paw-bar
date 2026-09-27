@@ -8,7 +8,8 @@
 // with a draft typed (the draft comes back on the next open), a pointer left
 // over the bar cannot hover it back open until it leaves, and the
 // conversation list has its own ✕. The controls (clock, full screen, ✕)
-// live in a header at the top of the chat, never in the input.
+// live in a header at the top of the chat, never in the input. Inside the
+// widget iframe, narrow checks and clamps read `hostViewport`, not the window.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
@@ -244,6 +245,31 @@ describe('close (✕)', () => {
     flushSync();
     expect(q(target, '.card')).toBeNull();
     expect(q(target, '.history-row')).toBeNull();
+  });
+});
+
+describe('host viewport (inside the widget iframe)', () => {
+  it('narrow checks and width clamps read the host page, not the window', () => {
+    const { target, props } = render({ hostViewport: { w: 320, h: 700 } });
+    const wrap = q(target, '.frame-wrap')!;
+    expect(wrap.style.getPropertyValue('--pb-host-w')).toBe('320px');
+    expect(wrap.style.getPropertyValue('--pb-host-h')).toBe('700px');
+    expect(q(target, '.pawbar-host')!.dataset.narrow).toBe('true');
+
+    props.hostViewport = { w: 1280, h: 800 };
+    flushSync();
+    expect(q(target, '.pawbar-host')!.dataset.narrow).toBeUndefined();
+  });
+
+  it('a narrow HOST opens a conversation full screen, whatever the window says', () => {
+    const { target, props } = render({
+      expanded: false,
+      hostViewport: { w: 390, h: 800 },
+      messages: [{ id: 'u1', role: 'user', content: 'hi', status: 'done' }],
+    });
+    props.expanded = true;
+    flushSync();
+    expect(q(target, '.frame-wrap')!.dataset.full).toBe('true');
   });
 });
 

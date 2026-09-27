@@ -18,6 +18,11 @@
 // the poll that delivers the site owner's own replies into the thread. It is
 // constructed AFTER the chat store so it seeds its `after` cursor from the
 // restored transcript; the shell starts/stops the loop with the panel.
+// 2026-09-27 (new bar): `config.ui` picks the widget. 'bar' (the default)
+// mounts BarShell, the new Paw Bar, which builds the chat and operator stores
+// itself once chatting is allowed (consent); owner-preview restyling targets
+// its wrapper. 'glass' mounts the old GlassShell exactly as before. Cart,
+// contact and conversations are shared by both and touch nothing until used.
 // 2026-09-26 (reply links): calls setLinkBase(config.parentOrigin) before
 // mount, so site-relative links in agent replies (`/returns`) resolve to the
 // host page instead of rendering as dead text (lib/markdown.ts validates it).
@@ -35,6 +40,7 @@ import { createPoster } from './lib/postmessage';
 import { applyTokens } from './lib/tokens';
 import { installPreviewTokenListener } from './lib/preview-tokens';
 import { setLinkBase } from './lib/markdown';
+import BarShell from './components/bar/BarShell.svelte';
 
 const config = readConfig();
 
@@ -63,55 +69,85 @@ const storeConfig = {
   widgetId: config.widgetId,
   siteKey: config.siteKey,
 };
-const store = new ChatStore(storeConfig);
 const cart = new CartStore(storeConfig);
 const contact = new ContactStore(storeConfig);
-const operator = new OperatorStore(store, storeConfig);
 // The visitor's own conversation list (2026-08-19, Messenger). Built after the
 // chat store so the panel can reconcile "which conversation am I in" against a
 // thread that has already rehydrated from localStorage.
 const conversations = new ConversationsStore(storeConfig);
 const poster = createPoster(config.parentOrigin);
 
-mount(GlassShell, {
-  target,
-  props: {
-    store,
-    cart,
-    contact,
-    operator,
-    conversations,
-    chatConfig: storeConfig,
-    poster,
-    scheme: config.scheme,
-    hostScheme: config.hostScheme,
-    greeting: config.greeting,
-    starters: config.starters,
-    agentName: config.agentName,
-    agentAvatar: config.agentAvatar,
-    agentSubtitle: config.agentSubtitle,
-    avatars: config.avatars,
-    launcherLabel: config.launcherLabel,
-    barResting: config.barResting,
-    // Lets the shell validate inbound loader messages (drag box, host intents)
-    // against the same origin the poster pins outbound messages to.
+if (config.ui === 'bar') mountBar();
+else mountGlass();
+
+/** The new Paw Bar. The chat and operator stores are built by the shell, and
+ *  only once chatting is allowed (see BarShell's consent gate). */
+function mountBar() {
+  mount(BarShell, {
+    target,
+    props: {
+      config,
+      poster,
+      cart,
+      contact,
+      conversations,
+      createChat: () => {
+        const chat = new ChatStore(storeConfig);
+        return { chat, operator: new OperatorStore(chat, storeConfig) };
+      },
+    },
+  });
+  installPreviewTokenListener({
+    preview: config.preview,
     parentOrigin: config.parentOrigin,
-  },
-});
+    getRoot: () => target.querySelector<HTMLElement>('.frame-wrap'),
+  });
+}
 
-// The root exists only once Svelte has drawn it, so the owner's overrides are
-// applied here rather than before mount. Synchronous — mount() has already
-// rendered by the time it returns — so the first painted frame is the styled
-// one and no visitor watches a default palette flip to the owner's.
-const root = target.querySelector<HTMLElement>('.pawbar-root');
-if (root) applyTokens(root, config.tokens);
+function mountGlass() {
+  const store = new ChatStore(storeConfig);
+  const operator = new OperatorStore(store, storeConfig);
 
-// Live restyling, owner preview ONLY. Both gates (preview flag + a known parent
-// origin) live in installPreviewTokenListener, which refuses to install rather
-// than installing something permissive — see lib/preview-tokens.ts.
-installPreviewTokenListener({
-  preview: config.preview,
-  parentOrigin: config.parentOrigin,
-  getRoot: () => target.querySelector<HTMLElement>('.pawbar-root'),
-});
+  mount(GlassShell, {
+    target,
+    props: {
+      store,
+      cart,
+      contact,
+      operator,
+      conversations,
+      chatConfig: storeConfig,
+      poster,
+      scheme: config.scheme,
+      hostScheme: config.hostScheme,
+      greeting: config.greeting,
+      starters: config.starters,
+      agentName: config.agentName,
+      agentAvatar: config.agentAvatar,
+      agentSubtitle: config.agentSubtitle,
+      avatars: config.avatars,
+      launcherLabel: config.launcherLabel,
+      barResting: config.barResting,
+      // Lets the shell validate inbound loader messages (drag box, host intents)
+      // against the same origin the poster pins outbound messages to.
+      parentOrigin: config.parentOrigin,
+    },
+  });
+
+  // The root exists only once Svelte has drawn it, so the owner's overrides are
+  // applied here rather than before mount. Synchronous — mount() has already
+  // rendered by the time it returns — so the first painted frame is the styled
+  // one and no visitor watches a default palette flip to the owner's.
+  const root = target.querySelector<HTMLElement>('.pawbar-root');
+  if (root) applyTokens(root, config.tokens);
+
+  // Live restyling, owner preview ONLY. Both gates (preview flag + a known parent
+  // origin) live in installPreviewTokenListener, which refuses to install rather
+  // than installing something permissive — see lib/preview-tokens.ts.
+  installPreviewTokenListener({
+    preview: config.preview,
+    parentOrigin: config.parentOrigin,
+    getRoot: () => target.querySelector<HTMLElement>('.pawbar-root'),
+  });
+}
 

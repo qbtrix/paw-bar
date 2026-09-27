@@ -134,6 +134,15 @@
     list brings the field back with focus in it and the draft intact. The
     header's right side is a ✕ that closes the bar outright (PawBar
     closeChat).
+  • `hostViewport` ({w, h} of the HOST page): set by the widget's shell,
+    which lives in an iframe sized from this content. The thread cap, the
+    narrow-screen check and every width clamp read it instead of the
+    window, which inside that iframe is the content's own size and would
+    shrink it a step per layout (see PawBar's header). It lands on the
+    wrapper as --pb-host-w / --pb-host-h. Absent (the demo, a standalone
+    mount), the window is the viewport and is used as before.
+    `onopenchange` reports the card opening and closing, and
+    `outsidePress()` / `closeChat()` are exported, all for the shell.
   • Header (captain, 2026-09-27: the ✕ belongs at the top, not in the
     input). Whenever the thread shows, a slim row sits at the top of the
     frame: the conversations clock on the left, full screen (`expandable`)
@@ -255,6 +264,8 @@
     onnewconversation,
     onopenconversation,
     persistKey = '',
+    hostViewport = null,
+    onopenchange,
     disclosure = '',
     privacyHref = '',
     consent = 'granted',
@@ -329,6 +340,10 @@
     onopenconversation?: (id: string) => void;
     /** Keeps the bar's own state across page loads in this tab (widget id). */
     persistKey?: string;
+    /** The host page's viewport, when the bar lives in a content-sized iframe. */
+    hostViewport?: { w: number; h: number } | null;
+    /** The card opened or closed, for any reason (hover included). */
+    onopenchange?: (open: boolean) => void;
     /** The owner's wording for the AI disclosure. It cannot be blank. */
     disclosure?: string;
     /** The owner's privacy policy, linked beside the disclosure. */
@@ -550,6 +565,14 @@
     if (messages.length > 0) await onnewconversation?.();
     void focusField();
   }
+  /** For the widget shell: a click on the host page, and the loader's close. */
+  export function outsidePress() {
+    bar?.outsidePress();
+  }
+  export function closeChat() {
+    void bar?.closeChat();
+  }
+
   async function toggleFull() {
     fullscreen = !fullscreen;
     await focusField();
@@ -722,14 +745,16 @@
   // of the viewport it may take.
   const THREAD_CAP: Record<BarSize, [number, number]> = { sm: [440, 0.58], md: [560, 0.64], lg: [720, 0.72] };
   let innerH = $state(0);
-  let viewportH = $state(typeof window === 'undefined' ? 800 : window.innerHeight);
+  let windowH = $state(typeof window === 'undefined' ? 800 : window.innerHeight);
+  const viewportH = $derived(hostViewport?.h || windowH);
   const cap = $derived(Math.min(THREAD_CAP[barSize][0], Math.round(viewportH * THREAD_CAP[barSize][1])));
 
   // ── Narrow screens ────────────────────────────────────────────────────────
   // A thread in a phone-sized card is a keyhole. Pinning the bar there with a
   // conversation to show opens it full screen instead (once per pin, so
   // leaving full screen with Escape is respected).
-  let viewportW = $state(typeof window === 'undefined' ? 1200 : window.innerWidth);
+  let windowW = $state(typeof window === 'undefined' ? 1200 : window.innerWidth);
+  const viewportW = $derived(hostViewport?.w || windowW);
   const narrow = $derived(viewportW < 600 || viewportH < 620);
   let wasPinned = false;
   $effect(() => {
@@ -841,7 +866,7 @@
   const leave = $derived({ duration: prefersReducedMotion.current ? 0 : 120 });
 </script>
 
-<svelte:window bind:innerHeight={viewportH} bind:innerWidth={viewportW} onpagehide={snapshot} />
+<svelte:window bind:innerHeight={windowH} bind:innerWidth={windowW} onpagehide={snapshot} />
 
 {#snippet listFooter()}
   <button type="button" class="new-conversation" onclick={newConversation}>
@@ -869,6 +894,8 @@
   data-launcher={launcher}
   data-full={fullscreen ? 'true' : undefined}
   data-pawbar-scheme={scheme}
+  style:--pb-host-w={hostViewport?.w ? `${hostViewport.w}px` : undefined}
+  style:--pb-host-h={hostViewport?.h ? `${hostViewport.h}px` : undefined}
   bind:this={frameEl}
 >
 <div class="frame" class:open={showThread}>
@@ -1135,6 +1162,7 @@
     onrequesthuman={unavailable && !unavailable.contactable ? undefined : onrequesthuman}
     {onstop}
     chrome={false}
+    narrow={viewportW < 360}
     {expandable}
     footer={history ? listFooter : undefined}
     {suggestions}
@@ -1145,7 +1173,10 @@
     {size}
     {resizable}
     onsend={send}
-    onopenchange={(o) => (barOpen = o)}
+    onopenchange={(o) => {
+      barOpen = o;
+      onopenchange?.(o);
+    }}
     onsizechange={(sz) => (barSize = sz)}
   />
 </div>

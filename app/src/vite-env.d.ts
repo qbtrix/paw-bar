@@ -5,6 +5,10 @@
 // 2026-07-16 (D4): added the optional `greeting` field — the owner's concierge
 // greeting the frame emits from the Site doc; the bar renders it as the
 // empty-state welcome (blank/absent falls back to the default copy).
+// 2026-09-27 (new bar): the optional owner settings the new Paw Bar reads
+// (`ui`, `barTheme`, `radius`, `launcher`, `side`, `barSize`, `logo`,
+// `disclosure`, `privacyHref`, `consentRequired`). The backend sends none of
+// them yet; config.ts defaults every one.
 /// <reference types="svelte" />
 /// <reference types="vite/client" />
 
@@ -45,6 +49,22 @@ interface PawBarBootConfig {
   /** How the docked bar rests: 'full' (always its whole width) or 'compact'
    *  (a narrow pill that widens on hover/focus). Absent → 'compact'. */
   barResting?: 'full' | 'compact';
+  /** Which widget to mount: the new bar (default) or the old 'glass' shell. */
+  ui?: 'bar' | 'glass';
+  /** A preset id from lib/bar-themes. `theme` above is an older, ignored field. */
+  barTheme?: string;
+  /** Corner radius in px (0–40). */
+  radius?: number;
+  launcher?: 'bar' | 'icon';
+  side?: 'left' | 'right';
+  barSize?: 'sm' | 'md' | 'lg';
+  /** The site's logo for the resting pill. Falls back to agentAvatar. */
+  logo?: string;
+  /** The owner's wording for the AI disclosure. Cannot remove it. */
+  disclosure?: string;
+  privacyHref?: string;
+  /** The site's consent manager says chatting needs consent first. */
+  consentRequired?: boolean;
 }
 
 interface Window {

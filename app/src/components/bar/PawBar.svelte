@@ -101,12 +101,19 @@
     outside click is not discoverable enough). It is a real close: it leaves
     full screen and the Talk-to-a-person panel, and folds the card even with
     a draft typed, which would otherwise hold it open. The draft is kept for
-    the next open. Hover cannot reopen it until the pointer has left the
+    the next open. `outsidePress()` is exported too: the widget shell calls
+    it for a click on the host page. Hover cannot reopen it until the pointer has left the
     bar, because the surface reshaping under a still pointer fires a fresh
     pointerenter. `closeChat()` is exported for the frame's list header.
     Escape still peels one layer at a time and keeps a drafted card open.
     A press anywhere inside a hover-opened card pins it, as a click on the
     pill does.
+    Host viewport (2026-09-27, iframe wiring): inside the widget's iframe,
+    `100vw` and width media queries measure the IFRAME, which is sized from
+    this very content, so any clamp against them is a feedback loop that
+    shrinks the bar a step at a time. Clamps read `--pb-host-w` instead
+    (set by the frame from the host page's viewport, 100vw when absent), and
+    the phone-width pill is the `narrow` prop, not a media query.
     `chrome={false}` takes the clock, full screen and ✕ out of the card:
     PawBarFrame draws them in a header at the top of the chat instead
     (captain, 2026-09-27: window controls belong at the top, not in the
@@ -194,6 +201,7 @@
     handoffPending = false,
     onshowconversations,
     chrome = true,
+    narrow = false,
     footer,
     onsuggestion,
     boundary = null,
@@ -243,6 +251,8 @@
     onshowconversations?: () => void;
     /** The clock, full screen and ✕ in the card's top row. */
     chrome?: boolean;
+    /** The host screen is narrower than the pill: it takes the width it has. */
+    narrow?: boolean;
     /** Replaces the whole card (field, icons, chips, Send) while it is set.
      *  The draft is kept and comes back with the field. */
     footer?: Snippet;
@@ -599,6 +609,11 @@
   function onWindowPointerdown(e: PointerEvent) {
     const inside = boundary ?? hostEl;
     if (!inside || inside.contains(e.target as Node)) return;
+    outsidePress();
+  }
+  /** A press outside the bar. Also called by the widget shell for a click on
+   *  the HOST page, which a frame's own listeners cannot see. */
+  export function outsidePress() {
     menuOpen = false;
     // Never fold a reply that is still being written.
     if (open && !value.trim() && !streaming) expanded = false;
@@ -688,6 +703,7 @@
      OUTSIDE the surface (which clips), and is our own hover/click boundary. -->
 <div
   class="pawbar-host"
+  data-narrow={narrow ? 'true' : undefined}
   data-size={effectiveSize}
   data-anchor={anchor}
   data-launcher={launcher}
@@ -1006,13 +1022,12 @@
     width: var(--pawbar-pill-width, var(--pb-pill-w));
   }
   /* A phone narrower than the pill: it takes the width it has, and the
-     placeholder or preview ellipsises. */
-  @media (max-width: 360px) {
-    .pill,
-    .pill.busy {
-      min-width: 0;
-      width: calc(100vw - 32px);
-    }
+     placeholder or preview ellipsises. A prop, not a media query: in the
+     widget's iframe a width query measures the iframe, not the phone. */
+  [data-narrow] .pill,
+  [data-narrow] .pill.busy {
+    min-width: 0;
+    width: calc(var(--pb-host-w, 100vw) - 32px);
   }
   .launcher {
     width: var(--pb-launch);
@@ -1231,7 +1246,7 @@
     display: flex;
     flex-direction: column;
     gap: 18px;
-    width: min(var(--pawbar-card-width, var(--pb-card-w)), calc(100vw - 48px));
+    width: min(var(--pawbar-card-width, var(--pb-card-w)), calc(var(--pb-host-w, 100vw) - 48px));
     padding: 14px 14px 12px 16px;
   }
   .row {
