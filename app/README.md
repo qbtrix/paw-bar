@@ -10,7 +10,13 @@
      about the frozen vanilla widget in ../src is gone with that widget.
      2026-09-27 (native markdown): marked and DOMPurify no longer ship; the
      build-output line, the test list and the security note describe the
-     parsed-tree renderer in src/lib/md/ instead. -->
+     parsed-tree renderer in src/lib/md/ instead.
+     2026-09-27 (spec renderer): added "Drawing a Ripple spec", covering
+     components/spec/ and the vendored @ripple-ui/core tarball.
+     2026-09-27 (slim runtime): the renderer runs on
+     @ripple-ui/core/headless/slim; sizes updated.
+     2026-09-27 (after the native markdown renderer merged): sizes re-measured;
+     no budget change is needed; the tarball is packed from ripple-iui main. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -132,6 +138,51 @@ Card parsing/validation lives in `src/lib/cards.ts`; transport in
 unknown `kind`, renders a quiet "card unavailable" line — never raw JSON. An
 in-flight (still-streaming) card fence shows the shimmer placeholder until it
 closes.
+
+## Drawing a Ripple spec
+
+`src/components/spec/` draws a Ripple spec (`{ ui, state?, theme? }`) with
+components the app passes in, keyed by spec `type`. Ripple's slim headless
+runtime (`@ripple-ui/core/headless/slim`) resolves expressions, `show`, `if`
+and `each`, holds state and runs `set`, `toggle`, `push`, `remove` and `open`;
+`SpecRenderer.svelte` and `SpecNode.svelte` only draw the result. Host actions
+(`emit`, `navigate`, `toast`, `pin`, `unpin`) go to `onEvent`, so bar actions
+such as add-to-cart arrive as `emit`. Other Ripple actions (`api`, flows,
+`animate`) are skipped with a warning. No Ripple widget, stylesheet or schema
+is bundled, and `tests/spec-renderer-imports.spec.ts` fails if anything beyond
+`svelte`, the slim runtime and that folder gets imported.
+
+```svelte
+<SpecRenderer {spec} components={{ text: Text, button: Button }} onEvent={handle} fallback={Unavailable} />
+```
+
+- **Props to components** match Ripple's NodeRenderer: resolved props, `id`,
+  `class`, `style`, the bound value and `name` for a bound node, `on*`
+  handlers, `hasChildren`, and one snippet per non-empty slot.
+- **Styling:** the spec's `theme` becomes CSS variables on the root, named as
+  Ripple names them (`--primary`, `--radius`, `--ripple-font-sans`, ...), and
+  `mode` becomes `data-mode`. Node `class` and `style` go to the component.
+  Spec CSS is agent-written, so `components/spec/style.ts` drops anything that
+  could load a resource or escape its declaration. The host's own `class` and
+  `style` on the root are applied last and win.
+- **Failures:** a type with no component, or a component that throws, draws
+  `fallback` for that node only.
+- **Size:** importing it takes `pawbar.js` from 59.5 KB to 67.6 KB gzipped
+  (measured 2026-09-27, after the native markdown renderer), inside the 80 KB
+  budget. It is not imported by `main.ts` yet, so `pawbar.js` is unchanged
+  until it is wired in.
+
+`@ripple-ui/core` is not on npm, so it is vendored as
+`vendor/ripple-ui-core-0.5.0.tgz`, packed from ripple-iui `main` (d8f3998),
+which has the fix for handlers inside `each` (#142), the slim runtime and the
+slim manifest (#143). A clean install may reuse a cached copy of a tarball with
+the same name; `bun pm cache rm` before reinstalling if the contents look stale.
+To update
+it, run `bun run build` and `npm pack` in ripple's `packages/core` and replace
+the tarball. bun keeps the tarball's hash in `bun.lock` and does not refresh it
+for a file with the same name, so update that one `sha512-` value by hand
+(`openssl dgst -sha512 -binary <tgz> | base64 -w0`) rather than deleting the
+entry: a fresh resolve also upgrades unrelated packages.
 
 ## Security note
 
