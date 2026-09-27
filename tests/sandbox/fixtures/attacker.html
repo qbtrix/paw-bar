@@ -1,0 +1,38 @@
+<!doctype html>
+<!--
+  tests/sandbox/fixtures/attacker.html — the page a hostile link in the frame
+  points at, served from a THIRD origin (neither host nor frame).
+  Created 2026-09-26 (security review).
+
+  If a browser turns that link into a popup and leaves it an opener, this page
+  tries the follow-up attack: `opener.top.location = <host>/pwned`, i.e. use the
+  sandboxed frame's window to reach and navigate the customer's page. It runs on
+  a click so it has real user activation, the strongest position an attacker
+  page can put itself in. The host origin arrives as ?h=.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>attacker</title>
+    <style>html, body { margin: 0; height: 100%; }</style>
+  </head>
+  <body>
+    <button id="go" type="button" style="width: 100%; height: 100%">go</button>
+    <div id="opener"></div>
+    <div id="result"></div>
+    <script>
+      const h = new URLSearchParams(location.search).get('h') || '';
+      document.getElementById('opener').textContent =
+        window.opener === null ? 'opener:null' : 'opener:live';
+      document.getElementById('go').addEventListener('click', () => {
+        const out = document.getElementById('result');
+        try {
+          window.opener.top.location = h + '/pwned';
+          out.textContent = 'no-throw';
+        } catch (e) {
+          out.textContent = 'threw:' + (e && e.name);
+        }
+      });
+    </script>
+  </body>
+</html>

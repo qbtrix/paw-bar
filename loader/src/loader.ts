@@ -38,6 +38,13 @@
 // usable while the bar is open" — an open bar is now the foreground, and one
 // click on the page puts it back.
 //
+// 2026-09-26 THE FRAME IS SANDBOXED (FRAME_SANDBOX). A reply link with
+// target="_top" could otherwise navigate the customer's whole page. The app's
+// sanitizer blocks that already; the sandbox is the browser-level backstop, and
+// the server sends the same flags as a `Content-Security-Policy: sandbox` header
+// on the frame response. The browser enforces the stricter of the two. The
+// attribute is set BEFORE src, because sandbox flags apply on navigation.
+//
 // SECURITY: inbound messages are honoured ONLY when event.origin === the frame
 // origin AND event.source === the iframe's own contentWindow. Every outbound
 // post pins targetOrigin to the frame origin — never "*". Idempotent; exposes
@@ -45,6 +52,26 @@
 
 const LOADED_FLAG = '__pawBarLoaderLoaded';
 const FRAME_PATH = '/paw-bar/frame';
+// The frame's sandbox. Each flag is here because the glass app needs it:
+// scripts (it is an app); same-origin, for two reasons: the visitor id and
+// transcript cache live in the frame's localStorage, and an opaque origin sends
+// `Origin: null` on its API calls, which fails the API's frame-origin gate
+// (nothing fetches with credentials, so this is not about cookies); forms (the
+// composer and two in-chat forms submit); popups + popups-to-escape-sandbox
+// (articles and checkout open via window.open and target=_blank links, and those
+// third-party pages should run as ordinary pages rather than inherit this
+// sandbox, e.g. without it they cannot raise a dialog); downloads (the
+// transcript Blob download).
+// Deliberately absent: every allow-top-navigation variant (the point of all
+// this), allow-modals, allow-pointer-lock, allow-orientation-lock and
+// allow-presentation. Keep in step with the server's CSP sandbox header.
+// Known gap, measured 2026-09-26: an escaped popup keeps its opener unless it
+// was opened noopener. In Firefox a link with a NAMED target (target="x") opens
+// such a popup, and from it `opener.top.location = ...` navigates the host page.
+// The app's sanitizer forces target=_blank rel=noopener on every link, which
+// closes that; tests/sandbox pins the behaviour per engine.
+export const FRAME_SANDBOX =
+  'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
 // v2: the anchor is the box's CENTER-BOTTOM point {cx, by}, not a top-left —
 // a top-left pins the smaller chip to the bar's left edge when views flip.
 const POS_KEY = '__pawbar_pos_v2';
@@ -265,6 +292,10 @@ function suppressed(win: LoaderWindow): boolean {
   const iframe = doc.createElement('iframe');
   iframe.title = 'Site concierge';
   iframe.setAttribute('allow', 'clipboard-write');
+  // BEFORE src, not after: sandbox flags take effect on the frame's next
+  // navigation, so setting them once src is assigned would leave the first load
+  // (the only one) unsandboxed. The unit test pins this ordering.
+  iframe.setAttribute('sandbox', FRAME_SANDBOX);
   // Inline styles are required here: the loader runs on a foreign page and must
   // neither depend on nor inject a stylesheet. One fixed, borderless box;
   // max-*:100v* is a CSS safety net so it can never exceed the viewport.
