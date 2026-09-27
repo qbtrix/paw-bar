@@ -4,6 +4,9 @@
 // owns the panel content and tells the loader when to resize/open/close. The
 // targetOrigin is ALWAYS pinned to the configured parentOrigin — never "*" —
 // so no other origin can observe these messages.
+// 2026-09-27 (new bar): resize() takes an optional `side` ('left' | 'right')
+// for the icon launcher's corner; a loader that predates it ignores the field.
+// The new bar (BarShell) sends only view('chip'), resize, expand and overlay.
 // 2026-07-15 bar-first contract: the docked resting state is now a center-bottom
 // BAR that minimizes to a CHIP (captain direction). New messages —
 //   {type:"pawbar:resize", h, w}      size of the docked content (w matters for chip)
@@ -41,7 +44,9 @@
 //     while it is off.
 
 export interface PawBarPoster {
-  resize(height: number, width?: number): void;
+  /** `side` docks an icon launcher in its corner (a loader that predates it
+   *  ignores the field and centres the box). */
+  resize(height: number, width?: number, side?: 'left' | 'right'): void;
   view(view: 'bar' | 'chip'): void;
   open(): void;
   /** Ask the loader for the big reading surface (true) or the docked column
@@ -78,11 +83,12 @@ export function createPoster(parentOrigin: string): PawBarPoster {
   }
 
   return {
-    resize(height: number, width?: number) {
+    resize(height: number, width?: number, side?: 'left' | 'right') {
       post({
         type: 'pawbar:resize',
         h: Math.max(0, Math.ceil(height)),
         ...(width !== undefined ? { w: Math.max(0, Math.ceil(width)) } : {}),
+        ...(side ? { side } : {}),
       });
     },
     view(view: 'bar' | 'chip') {

@@ -5,6 +5,8 @@
 //      are dropped without taking the good ones down, and every failure shape
 //      (404, refusal, network error, junk body) returns null so the widget
 //      behaves EXACTLY as it did before the endpoint existed.
+// 2026-09-27: `store.error` is gone; the empty reply is asserted as the
+// `empty` failure on the assistant turn, and "no error" as no failed turn.
 //   2. Append idempotency — repeat polls and a page reload (transcript
 //      restore) never duplicate an owner message; the "team joined" chip
 //      appears exactly once, ever.
@@ -16,6 +18,9 @@
 //   5. Poll lifecycle — immediate poll on start, no double-scheduling, no
 //      stacking behind a slow backend, paused while the tab is hidden, silent
 //      after stop().
+//   6. (2026-09-27) The closed-bar slow loop — 30s, and only while a person is
+//      in the conversation (a takeover, or an owner turn in the last 24h);
+//      start() switches it back to the 7s loop.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 import {
@@ -27,7 +32,7 @@ import {
 } from '../src/lib/operator-poll';
 import { loadTranscript, saveTranscript, serializeTranscript } from '../src/lib/transcript';
 import { ChatStore, JOIN_NOTICE, JOIN_NOTICE_ID } from '../src/store/chat.svelte';
-import { OperatorStore, OPERATOR_POLL_MS } from '../src/store/operator.svelte';
+import { OperatorStore, OPERATOR_CLOSED_POLL_MS, OPERATOR_POLL_MS } from '../src/store/operator.svelte';
 
 const config = { endpoint: 'http://test.local/api/v1', widgetId: 'w1', siteKey: 'k1' };
 const clientConfig = { ...config, signedKey: 'k1', customerRef: 'cust-abc' };
@@ -351,7 +356,7 @@ describe('human_replying frame', () => {
     const store = new ChatStore(config);
     await store.send('is anyone there?');
 
-    expect(store.error).toBeNull();
+    expect(store.messages.some((m) => m.status === 'error')).toBe(false);
     expect(store.isStreaming).toBe(false);
     expect(store.botPaused).toBe(true);
     expect(store.messages.map((m) => m.role)).toEqual(['user', 'system']);
@@ -366,7 +371,7 @@ describe('human_replying frame', () => {
     const store = new ChatStore(config);
     await store.send('hello?');
 
-    expect(store.error).toBeNull();
+    expect(store.messages.some((m) => m.status === 'error')).toBe(false);
     expect(store.messages[1].role).toBe('system');
     expect(store.messages[1].content.length).toBeGreaterThan(0);
   });
@@ -385,7 +390,7 @@ describe('human_replying frame', () => {
     await store.send('second');
 
     expect(store.messages.filter((m) => m.role === 'system')).toHaveLength(1);
-    expect(store.error).toBeNull();
+    expect(store.messages.some((m) => m.status === 'error')).toBe(false);
   });
 
   it('still flags a genuinely empty reply from a normal (unpaused) turn', async () => {
@@ -397,7 +402,7 @@ describe('human_replying frame', () => {
     const store = new ChatStore(config);
     await store.send('hi');
 
-    expect(store.error).toBe('No reply.');
+    expect(store.messages[1]).toMatchObject({ role: 'assistant', status: 'error', failure: 'empty' });
   });
 
   it('finalizes even when the backend hangs up without a stream_end', async () => {
@@ -408,7 +413,7 @@ describe('human_replying frame', () => {
     await store.send('hello?');
 
     expect(store.isStreaming).toBe(false);
-    expect(store.error).toBeNull();
+    expect(store.messages.some((m) => m.status === 'error')).toBe(false);
   });
 });
 
@@ -548,5 +553,66 @@ describe('OperatorStore lifecycle', () => {
     expect(chat.messages).toHaveLength(1);
     expect(chat.botPaused).toBe(false);
     expect(operator.after).toBe('');
+  });
+});
+
+// ── 6. Closed-bar slow poll ─────────────────────────────────────────────────
+describe('OperatorStore.startClosed', () => {
+  function pollMock() {
+    const mock = vi.fn().mockResolvedValue(jsonRes({ messages: [], bot_paused: true }));
+    vi.stubGlobal('fetch', mock);
+    return mock;
+  }
+
+  it('stays silent when nobody from the team is in the conversation', async () => {
+    vi.useFakeTimers();
+    const fetchMock = pollMock();
+    const operator = new OperatorStore(new ChatStore(config), config);
+    operator.startClosed();
+    await vi.advanceTimersByTimeAsync(OPERATOR_CLOSED_POLL_MS * 3);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(operator.running).toBe(true);
+  });
+
+  it('polls every 30s after a takeover, not every 7s', async () => {
+    vi.useFakeTimers();
+    const fetchMock = pollMock();
+    const chat = new ChatStore(config);
+    chat.botPaused = true;
+    const operator = new OperatorStore(chat, config);
+    operator.startClosed();
+    await vi.advanceTimersByTimeAsync(OPERATOR_POLL_MS);
+    expect(fetchMock).not.toHaveBeenCalled(); // no immediate poll, no fast cadence
+    await vi.advanceTimersByTimeAsync(OPERATOR_CLOSED_POLL_MS - OPERATOR_POLL_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('polls after a recent owner turn, but not a day-old one', async () => {
+    vi.useFakeTimers();
+    const fetchMock = pollMock();
+    const chat = new ChatStore(config);
+    chat.appendOperator([owner({ at: new Date(Date.now() - 25 * 3600_000).toISOString() })]);
+    const operator = new OperatorStore(chat, config);
+    operator.startClosed();
+    await vi.advanceTimersByTimeAsync(OPERATOR_CLOSED_POLL_MS);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    chat.appendOperator([owner({ content: 'Still there?', at: new Date().toISOString() })]);
+    await vi.advanceTimersByTimeAsync(OPERATOR_CLOSED_POLL_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('start() switches back to the 7s loop with an immediate poll', async () => {
+    vi.useFakeTimers();
+    const fetchMock = pollMock();
+    const operator = new OperatorStore(new ChatStore(config), config);
+    operator.startClosed();
+    operator.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(OPERATOR_POLL_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    operator.stop();
+    expect(operator.running).toBe(false);
   });
 });

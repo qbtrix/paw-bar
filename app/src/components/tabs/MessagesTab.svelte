@@ -12,10 +12,14 @@
      Three states worth naming, all of which happen in the first week of a real
      install: loading (first paint only), empty (nobody has ever written), and
      a list. The empty state does not apologise or explain the feature — it
-     offers the action, which is the only thing the visitor wants from it. -->
+     offers the action, which is the only thing the visitor wants from it.
+
+     2026-09-27: the relative age (`ago`) moved to lib/relative-time, shared
+     with the new bar's conversation list. No behaviour change. -->
 <script lang="ts">
   import Icon from '../Icon.svelte';
   import type { VisitorConversation } from '../../lib/conversations-client';
+  import { ago } from '../../lib/relative-time';
 
   let {
     conversations,
@@ -42,23 +46,6 @@
     const id = setInterval(() => (now = Date.now()), 60_000);
     return () => clearInterval(id);
   });
-
-  /** Compact relative age, matching what a messenger shows in a list row.
-   *  Anything older than a week reads as a date — "8d" stops being useful at
-   *  the point where the visitor would rather know when. */
-  function ago(iso: string, at: number): string {
-    if (!iso) return '';
-    const then = Date.parse(iso);
-    if (Number.isNaN(then)) return '';
-    const mins = Math.floor((at - then) / 60000);
-    if (mins < 1) return 'now';
-    if (mins < 60) return `${mins}m`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d`;
-    return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  }
 </script>
 
 <div class="messages">

@@ -5,6 +5,7 @@
 // transcript") produces the exact plain-text export as a pure function — the
 // component's Blob/anchor download is a thin wrapper around it. Menu open/close
 // lives as trivial view state inside GlassShell, so it isn't re-pinned here.
+// 2026-09-27: the raw `error` field is gone; reset leaves no near-input notice.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 import { loadTranscript, saveTranscript, serializeTranscript } from '../src/lib/transcript';
@@ -59,12 +60,11 @@ describe('ChatStore.reset (new conversation)', () => {
     saveTranscript('w1', [msg({ content: 'q' }), msg({ role: 'assistant', content: 'a' })]);
     const store = new ChatStore(config);
     expect(store.messages).toHaveLength(2); // hydrated — the row exists
-    store.error = 'stale error';
 
     await store.reset();
 
     expect(store.messages).toEqual([]);
-    expect(store.error).toBeNull();
+    expect(store.notice).toBeNull();
     expect(store.isStreaming).toBe(false);
     expect(store.conversationId).toBe('ppc_new');
     // A fresh store (= an iframe reload) resumes the NEW conversation, which is

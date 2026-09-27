@@ -45,6 +45,15 @@
 // on the frame response. The browser enforces the stricter of the two. The
 // attribute is set BEFORE src, because sandbox flags apply on navigation.
 //
+// 2026-09-27 THE NEW BAR. Two additive pieces for the rebuilt app, which docks
+// as a content-sized 'chip' for everything short of full screen:
+//   - {pawbar:resize} may carry `side: 'left' | 'right'`. With no dragged
+//     anchor, the box then sits in that corner (VIEWPORT_MARGIN/2 in) instead
+//     of centred: the icon launcher. An older app never sends it.
+//   - {pawbar:viewport,w,h} goes to the frame on load and on every host resize.
+//     The app sizes against it rather than its own window, which is the box
+//     this loader sizes from the app's own content (a feedback loop).
+//
 // SECURITY: inbound messages are honoured ONLY when event.origin === the frame
 // origin AND event.source === the iframe's own contentWindow. Every outbound
 // post pins targetOrigin to the frame origin — never "*". Idempotent; exposes
@@ -333,6 +342,8 @@ function suppressed(win: LoaderWindow): boolean {
   // travelling to the same target.
   let barMotionUntil = 0;
   let anchor: { cx: number; by: number } | null = readAnchor(win);
+  // The icon launcher's corner, from the app's resize reports ('' = centred).
+  let side = '';
   let dragFrom: { x: number; y: number; w: number; h: number } | null = null;
   const size = {
     bar: { w: BAR_W, h: DEFAULT_BAR_H },
@@ -362,7 +373,13 @@ function suppressed(win: LoaderWindow): boolean {
     const h = vh ? clamp(wantH, MIN_H, vh - VIEWPORT_MARGIN) : Math.max(MIN_H, wantH);
     // Derive this box's top-left from the center-bottom anchor so bar and chip
     // stay visually anchored to the same spot despite their different sizes.
-    const cx = anchor ? anchor.cx : (vw || w) / 2;
+    const cx = anchor
+      ? anchor.cx
+      : side
+        ? side === 'left'
+          ? w / 2 + VIEWPORT_MARGIN / 2
+          : (vw || w) - w / 2 - VIEWPORT_MARGIN / 2
+        : (vw || w) / 2;
     const by = anchor ? anchor.by : vh;
     const x = clamp(Math.round(cx - w / 2), 0, Math.max(0, vw - w));
     const y = clamp(Math.round(by - h), 0, Math.max(0, vh - h));
@@ -569,6 +586,7 @@ function suppressed(win: LoaderWindow): boolean {
           x?: unknown;
           y?: unknown;
           on?: unknown;
+          side?: unknown;
         }
       | null;
     if (!data || typeof data !== 'object') return;
@@ -580,6 +598,7 @@ function suppressed(win: LoaderWindow): boolean {
         if (view === 'panel') break;
         const h = Number(data.h);
         if (Number.isFinite(h)) size[view].h = h;
+        side = data.side === 'left' || data.side === 'right' ? data.side : '';
         // Width is honoured for the CHIP only — the bar's is policy above, and
         // storing a reported one would put the loop back.
         const w = Number(data.w);
@@ -696,8 +715,14 @@ function suppressed(win: LoaderWindow): boolean {
 
   // Re-clamp the dock on rotation / resize (mobile). The overlay is vw/vh-sized
   // and tracks the viewport by itself.
+  // The host viewport, for an app that sizes against it (see the header).
+  function postViewport(): void {
+    postToFrame({ type: 'pawbar:viewport', w: win.innerWidth, h: win.innerHeight });
+  }
+  iframe.addEventListener('load', postViewport);
   win.addEventListener('resize', (): void => {
     if (!overlay) applyDock();
+    postViewport();
   });
 
   // 5. Programmatic control for embedders. Resizes the chrome the loader owns

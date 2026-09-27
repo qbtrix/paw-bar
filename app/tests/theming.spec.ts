@@ -1,5 +1,7 @@
 // tests/theming.spec.ts — the white-label scale is actually re-skinnable.
 // Created 2026-08-19.
+// 2026-09-27: components/bar/PawBar.svelte joins ALLOWED — its whites are
+// var() fallbacks for the default theme, not colours forced past the owner.
 //
 // THE BUG THIS EXISTS FOR: tokens.css told owners that a lighter widget was one
 // override away — "an owner who wants a lighter surface overrides
@@ -39,6 +41,11 @@ const ALLOWED: Record<string, string> = {
   'components/tabs/HomeTab.svelte': 'hero-wash scrim over owner artwork',
   // The palette itself: these are the values everything else derives FROM.
   'styles/tokens.css': 'the base scale',
+  // The fresh bar components (2026-09-27) do not sit under tokens.css at all.
+  // Every value there is a var(--pawbar-*, <default>) fallback, so a white
+  // here is only the DEFAULT text on the default dark accent, and any site
+  // that sets --pawbar-accent-fg replaces it.
+  'components/bar/PawBar.svelte': 'default-theme fallback inside var()',
 };
 
 interface Source {

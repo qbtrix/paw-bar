@@ -1,4 +1,31 @@
 // chat.svelte.ts — Svelte 5 runes store over the concierge SSE contract.
+// Updated 2026-09-27 (paw-bar states: failures, C5, C2, C11; specs
+// docs/design/drafts/2026-09-27-paw-bar-states-ux-failures.md §10 and
+// ...-ux-conversation.md). The raw `error` string is GONE: it carried transport
+// text ("paw-bar chat failed (429)", "Failed to fetch") that the old shell
+// printed to visitors. In its place:
+//   * per-turn failures live on the message (`status:'error'` + `failure`, a
+//     lib/chat-errors FailureKind); the UI derives copy from FAILURE_COPY;
+//   * bar-level `unavailable` (a ChatFailure, in memory only, so a fixed
+//     misconfiguration unlocks on the next page load), and `notice`, the ONE
+//     near-input line, derived by priority unavailable > rejected > offline >
+//     cooldown > takeover > waiting;
+//   * `online` + an offline queue: a send while offline becomes a `queued`
+//     user turn (max OFFLINE_QUEUE_CAP, persisted with the transcript) and is
+//     flushed in order on the window `online` event, one at a time. A turn
+//     whose response had started is `interrupted` and never auto-resent;
+//   * `cooldownUntil` after a 429 (Retry-After or 30s, doubling on a repeat
+//     within 60s, max 60s); Send and Retry are refused until it passes;
+//   * send() returns a SendResult — a rejected message (400 message_rejected)
+//     is removed from the thread and handed back as `restoreDraft`;
+//   * retry(id) re-sends the same user text reusing its bubble, replacing a
+//     failed assistant turn with a fresh streaming one;
+//   * requestHuman() (POST /paw-bar/request-human) and `handoff`, persisted
+//     per conversation, cleared by the first sign a person has taken over;
+//   * `Message.stopped` (a reply the visitor stopped with partial text) and
+//     `hydrating` (true while #hydrate runs over an empty thread).
+// botPaused became an accessor so the operator poll setting it also clears the
+// pending handoff. dispose() drops the window online/offline listeners.
 // Updated 2026-08-21 (an empty answer must not erase): #hydrate adopted an empty
 // server response over the restored cache, and #persist wrote that emptiness back
 // — saveTranscript removes the row when the list is empty — so a visitor's history
@@ -44,6 +71,20 @@
 // (tests/store.spec.ts).
 
 import { streamConciergeChat, type ConciergeChatConfig } from '../lib/chat-client';
+import {
+  classifyError,
+  CONTACT_OFFER,
+  DEFAULT_COOLDOWN_MS,
+  FAILURE_COPY,
+  formatCopy,
+  MAX_COOLDOWN_MS,
+  OFFLINE_QUEUE_FULL,
+  reportFailure,
+  type ChatFailure,
+  type FailureKind,
+  type RawFailure,
+} from '../lib/chat-errors';
+import { postRequestHuman } from '../lib/handoff-client';
 import { getCustomerRef } from '../lib/customer-ref';
 import { laterAt, operatorMessageId, type OperatorMessage } from '../lib/operator-poll';
 import type { Source } from '../lib/sources';
@@ -55,14 +96,17 @@ import {
 import {
   clearTranscript,
   loadActiveConversationId,
+  loadHandoff,
   loadTranscript,
   migrateActiveTranscript,
   migrateLegacyTranscript,
   saveActiveConversationId,
+  saveHandoff,
   saveTranscript,
 } from '../lib/transcript';
 
-export type MessageStatus = 'streaming' | 'done' | 'error';
+/** 'queued' = sent while offline; the server has not seen it yet. */
+export type MessageStatus = 'queued' | 'streaming' | 'done' | 'error';
 /** 'owner' = a human from the site's team; 'system' = a quiet in-thread notice. */
 export type MessageRole = 'user' | 'assistant' | 'owner' | 'system';
 export interface Message {
@@ -76,7 +120,42 @@ export interface Message {
   // Server timestamp on owner/system turns — the operator poll's high-water
   // mark, persisted so a reload resumes from where the visitor left off.
   at?: string;
+  // Why a turn with status 'error' failed. On the USER turn for a send that
+  // never got an answer (unreachable, rate_limited, unavailable); on the
+  // ASSISTANT turn when the reply itself broke (interrupted, server, empty).
+  failure?: FailureKind;
+  // The visitor pressed Stop and the reply kept its partial text (C5).
+  stopped?: boolean;
 }
+
+/** The one line near the input. `action: 'contact'` = offer "Leave your email". */
+export type NoticeKind = 'unavailable' | 'rejected' | 'offline' | 'cooldown' | 'takeover' | 'waiting';
+export interface Notice {
+  kind: NoticeKind;
+  text: string;
+  action?: 'contact';
+}
+
+/** 'busy' = nothing was attempted (empty text, or a reply still streaming). */
+export type SendResult = { ok: true } | { ok: false; kind: FailureKind | 'busy'; restoreDraft?: string };
+
+export type HandoffError = 'invalid_email' | 'rejected' | 'already_asked' | 'unreachable' | 'unavailable';
+/** `waiting` = the conversation really was queued for a person (state
+ *  needs_human); false on the partial success where only the record landed. */
+export type HandoffResult = { ok: true; waiting: boolean } | { ok: false; error: HandoffError; text: string };
+
+export const OFFLINE_QUEUE_CAP = 5;
+export const TAKEOVER_NOTICE = "You're chatting with the team";
+export const WAITING_NOTICE = 'Waiting for someone from the team. You can keep chatting meanwhile.';
+export const HANDOFF_NOTIFIED = 'Someone from the team has been notified and will pick this up.';
+export const HANDOFF_PARTIAL = 'Your request was sent.';
+export const HANDOFF_COPY: Record<HandoffError, string> = {
+  invalid_email: "That email doesn't look right.",
+  rejected: "We couldn't send your note. Try rewording it, or clear it and ask again.",
+  already_asked: "You've already asked. The team has been notified.",
+  unreachable: "Couldn't reach the team just now. Try again in a minute.",
+  unavailable: "Chat isn't available right now.",
+};
 
 /** Stable id for the one-time "a person joined" chip, so repeat polls and a
  *  page reload can never render it twice. */
@@ -98,11 +177,60 @@ function newId(): string {
 export class ChatStore {
   messages = $state<Message[]>([]);
   isStreaming = $state(false);
-  error = $state<string | null>(null);
+  /** Bar-level refusal (quota on a first turn, no agent, bad key, …). In
+   *  memory only: a fixed misconfiguration unlocks on the next page load. */
+  unavailable = $state<ChatFailure | null>(null);
+  /** The browser's view of the network, kept by window online/offline events. */
+  online = $state(true);
+  /** Epoch ms until which Send and Retry are refused after a 429. */
+  cooldownUntil = $state<number | null>(null);
+  /** The visitor asked for a person and nobody has taken over yet (C11). */
+  handoff = $state<'none' | 'pending'>('none');
+  /** #hydrate is fetching the server's copy of a thread with nothing cached. */
+  hydrating = $state(false);
+  #rejected = $state(false);
+  #botPaused = $state(false);
+
   /** The owner has taken over — the bot is muted for this visitor. Server
    *  state, mirrored here by the operator poll and by the human_replying
-   *  frame; the panel shows a quiet chip while it's true. */
-  botPaused = $state(false);
+   *  frame; the panel shows a quiet chip while it's true. Turning true also
+   *  ends a pending handoff: a person has picked the conversation up. */
+  get botPaused(): boolean {
+    return this.#botPaused;
+  }
+  set botPaused(value: boolean) {
+    this.#botPaused = value;
+    if (value) this.#setHandoff('none');
+  }
+
+  /** Offline with the queue full: the sixth send is refused, input kept. */
+  queueFull = $derived(
+    !this.online && this.messages.filter((m) => m.status === 'queued').length >= OFFLINE_QUEUE_CAP,
+  );
+
+  /** The single near-input line, highest priority first. The cooldown text is
+   *  the seconds left when it was derived; a UI ticking a countdown recomputes
+   *  from cooldownUntil. */
+  notice = $derived.by((): Notice | null => {
+    const u = this.unavailable;
+    if (u) {
+      const text = FAILURE_COPY.unavailable.line ?? '';
+      return u.contactable
+        ? { kind: 'unavailable', text: `${text} ${CONTACT_OFFER}`, action: 'contact' }
+        : { kind: 'unavailable', text };
+    }
+    if (this.#rejected) return { kind: 'rejected', text: FAILURE_COPY.rejected.line ?? '' };
+    if (!this.online && this.messages.some((m) => m.status === 'queued')) {
+      return { kind: 'offline', text: this.queueFull ? OFFLINE_QUEUE_FULL : (FAILURE_COPY.offline.line ?? '') };
+    }
+    if (this.cooldownUntil !== null) {
+      const left = (this.cooldownUntil - Date.now()) / 1000;
+      return { kind: 'cooldown', text: formatCopy(FAILURE_COPY.rate_limited.line ?? '', left) };
+    }
+    if (this.#botPaused) return { kind: 'takeover', text: TAKEOVER_NOTICE };
+    if (this.handoff === 'pending') return { kind: 'waiting', text: WAITING_NOTICE };
+    return null;
+  });
 
   /** Which of this visitor's conversations the panel is showing (2026-08-19).
    *  "" until the server names one, which is a legitimate state: a turn sent
@@ -113,6 +241,17 @@ export class ChatStore {
   #config: ChatStoreConfig;
   #customerRef: string | null = null;
   #controller: AbortController | null = null;
+  #flushing = false;
+  #cooldownTimer: ReturnType<typeof setTimeout> | null = null;
+  #cooldownMs = 0;
+  #cooldownEndedAt = 0;
+  #onOnline = () => {
+    this.online = true;
+    void this.flushQueue();
+  };
+  #onOffline = () => {
+    this.online = false;
+  };
 
   constructor(config: ChatStoreConfig) {
     this.#config = config;
@@ -122,8 +261,33 @@ export class ChatStore {
     this.conversationId = loadActiveConversationId(config.widgetId);
     // The CACHE, painted first so the panel is never blank for a frame.
     this.messages = loadTranscript(config.widgetId, this.conversationId);
-    // Then the record. See #hydrate.
-    void this.#hydrate();
+    this.handoff = loadHandoff(config.widgetId, this.conversationId) ? 'pending' : 'none';
+    // Offline detection lives here, not in a component: the iframe gets its own
+    // events, and the queue must flush whether or not the bar is open.
+    this.online = browserOnline();
+    try {
+      window.addEventListener('online', this.#onOnline);
+      window.addEventListener('offline', this.#onOffline);
+    } catch {
+      /* no window — the store still works, it just never hears about the network */
+    }
+    // Then the record. See #hydrate. Queued turns from a previous page flush
+    // only after it settles: #hydrate stands down while anything streams.
+    void this.#hydrate().finally(() => {
+      if (this.online) void this.flushQueue();
+    });
+  }
+
+  /** Drop the window listeners and the cooldown timer. */
+  dispose(): void {
+    try {
+      window.removeEventListener('online', this.#onOnline);
+      window.removeEventListener('offline', this.#onOffline);
+    } catch {
+      /* ignore */
+    }
+    if (this.#cooldownTimer) clearTimeout(this.#cooldownTimer);
+    this.#cooldownTimer = null;
   }
 
   /** Replace the cached thread with the server's copy.
@@ -169,6 +333,17 @@ export class ChatStore {
   async #hydrate(): Promise<void> {
     const conversationId = this.conversationId;
     if (!conversationId) return;
+    // The "restoring" line is for a panel with nothing on it; a painted cache
+    // needs no placeholder.
+    this.hydrating = this.messages.length === 0;
+    try {
+      await this.#adoptServerTurns(conversationId);
+    } finally {
+      if (this.conversationId === conversationId) this.hydrating = false;
+    }
+  }
+
+  async #adoptServerTurns(conversationId: string): Promise<void> {
     const customerRef = await this.#resolveCustomerRef();
     if (!customerRef) return;
     const turns = await fetchConversationMessages(
@@ -184,13 +359,18 @@ export class ChatStore {
     if (this.isStreaming || this.messages.some((m) => m.status === 'streaming')) return;
     // Nothing to adopt, and adopting nothing DELETES the row (see above).
     if (turns.length === 0) return;
-    this.messages = turns.map((turn: WireTurn) => ({
-      id: newId(),
-      role: turn.role,
-      content: turn.content,
-      status: 'done' as const,
-      ...(turn.at ? { at: turn.at } : {}),
-    }));
+    // Queued turns never reached the server, so its copy cannot hold them.
+    const queued = this.messages.filter((m) => m.status === 'queued');
+    this.messages = [
+      ...turns.map((turn: WireTurn) => ({
+        id: newId(),
+        role: turn.role,
+        content: turn.content,
+        status: 'done' as const,
+        ...(turn.at ? { at: turn.at } : {}),
+      })),
+      ...queued,
+    ];
     this.#persist();
   }
 
@@ -231,8 +411,9 @@ export class ChatStore {
     this.#controller = null;
     controller?.abort();
     this.isStreaming = false;
-    this.error = null;
+    this.#rejected = false;
     this.conversationId = conversationId;
+    this.handoff = loadHandoff(this.#config.widgetId, conversationId) ? 'pending' : 'none';
     // Cache first so the panel switches instantly, then the record — the same
     // two-step the constructor does. Walking into an old thread from the Messages
     // tab is in fact the MOST likely place to hold nothing locally: the cache is
@@ -249,18 +430,153 @@ export class ChatStore {
     return this.#customerRef;
   }
 
-  async send(text: string): Promise<void> {
+  /** Send a visitor turn. Refused without touching the thread (the text handed
+   *  back as restoreDraft) while a reply streams, during a cooldown, while the
+   *  bar is unavailable, or with the offline queue full. Offline, the turn is
+   *  queued rather than sent. */
+  async send(text: string): Promise<SendResult> {
     const message = text.trim();
-    if (!message || this.isStreaming) return;
+    if (!message) return { ok: false, kind: 'busy' };
+    if (this.isStreaming) return { ok: false, kind: 'busy', restoreDraft: text };
+    if (this.unavailable) return { ok: false, kind: 'unavailable', restoreDraft: text };
+    if (this.#inCooldown()) return { ok: false, kind: 'rate_limited', restoreDraft: text };
 
-    this.error = null;
+    this.#rejected = false;
+    if (!browserOnline()) {
+      this.online = false;
+      if (this.messages.filter((m) => m.status === 'queued').length >= OFFLINE_QUEUE_CAP) {
+        return { ok: false, kind: 'offline', restoreDraft: text };
+      }
+      // No assistant bubble and no fetch: it goes when the network comes back.
+      this.messages.push({ id: newId(), role: 'user', content: message, status: 'queued' });
+      this.#persist();
+      return { ok: true };
+    }
+    const userId = newId();
+    this.messages.push({ id: userId, role: 'user', content: message, status: 'done' });
+    return this.#stream(userId);
+  }
+
+  /** Re-send a failed turn. `messageId` is the latest failed turn: a user turn
+   *  that was never answered, or an assistant reply that broke. The user bubble
+   *  is reused (never duplicated) and a broken reply is replaced by a fresh
+   *  one. A no-op while streaming, in cooldown, while unavailable, or for any
+   *  failure older than the latest (re-asking out of order scrambles the
+   *  thread). */
+  async retry(messageId: string): Promise<SendResult> {
+    if (this.unavailable) return { ok: false, kind: 'unavailable' };
+    if (this.#inCooldown()) return { ok: false, kind: 'rate_limited' };
+    if (this.isStreaming) return { ok: false, kind: 'busy' };
+    let latest = -1;
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].status === 'error') {
+        latest = i;
+        break;
+      }
+    }
+    if (latest < 0 || this.messages[latest].id !== messageId) return { ok: false, kind: 'busy' };
+
+    let userIndex = latest;
+    if (this.messages[latest].role !== 'user') {
+      userIndex = -1;
+      for (let i = latest - 1; i >= 0; i--) {
+        if (this.messages[i].role === 'user') {
+          userIndex = i;
+          break;
+        }
+      }
+      if (userIndex < 0) return { ok: false, kind: 'busy' };
+      this.messages.splice(latest, 1);
+    }
+    this.#rejected = false;
+    const user = this.messages[userIndex];
+    if (!browserOnline()) {
+      this.online = false;
+      user.status = 'queued';
+      user.failure = undefined;
+      this.#persist();
+      return { ok: true };
+    }
+    return this.#stream(user.id);
+  }
+
+  /** Send queued turns in order, one at a time, through the normal path. Stops
+   *  at the first turn that fails (it takes that failure's kind). Runs on the
+   *  window `online` event and on load. */
+  async flushQueue(): Promise<void> {
+    if (this.#flushing || !browserOnline()) return;
+    this.#flushing = true;
+    try {
+      for (;;) {
+        if (this.isStreaming || this.unavailable || this.#inCooldown()) return;
+        const next = this.messages.find((m) => m.role === 'user' && m.status === 'queued');
+        if (!next) return;
+        const result = await this.#stream(next.id);
+        if (!result.ok) return;
+      }
+    } finally {
+      this.#flushing = false;
+    }
+  }
+
+  /** The visitor edited the draft: the "try rewording it" line has done its job. */
+  clearRejected(): void {
+    this.#rejected = false;
+  }
+
+  /** Ask for a person (C11). `message` may be empty; `contact` is an email or "". */
+  async requestHuman(note: { message: string; contact: string }): Promise<HandoffResult> {
+    const res = await postRequestHuman(await this.#clientConfig(), {
+      message: note.message.trim(),
+      contact: note.contact.trim(),
+    });
+    if (res.ok) {
+      const waiting = res.state === 'needs_human';
+      if (waiting) this.#setHandoff('pending');
+      // Only claim the conversation was queued when the server says it was.
+      this.#appendSystem(waiting ? res.message || HANDOFF_NOTIFIED : HANDOFF_PARTIAL);
+      this.#persist();
+      return { ok: true, waiting };
+    }
+    const fail = (error: HandoffError): HandoffResult => ({ ok: false, error, text: HANDOFF_COPY[error] });
+    if (res.status === 422 && res.detail === 'invalid_email') return fail('invalid_email');
+    if (res.status === 400 && res.detail === 'message_rejected') return fail('rejected');
+    // Not chat's 429: this one means "you already asked", so no cooldown.
+    if (res.status === 429 && res.detail === 'handoff_rate_limit') {
+      this.#setHandoff('pending');
+      return fail('already_asked');
+    }
+    if ([401, 403, 404, 409].includes(res.status)) {
+      // The front gate chat shares refused it: nothing here can get through.
+      const failure: ChatFailure = {
+        kind: 'unavailable',
+        scope: 'bar',
+        on: 'none',
+        contactable: false,
+        ownerReason: `request-human HTTP ${res.status} ${res.detail ?? '(no detail)'}`,
+      };
+      reportFailure(failure);
+      this.unavailable = failure;
+      return fail('unavailable');
+    }
+    return fail('unreachable');
+  }
+
+  /** Stream a reply to an existing user turn: the send, retry and flush path.
+   *  The fresh assistant bubble goes right after its user turn. */
+  async #stream(userId: string): Promise<SendResult> {
+    const user = this.messages.find((m) => m.id === userId);
+    if (!user) return { ok: false, kind: 'busy' };
+    const message = user.content;
+    user.status = 'done';
+    user.failure = undefined;
     // Track the assistant turn by id, never by a captured object reference:
     // $state wraps pushed objects in proxies with a distinct identity, so a
     // captured plain ref both fails === checks AND bypasses reactivity. We
     // always mutate through the reactive array via #assistant(id).
     const assistantId = newId();
-    this.messages.push({ id: newId(), role: 'user', content: message, status: 'done' });
-    this.messages.push({ id: assistantId, role: 'assistant', content: '', status: 'streaming' });
+    const at = this.messages.findIndex((m) => m.id === userId);
+    this.messages.splice(at + 1, 0, { id: assistantId, role: 'assistant', content: '', status: 'streaming' });
     this.isStreaming = true;
     // Persist the user turn immediately — a navigation mid-stream keeps the
     // question even when the answer is lost.
@@ -271,15 +587,9 @@ export class ChatStore {
     // Set by the human_replying frame: this turn legitimately produces no
     // assistant text because a person is answering instead.
     let humanReplying = false;
+    let result: SendResult = { ok: true };
 
-    const customerRef = await this.#resolveCustomerRef();
-    const clientConfig: ConciergeChatConfig = {
-      endpoint: this.#config.endpoint,
-      widgetId: this.#config.widgetId,
-      signedKey: this.#config.siteKey,
-      customerRef,
-      conversationId: this.conversationId,
-    };
+    const clientConfig = await this.#clientConfig();
 
     await streamConciergeChat(
       clientConfig,
@@ -306,32 +616,106 @@ export class ChatStore {
           this.#appendSystem(line || HUMAN_REPLYING_FALLBACK);
         },
         onEnd: (info) => {
-          // Keep whatever streamed. If nothing streamed: a user stop() and a
-          // paused bot both drop the empty bubble silently; only a genuinely
-          // clean-but-empty server reply flags an error.
+          // Keep whatever streamed (a stop() with text is marked `stopped`). If
+          // nothing streamed: a user stop() and a paused bot both drop the empty
+          // bubble silently; a clean end with no text and no takeover is the
+          // `empty` failure (it used to be the raw 'No reply.' string).
           const m = this.#assistant(assistantId);
           if (m) {
-            if (m.content) m.status = 'done';
-            else if (info.cancelled || humanReplying) {
+            if (m.content) {
+              m.status = 'done';
+              if (info.cancelled) m.stopped = true;
+            } else if (info.cancelled || humanReplying) {
               this.messages = this.messages.filter((x) => x.id !== assistantId);
-            } else {
-              m.status = 'error';
-              this.error = 'No reply.';
+            } else if (this.#controller === controller) {
+              result = this.#fail(userId, assistantId, { source: 'empty' });
             }
           }
           this.#finish(controller);
           this.#persist();
         },
-        onError: (msg) => {
-          const m = this.#assistant(assistantId);
-          if (m) m.status = 'error';
-          this.error = msg;
+        onError: (raw) => {
+          // A superseded stream (reset / switch) must not lock the bar or start
+          // a cooldown for the thread that replaced it.
+          if (this.#controller === controller) result = this.#fail(userId, assistantId, raw);
           this.#finish(controller);
           this.#persist();
         },
       },
       controller.signal,
     );
+    return result;
+  }
+
+  /** Classify a failure and put it where it shows: on the assistant turn, on
+   *  the user turn, on the bar, or (rejected) back in the draft. */
+  #fail(userId: string, assistantId: string, raw: RawFailure): SendResult {
+    const firstUser = this.messages.find((m) => m.role === 'user');
+    const failure = classifyError(raw, { firstUserTurn: firstUser?.id === userId });
+    reportFailure(failure);
+
+    if (failure.on === 'assistant') {
+      const m = this.#assistant(assistantId);
+      if (m) {
+        m.status = 'error';
+        m.failure = failure.kind;
+      }
+      return { ok: false, kind: failure.kind };
+    }
+    // Refused before any reply started: the empty assistant bubble goes.
+    this.messages = this.messages.filter((m) => m.id !== assistantId);
+    const user = this.messages.find((m) => m.id === userId);
+    if (failure.kind === 'rejected') {
+      this.messages = this.messages.filter((m) => m.id !== userId);
+      this.#rejected = true;
+      return { ok: false, kind: 'rejected', restoreDraft: user?.content };
+    }
+    if (user) {
+      user.status = failure.kind === 'offline' ? 'queued' : 'error';
+      user.failure = failure.kind === 'offline' ? undefined : failure.kind;
+    }
+    if (failure.kind === 'offline') this.online = false;
+    if (failure.kind === 'rate_limited') this.#startCooldown(failure.retryAfterMs);
+    if (failure.kind === 'unavailable') this.unavailable = failure;
+    return { ok: false, kind: failure.kind };
+  }
+
+  #inCooldown(): boolean {
+    return this.cooldownUntil !== null && this.cooldownUntil > Date.now();
+  }
+
+  /** A 429 within 60s of the previous cooldown ending doubles it (max 60s). */
+  #startCooldown(ms = DEFAULT_COOLDOWN_MS): void {
+    const now = Date.now();
+    let length = ms;
+    if (this.#cooldownEndedAt && now - this.#cooldownEndedAt < 60_000) {
+      length = Math.min(MAX_COOLDOWN_MS, Math.max(ms, this.#cooldownMs * 2));
+    }
+    this.#cooldownMs = length;
+    this.cooldownUntil = now + length;
+    if (this.#cooldownTimer) clearTimeout(this.#cooldownTimer);
+    this.#cooldownTimer = setTimeout(() => {
+      // No auto-resend at zero: the visitor may have moved on; Retry is one tap.
+      this.cooldownUntil = null;
+      this.#cooldownEndedAt = Date.now();
+      this.#cooldownTimer = null;
+    }, length);
+  }
+
+  #setHandoff(value: 'none' | 'pending'): void {
+    if (this.handoff === value) return;
+    this.handoff = value;
+    saveHandoff(this.#config.widgetId, this.conversationId, value === 'pending');
+  }
+
+  async #clientConfig(): Promise<ConciergeChatConfig> {
+    return {
+      endpoint: this.#config.endpoint,
+      widgetId: this.#config.widgetId,
+      signedKey: this.#config.siteKey,
+      customerRef: await this.#resolveCustomerRef(),
+      conversationId: this.conversationId,
+    };
   }
 
   /** Look up the streaming assistant turn by id and return the REACTIVE array
@@ -349,7 +733,11 @@ export class ChatStore {
     for (const incoming of messages) {
       const id = operatorMessageId(incoming);
       if (this.messages.some((m) => m.id === id)) continue;
-      if (incoming.role === 'owner') this.#ensureJoinNotice(incoming.at);
+      if (incoming.role === 'owner') {
+        this.#ensureJoinNotice(incoming.at);
+        // A person has written: the visitor is no longer waiting for one.
+        this.#setHandoff('none');
+      }
       this.messages.push({
         id,
         role: incoming.role,
@@ -428,8 +816,10 @@ export class ChatStore {
     );
 
     this.messages = [];
-    this.error = null;
+    this.#rejected = false;
     this.isStreaming = false;
+    // The pending ask belonged to the conversation just retired.
+    this.#setHandoff('none');
     // The old conversation's turns stay on the device: it is now a row in the
     // visitor's Messages list, and clearing it would empty a conversation they
     // can still open. Only a FAILED open clears, because then there is no new
@@ -450,4 +840,9 @@ export class ChatStore {
     this.isStreaming = false;
     this.#controller = null;
   }
+}
+
+/** Only onLine === false proves offline; anything else is treated as online. */
+function browserOnline(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
 }

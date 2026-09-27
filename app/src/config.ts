@@ -8,6 +8,12 @@
 // origin (the embedding page) or '*' ONLY as a dev-page fallback — the real
 // frame always supplies an exact origin, and postMessage refuses to post to a
 // pinned origin mismatch in production.
+// 2026-09-27 (new bar): reads the new bar's owner settings. `ui` picks the
+// widget ('bar' by default, 'glass' mounts the old shell); `barTheme`,
+// `radius`, `launcher`, `side`, `barSize`, `logo`, `disclosure`,
+// `privacyHref` and `consentRequired` style and gate it. The backend sends
+// none of them yet, so each one has a default and an unknown value falls back
+// to it; `logo` and `privacyHref` only accept http(s) or data URLs.
 // 2026-07-16 (D4): added `greeting` — the owner's concierge greeting the frame
 // emits from the Site doc. Read defensively (non-string coerces to ''); the
 // shell shows it as the empty-state welcome, else the default copy.
@@ -70,6 +76,16 @@ export interface PawBarConfig {
    *  Defaults to 'compact' — a resting widget on somebody else's site should
    *  ask for as little of their page as it can and grow when it is wanted. */
   barResting: 'full' | 'compact';
+  ui: 'bar' | 'glass';
+  barTheme: string;
+  radius: number | undefined;
+  launcher: 'bar' | 'icon';
+  side: 'left' | 'right';
+  barSize: 'sm' | 'md' | 'lg';
+  logo: string;
+  disclosure: string;
+  privacyHref: string;
+  consentRequired: boolean;
 }
 
 /** Read a string array off the boot config, dropping anything that isn't a
@@ -94,6 +110,17 @@ function readImageUrl(value: unknown): string {
   try {
     const proto = new URL(value, window.location.href).protocol;
     return proto === 'http:' || proto === 'https:' || proto === 'data:' ? value : '';
+  } catch {
+    return '';
+  }
+}
+
+/** A link the visitor can follow: http(s) only. */
+function readLinkUrl(value: unknown): string {
+  if (typeof value !== 'string' || !value) return '';
+  try {
+    const proto = new URL(value, window.location.href).protocol;
+    return proto === 'http:' || proto === 'https:' ? value : '';
   } catch {
     return '';
   }
@@ -140,5 +167,15 @@ export function readConfig(): PawBarConfig {
     // that has never heard of this field gets the new resting behaviour rather
     // than a widget stuck in a mode nobody chose.
     barResting: boot?.barResting === 'full' ? 'full' : 'compact',
+    ui: boot?.ui === 'glass' ? 'glass' : 'bar',
+    barTheme: typeof boot?.barTheme === 'string' ? boot.barTheme : 'default',
+    radius: typeof boot?.radius === 'number' && Number.isFinite(boot.radius) ? boot.radius : undefined,
+    launcher: boot?.launcher === 'icon' ? 'icon' : 'bar',
+    side: boot?.side === 'left' ? 'left' : 'right',
+    barSize: boot?.barSize === 'sm' || boot?.barSize === 'lg' ? boot.barSize : 'md',
+    logo: readImageUrl(boot?.logo) || readImageUrl(boot?.agentAvatar),
+    disclosure: typeof boot?.disclosure === 'string' ? boot.disclosure.trim().slice(0, 140) : '',
+    privacyHref: readLinkUrl(boot?.privacyHref),
+    consentRequired: boot?.consentRequired === true,
   };
 }

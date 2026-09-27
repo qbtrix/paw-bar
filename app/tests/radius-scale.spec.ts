@@ -1,5 +1,10 @@
 // tests/radius-scale.spec.ts — the radius setting actually reaches the widget.
 // Created 2026-08-22.
+// 2026-09-27: a corner counts as following the setting when it DERIVES from
+// --pawbar-radius, not only when it starts with it — components/bar/ rounds
+// the pill with min(var(--pawbar-radius), height / 2) and the frame with
+// calc(var(--pawbar-radius) + padding), both of which move with the slider.
+// `inherit` joins NOT_A_SETTING for the same reason: it follows its parent.
 //
 // THE BUG THIS EXISTS FOR: --pawbar-radius was a real, validated, persisted,
 // slider-driven owner setting that reached SEVEN of roughly sixty corners. The
@@ -34,14 +39,16 @@ const tokens = (): string => files.find((f) => f.rel === 'styles/tokens.css')!.t
 function literals(text: string): string[] {
   return [...text.matchAll(/border-radius:\s*([^;]+);/g)]
     .map((m) => m[1].trim())
-    .filter((v) => !v.startsWith('var(--pawbar-radius'));
+    .filter((v) => !v.includes('var(--pawbar-radius'));
 }
 
 // A corner that is not a style choice. 50% is a circle because the thing is a
 // circle — an avatar, a status dot, a mascot ring — and squaring those off at
 // radius 0 turns a notification dot into a notification square. `3px` is the
 // stop glyph inside the send button: an icon, drawn at icon scale, not chrome.
-const NOT_A_SETTING = new Set(['50%', '3px']);
+// `inherit` takes the parent's corner, which is itself on the scale — the
+// icon launcher's button copies the surface it fills (components/bar/).
+const NOT_A_SETTING = new Set(['50%', '3px', 'inherit']);
 
 describe('radius scale', () => {
   it('found the sources it is meant to be checking', () => {
