@@ -21,7 +21,13 @@
 // network calls replaced, so the frame, the cards and the E1 prompt run their
 // real code. A form submit parks a "pending decision", which is what makes the
 // next finished reply offer the email prompt, as the real backend would.
-import { mount } from 'svelte';
+// 2026-09-27 (sessions + compliance): conversations live in memory, keyed by a
+// fake id, so "New conversation" and the list work; the thread and that list
+// are kept in sessionStorage so a reload shows the continue pill (the bar's
+// own state is persisted by the frame under `persistKey`). "Seed history"
+// adds three older conversations; "Ask consent" puts the bar behind the
+// consent step until Accept. The disclosure links a fake privacy policy.
+import { mount, untrack } from 'svelte';
 import PawBarFrame, { type BarMessage } from './components/bar/PawBarFrame.svelte';
 import { SIZE_KEY, type BarLauncher, type BarSide, type BarSize } from './components/bar/PawBar.svelte';
 import { BAR_THEMES, BAR_THEME_IDS } from './lib/bar-themes';
@@ -168,12 +174,55 @@ const stage = document.getElementById('stage')!;
 const form = document.getElementById('controls') as HTMLFormElement;
 const nextSelect = document.getElementById('next') as HTMLSelectElement;
 
-let seq = 0;
+let seq = Date.now() % 100000;
 const id = (p: string) => `${p}${++seq}`;
+
+// ── Fake conversations ──────────────────────────────────────────────────────
+type Conv = { id: string; state: string; preview: string; lastMessageAt: string; active: boolean };
+const DEMO_STORE = 'pawbar-demo-thread';
+const saved = (() => {
+  try {
+    return JSON.parse(sessionStorage.getItem(DEMO_STORE) ?? 'null') as {
+      id: string;
+      threads: Record<string, BarMessage[]>;
+      list: Conv[];
+    } | null;
+  } catch {
+    return null;
+  }
+})();
+const threads: Record<string, BarMessage[]> = saved?.threads ?? {};
+const firstId = saved?.id ?? id('c');
 let timer: ReturnType<typeof setTimeout> | undefined;
 
 const props = $state({
-  messages: [] as BarMessage[],
+  messages: (threads[firstId] ?? []) as BarMessage[],
+  conversationId: firstId,
+  conversations: (saved?.list ?? []) as Conv[],
+  persistKey: 'demo',
+  privacyHref: '#privacy',
+  consent: 'granted' as 'granted' | 'required',
+  onconsent(granted: boolean) {
+    if (granted) props.consent = 'granted';
+  },
+  onnewconversation() {
+    stash();
+    props.conversationId = id('c');
+    props.messages = [];
+    props.notice = null;
+    props.botPaused = false;
+    props.handoff = 'none';
+    syncList();
+  },
+  onopenconversation(cid: string) {
+    stash();
+    props.conversationId = cid;
+    props.messages = threads[cid] ?? [
+      { id: id('u'), role: 'user', content: props.conversations.find((c) => c.id === cid)?.preview ?? 'Hello', status: 'done' },
+      { id: id('a'), role: 'assistant', content: 'This is an older conversation, loaded from the list.', status: 'done' },
+    ];
+    syncList();
+  },
   logoSrc: DEMO_LOGO,
   launcher: 'bar' as BarLauncher,
   side: 'right' as BarSide,
@@ -268,6 +317,30 @@ function reply(kind = nextSelect.value) {
   else timer = setTimeout(stream, kind === 'slow' ? 10_000 : 900);
 }
 
+// Keeps the fake list in step with the thread, and both in sessionStorage.
+function stash() {
+  threads[props.conversationId] = $state.snapshot(props.messages).filter((m) => m.status === 'done');
+}
+function syncList() {
+  const first = props.messages.find((m) => m.role === 'user')?.content ?? '';
+  const others = untrack(() => props.conversations).filter((c) => c.id !== props.conversationId).map((c) => ({ ...c, active: false }));
+  const mine = { id: props.conversationId, state: 'open', preview: first, lastMessageAt: new Date().toISOString(), active: true };
+  props.conversations = first || others.length ? [mine, ...others] : [];
+}
+$effect.root(() => {
+  $effect(() => {
+    void props.messages.length;
+    void props.messages[props.messages.length - 1]?.status;
+    stash();
+    syncList();
+    try {
+      sessionStorage.setItem(DEMO_STORE, JSON.stringify({ id: props.conversationId, threads, list: untrack(() => $state.snapshot(props.conversations)) }));
+    } catch {
+      /* demo only */
+    }
+  });
+});
+
 const themeSelect = document.getElementById('theme') as HTMLSelectElement;
 for (const tid of BAR_THEME_IDS) {
   const t = BAR_THEMES[tid];
@@ -327,6 +400,16 @@ form.addEventListener('click', (e) => {
       ];
       props.restoring = false;
     }, 1500);
+  } else if (act === 'history') {
+    const day = 86_400_000;
+    const old: Conv[] = [
+      { id: id('c'), state: 'needs_human', preview: 'Can I change the delivery address on my order?', lastMessageAt: new Date(Date.now() - 3 * 3600_000).toISOString(), active: false },
+      { id: id('c'), state: 'open', preview: 'Gift ideas under $50', lastMessageAt: new Date(Date.now() - 2 * day).toISOString(), active: false },
+      { id: id('c'), state: 'closed', preview: 'Does the linen shirt run small?', lastMessageAt: new Date(Date.now() - 9 * day).toISOString(), active: false },
+    ];
+    props.conversations = [...props.conversations, ...old];
+  } else if (act === 'consent') {
+    props.consent = 'required';
   } else if (act === 'reset') {
     clearTimeout(timer);
     props.messages = [];
@@ -340,5 +423,13 @@ form.addEventListener('click', (e) => {
     contact.status = 'hidden';
     decisionPending = false;
     contactDismissed = false;
+    props.consent = 'granted';
+    props.conversations = [];
+    for (const k of Object.keys(threads)) delete threads[k];
+    try {
+      sessionStorage.clear();
+    } catch {
+      /* demo only */
+    }
   }
 });

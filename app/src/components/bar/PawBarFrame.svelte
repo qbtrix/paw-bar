@@ -117,7 +117,41 @@
     (copy word for word from GlassShell), and a reply that settles as done
     asks it to `maybeOffer()` once. A "Cart · N · Checkout ↗" row joins the
     tail while the cart holds anything.
-  • E4 (conversation list) is never in this bar.
+  • E4: the conversation list now IS in this bar (see Sessions below); the
+    Messages tab's own list stays in the old shell.
+
+  2026-09-27 (sessions + compliance, PRD V4/V5/V8/V12/V13):
+  • `conversations` (the ConversationsStore's rows, as is) and
+    `conversationId`. "New conversation" in ⋯ calls `onnewconversation`
+    (inert on an empty thread, which has nothing to start over from).
+    "Conversations (N)", shown above one, swaps the thread for a list in the
+    same surface: back, New, and one row per conversation (preview, age,
+    "Waiting on team" for needs_human, "Current" on the active one); a row
+    calls `onopenconversation`. The list is a plain region, never inside the
+    live log, and Escape inside it goes back to the thread. A conversation
+    switch is a bulk replace: no row flies in, and following resets.
+  • "↓ New message": when the reader has scrolled up and a turn arrives or
+    grows, a jump pill floats over the bottom of the thread. Sending always
+    follows again.
+  • `persistKey` (the widget id) keeps the bar's own state per tab in
+    sessionStorage (lib/bar-session): pinned, full screen, the draft, the
+    scroll position. On the next page a bar that was open comes back CLOSED,
+    as a continue pill with the last answer's first line (activity
+    'resume'); opening it restores full screen and the scroll position. The
+    draft is handed back on the first pin, never on load, because a draft
+    holds the card open and that would be an auto-open. Nothing is written
+    before the bar has opened once, or while consent is required.
+  • AI disclosure (EU AI Act Art. 50): a line under the open bar, always.
+    `disclosure` rewords it and cannot remove it (blank falls back to ours).
+    It rides with "Powered by Paw Sites" but not on `poweredBy`, adds
+    `privacyHref` as a Privacy link, and describes the field for screen
+    readers.
+  • `consent` 'required' (the host's CMP said so): a one-line step under the
+    thread while the bar is open. Sending holds the message (the draft stays)
+    and highlights the step; Accept calls `onconsent(true)` and the held
+    message goes as soon as `consent` turns 'granted'. "Not now" hides the
+    step until the next send. This is a UI gate only: the mount point must
+    not build the chat store before consent for it to mean anything.
 
   Messages are data in, events out: the frame renders `messages` and reports
   `onsend`. It holds no transcript of its own.
@@ -131,6 +165,10 @@
   import type { Message } from '../../store/chat.svelte';
   /** The chat store's own turn shape, so ChatStore.messages passes straight in. */
   export type BarMessage = Message;
+  /** The ConversationsStore's own row, so its `items` pass straight in. */
+  export type BarConversation = VisitorConversation;
+  export type BarConsent = 'granted' | 'required';
+  export const DEFAULT_DISCLOSURE = 'AI assistant. Answers can be wrong.';
 </script>
 
 <script lang="ts">
@@ -154,6 +192,9 @@
   import { provideCart, type CartStore } from '../../store/cart.svelte';
   import { provideContact, type ContactStore } from '../../store/contact.svelte';
   import { provideBarThread } from '../cards/thread';
+  import type { VisitorConversation } from '../../lib/conversations-client';
+  import { ago } from '../../lib/relative-time';
+  import { readBarSession, writeBarSession } from '../../lib/bar-session';
 
   let {
     messages = [],
@@ -191,6 +232,15 @@
     onrequesthuman,
     cart,
     contact,
+    conversations = [],
+    conversationId = '',
+    onnewconversation,
+    onopenconversation,
+    persistKey = '',
+    disclosure = '',
+    privacyHref = '',
+    consent = 'granted',
+    onconsent,
   }: {
     messages?: BarMessage[];
     placeholder?: string;
@@ -249,6 +299,23 @@
     cart?: CartStore;
     /** Drives the E1 "Leaving? We can email you…" tail. */
     contact?: ContactStore;
+    /** The visitor's conversations (ConversationsStore.items). */
+    conversations?: BarConversation[];
+    /** The conversation `messages` belong to. A change is a switch. */
+    conversationId?: string;
+    /** Adds "New conversation" to ⋯. */
+    onnewconversation?: () => void | Promise<void>;
+    /** A row in the conversation list was picked. */
+    onopenconversation?: (id: string) => void;
+    /** Keeps the bar's own state across page loads in this tab (widget id). */
+    persistKey?: string;
+    /** The owner's wording for the AI disclosure. It cannot be blank. */
+    disclosure?: string;
+    /** The owner's privacy policy, linked beside the disclosure. */
+    privacyHref?: string;
+    /** 'required' holds every send behind a one-line consent step. */
+    consent?: BarConsent;
+    onconsent?: (granted: boolean) => void;
   } = $props();
 
   // The cards below the thread reach the stores through context, set once.
@@ -358,14 +425,13 @@
   const derivedActivity = $derived<BarActivity>(
     newestTeam ? 'team' : newestReply ? 'unread' : streaming ? 'thinking' : 'none',
   );
-  const activity = $derived<BarActivity>(activityOverride ?? derivedActivity);
-  const unreadPreview = $derived(previewLine((newestTeam ?? newestReply)?.content ?? ''));
 
   // Hover shows the conversation so far, so a returning visitor can read the
   // history without sending anything (captain, 2026-09-27). The pin shows it
   // always, including the greeting or the loading line of an empty one; an
   // empty thread never grows the frame on a passing mouse.
   const showThread = $derived(pinned || (barOpen && messages.length > 0));
+
 
   // Seen advances only while the thread is on screen AND pinned.
   $effect(() => {
@@ -392,11 +458,141 @@
     void contact?.submit(contactEmail);
   }
 
-  function send(text: string) {
+  // ── Consent (V13) ─────────────────────────────────────────────────────────
+  // A send while consent is required is held, not dropped: the draft goes back
+  // in the field, and the message goes out the moment consent is granted.
+  const needsConsent = $derived(consent === 'required');
+  let held = $state('');
+  let consentHidden = $state(false);
+  const consentId = `pbf-consent-${Math.random().toString(36).slice(2, 8)}`;
+  const showConsent = $derived(needsConsent && !unavailable && barOpen && (!consentHidden || !!held));
+  function acceptConsent() {
+    consentHidden = true;
+    onconsent?.(true);
+  }
+  function declineConsent() {
+    held = '';
+    consentHidden = true;
+    onconsent?.(false);
+    bar?.focus();
+  }
+  $effect(() => {
+    if (needsConsent || !held) return;
+    const text = untrack(() => held);
+    held = '';
+    if (untrack(() => draft.trim()) === text) draft = '';
+    void untrack(() => send(text));
+  });
+
+  function send(text: string): ReturnType<typeof onsend> {
+    if (needsConsent) {
+      held = text;
+      consentHidden = false;
+      return { ok: false, restoreDraft: text };
+    }
     expanded = true;
+    // Whoever sends wants to see the answer.
+    following = true;
+    missed = false;
     return onsend(text);
   }
 
+  // ── AI disclosure (Art. 50) ───────────────────────────────────────────────
+  const disclosureText = $derived(disclosure.trim() || DEFAULT_DISCLOSURE);
+  const disclosureId = `pbf-ai-${Math.random().toString(36).slice(2, 8)}`;
+
+  // ── Sessions: the list, new conversation ──────────────────────────────────
+  let view = $state<'thread' | 'history'>('thread');
+  const history = $derived(view === 'history');
+  let historyEl: HTMLElement | null = $state(null);
+  async function showConversations() {
+    expanded = true;
+    view = 'history';
+    await tick();
+    historyEl?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+  }
+  function backToThread() {
+    view = 'thread';
+    bar?.focus();
+  }
+  function openConversation(id: string) {
+    view = 'thread';
+    if (id !== conversationId) onopenconversation?.(id);
+    bar?.focus();
+  }
+  async function newConversation() {
+    view = 'thread';
+    await onnewconversation?.();
+    bar?.focus();
+  }
+  // The list is a pinned view: folding the bar puts the thread back.
+  $effect(() => {
+    if (!pinned) view = 'thread';
+  });
+  const WAITING_STATES = new Set(['needs_human', 'waiting']);
+  let listNow = $state(Date.now());
+  $effect(() => {
+    if (!history) return;
+    listNow = Date.now();
+    const t = setInterval(() => (listNow = Date.now()), 60_000);
+    return () => clearInterval(t);
+  });
+
+  // ── Across page loads (V12) ───────────────────────────────────────────────
+  // Read once. The bar comes back closed; the continue pill offers the rest.
+  const restored = untrack(() => readBarSession(persistKey));
+  let heldDraft = restored?.draft ?? '';
+  let draft = $state('');
+  let resume = $state(!!restored?.open);
+  let everOpened = !!restored;
+  const lastAnswer = $derived(lastOf(messages, (m) => m.role === 'assistant' && m.status === 'done' && !!m.content));
+  $effect(() => {
+    if (barOpen) everOpened = true;
+  });
+  // The first pin hands the draft back, and a resumed bar gets its full
+  // screen and scroll position back.
+  $effect(() => {
+    if (!pinned) return;
+    untrack(() => {
+      if (heldDraft && !draft) draft = heldDraft;
+      heldDraft = '';
+      if (!resume) return;
+      resume = false;
+      if (restored?.full) fullscreen = true;
+      const top = restored?.scroll;
+      if (typeof top === 'number') {
+        following = false;
+        void tick().then(() => tick()).then(() => {
+          if (threadEl) threadEl.scrollTop = top;
+        });
+      }
+    });
+  });
+  function snapshot() {
+    if (!persistKey || !everOpened || needsConsent) return;
+    writeBarSession(persistKey, {
+      open: pinned || (resume && messages.length > 0),
+      full: fullscreen || (resume && !!restored?.full),
+      draft: draft || heldDraft,
+      scroll: following || !threadEl ? null : threadEl.scrollTop,
+      at: Date.now(),
+    });
+  }
+  $effect(() => {
+    void pinned;
+    void fullscreen;
+    void draft;
+    void barOpen;
+    untrack(snapshot);
+  });
+
+
+  // Resuming is the quietest thing the pill can say: any news wins over it.
+  const resuming = $derived(resume && !!lastAnswer && derivedActivity === 'none');
+  const activity = $derived<BarActivity>(activityOverride ?? (resuming ? 'resume' : derivedActivity));
+  const unreadPreview = $derived(
+    previewLine((newestTeam ?? newestReply ?? (resuming ? lastAnswer : undefined))?.content ?? ''),
+  );
 
   // ── Thread content ────────────────────────────────────────────────────────
   // Restoring: nothing for 300ms (a fast restore never flashes a line), then
@@ -414,12 +610,26 @@
 
   // Several rows at once is a restore or a replace, not a conversation: no row
   // flies in, the whole thread just appears.
+  // A conversation switch is a replace too, whatever the lengths, and starts
+  // at the bottom with nothing opened.
   let prevLen = 0;
+  let prevConversation = untrack(() => conversationId);
   let bulk = $state(false);
   $effect.pre(() => {
     const n = messages.length;
-    bulk = n - prevLen > 1;
+    const c = conversationId;
+    const switched = c !== prevConversation;
+    bulk = n - prevLen > 1 || switched;
+    if (switched) {
+      following = true;
+      missed = false;
+      untrack(() => {
+        openSources = {};
+        copiedId = '';
+      });
+    }
     prevLen = n;
+    prevConversation = c;
   });
 
   // "Still thinking…" once a reply has been silent for 8s.
@@ -471,6 +681,9 @@
   }
 
   const noticeId = `pbf-notice-${Math.random().toString(36).slice(2, 8)}`;
+  const describedBy = $derived(
+    [line ? noticeId : '', showConsent ? consentId : '', barOpen ? disclosureId : ''].filter(Boolean).join(' ') || undefined,
+  );
 
   // ── Thread height ─────────────────────────────────────────────────────────
   // The tallest the thread may grow before it scrolls, per size, and the share
@@ -522,6 +735,11 @@
     const el = threadEl;
     if (!el) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && view === 'history') {
+        e.stopPropagation();
+        backToThread();
+        return;
+      }
       const t = e.target;
       if (e.key !== 'Escape' || !(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) || !t.value) return;
       e.stopPropagation();
@@ -534,6 +752,36 @@
   function onScroll() {
     if (!threadEl) return;
     following = threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 40;
+    if (following) missed = false;
+  }
+
+  // "↓ New message": a turn arrived or grew while the reader was scrolled up.
+  // Only growth counts (a new turn, or the last one getting longer), and only
+  // in a thread that actually scrolls. An emptied thread starts over.
+  let missed = $state(false);
+  let lastLen = 0;
+  let lastTail = '';
+  let lastChars = 0;
+  $effect(() => {
+    const n = messages.length;
+    const last = messages[n - 1];
+    const tail = last?.id ?? '';
+    const chars = last?.content.length ?? 0;
+    if (n === 0) {
+      following = true;
+      missed = false;
+    } else {
+      const grew = n > lastLen || (tail === lastTail && chars > lastChars);
+      if (grew && !following && untrack(() => view === 'thread' && scrollable)) missed = true;
+    }
+    lastLen = n;
+    lastTail = tail;
+    lastChars = chars;
+  });
+  function jump() {
+    following = true;
+    missed = false;
+    threadEl?.scrollTo({ top: threadEl.scrollHeight, behavior: prefersReducedMotion.current ? 'auto' : 'smooth' });
   }
 
   $effect(() => {
@@ -573,19 +821,48 @@
   bind:this={frameEl}
 >
 <div class="frame" class:open={showThread}>
+  <div class="thread-box">
   <div
     class="thread"
     bind:this={threadEl}
     onscroll={onScroll}
     style:height={fullscreen ? undefined : `${threadH.current}px`}
     style:overflow-y={scrollable ? 'auto' : 'hidden'}
-    role="log"
-    aria-live="polite"
-    aria-relevant="additions"
-    aria-label="Conversation"
+    role={history ? 'region' : 'log'}
+    aria-live={history ? 'off' : 'polite'}
+    aria-relevant={history ? undefined : 'additions'}
+    aria-label={history ? 'Your conversations' : 'Conversation'}
     aria-hidden={!showThread}
   >
-    {#if showThread}
+    {#if showThread && history}
+      <div class="thread-inner history" bind:offsetHeight={innerH} bind:this={historyEl} in:fade={soft}>
+        <div class="history-head">
+          <button type="button" class="foot-btn" onclick={backToThread}>
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M10 4L6 8l4 4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            Back
+          </button>
+          <h2 class="history-title">Conversations</h2>
+          {#if onnewconversation}
+            <button type="button" class="foot-btn" onclick={newConversation}>New</button>
+          {/if}
+        </div>
+        <ul class="history-list">
+          {#each conversations as c (c.id)}
+            {@const current = c.id === conversationId || (!conversationId && c.active)}
+            <li>
+              <button type="button" class="history-row" aria-current={current || undefined} onclick={() => openConversation(c.id)}>
+                <span class="history-preview">{c.preview || 'New conversation'}</span>
+                <span class="history-meta">
+                  {#if current}<span>Current</span>{/if}
+                  {#if WAITING_STATES.has(c.state)}<span>Waiting on team</span>{/if}
+                  {#if ago(c.lastMessageAt, listNow)}<span>{ago(c.lastMessageAt, listNow)}</span>{/if}
+                </span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {:else if showThread}
       <div class="thread-inner" class:blank={restoring && !restoreLine && empty} bind:offsetHeight={innerH} out:fade={leave}>
         {#if empty && restoring}
           {#if restoreLine}<p class="meta loading" in:fade={soft}>Loading your conversation…</p>{/if}
@@ -718,6 +995,21 @@
       </div>
     {/if}
   </div>
+  {#if missed && showThread && !history}
+    <button type="button" class="jump" onclick={jump} transition:fade={soft}>
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      New message
+    </button>
+  {/if}
+  </div>
+
+  {#if showConsent}
+    <p class="notice consent" class:held={!!held} id={consentId} role="status" transition:slide={soft}>
+      <span>{held ? 'To send this, we need to store a conversation ID on this device.' : 'To chat, we store a conversation ID on this device.'}</span>
+      <button type="button" class="retry" onclick={acceptConsent}>Accept</button>
+      <button type="button" class="retry quiet" onclick={declineConsent}>Not now</button>
+    </p>
+  {/if}
 
   {#if line && (showThread || line.kind === 'unavailable' || line.kind === 'rejected')}
     <!-- Its own polite status, outside the log: it is about the input, not a
@@ -747,12 +1039,17 @@
     {streaming}
     {activity}
     {unreadPreview}
-    describedby={line ? noticeId : undefined}
+    describedby={describedBy}
+    bind:value={draft}
     readonly={!!unavailable}
     sendBlocked={cooling || queueFull}
     handoffPending={handoff === 'pending'}
     onrequesthuman={unavailable && !unavailable.contactable ? undefined : onrequesthuman}
     {onstop}
+    onnewconversation={onnewconversation ? newConversation : undefined}
+    newConversationDisabled={messages.length === 0}
+    conversationCount={conversations.length}
+    onshowconversations={onopenconversation ? showConversations : undefined}
     {suggestions}
     {logo}
     {logoSrc}
@@ -766,13 +1063,25 @@
   />
 </div>
 
-  {#if poweredBy && barOpen}
+  {#if barOpen}
+    <!-- The disclosure is not the credit: `poweredBy={false}` removes the
+         credit and leaves this line. -->
     <div class="credit" transition:slide={credit}>
-      {#if poweredByHref}
-        <a href={poweredByHref} target="_blank" rel="noopener noreferrer">Powered by <strong>Paw Sites</strong></a>
-      {:else}
-        <span>Powered by <strong>Paw Sites</strong></span>
-      {/if}
+      <span>
+        <span id={disclosureId}>{disclosureText}</span>
+        {#if privacyHref}
+          <span aria-hidden="true">·</span>
+          <a href={privacyHref} target="_blank" rel="noopener noreferrer">Privacy</a>
+        {/if}
+        {#if poweredBy}
+          <span aria-hidden="true">·</span>
+          {#if poweredByHref}
+            <a href={poweredByHref} target="_blank" rel="noopener noreferrer">Powered by <strong>Paw Sites</strong></a>
+          {:else}
+            <span>Powered by <strong>Paw Sites</strong></span>
+          {/if}
+        {/if}
+      </span>
     </div>
   {/if}
 </div>
@@ -843,6 +1152,12 @@
     width: min(1100px, 100%);
     box-sizing: border-box;
   }
+  .frame-wrap[data-full] .thread-box {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
   .frame-wrap[data-full] .thread {
     flex: 1;
     min-height: 0;
@@ -894,6 +1209,92 @@
     scrollbar-width: thin;
     scrollbar-color: color-mix(in oklab, currentColor 25%, transparent) transparent;
   }
+  /* Only anchors the jump pill over the bottom of the thread. */
+  .thread-box {
+    position: relative;
+    width: 100%;
+  }
+  .jump {
+    position: absolute;
+    left: 50%;
+    bottom: 8px;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border: none;
+    border-radius: min(var(--pawbar-radius, 999px), 999px);
+    /* The visitor bubble's colours: solid enough that the reply scrolling
+       under it never shows through. */
+    background: var(--pawbar-bubble-bg, rgb(255 255 255 / 0.86));
+    color: var(--pawbar-bubble-fg, #1c1c21);
+    font: inherit;
+    font-size: var(--pbf-meta);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .jump:focus-visible {
+    outline: 2px solid var(--pawbar-ring, currentColor);
+    outline-offset: 2px;
+  }
+
+  /* ── Conversation list ─────────────────────────────────────────────────── */
+  .history-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .history-title {
+    flex: 1;
+    margin: 0;
+    font-size: var(--pbf-msg);
+    font-weight: 600;
+    text-align: center;
+  }
+  .history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .history-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    padding: 9px 10px;
+    border: none;
+    border-radius: min(var(--pawbar-radius, 12px), 12px);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .history-row:hover,
+  .history-row[aria-current='true'] {
+    background: color-mix(in oklab, currentColor 8%, transparent);
+  }
+  .history-row:focus-visible {
+    outline: 2px solid var(--pawbar-ring, currentColor);
+    outline-offset: -2px;
+  }
+  .history-preview {
+    overflow: hidden;
+    font-size: var(--pbf-msg);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .history-meta {
+    display: flex;
+    gap: 8px;
+    font-size: var(--pbf-meta);
+    color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
+  }
+
   .thread-inner {
     display: flex;
     flex-direction: column;
@@ -1543,11 +1944,12 @@
      wrapper row, not margin, so the pointer never crosses a dead strip that
      would count as leaving the bar. */
   .credit {
+    max-width: 100%;
     padding-top: 8px;
     text-align: center;
     font-family: var(--pawbar-font, inherit);
     font-size: 11.5px;
-    line-height: 1;
+    line-height: 1.35;
     color: var(--pawbar-credit-fg, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 70%, transparent));
   }
   .credit > * {
@@ -1567,6 +1969,7 @@
     color: inherit;
     text-decoration: none;
   }
+  .credit a:hover,
   .credit a:hover strong {
     text-decoration: underline;
     text-underline-offset: 2px;

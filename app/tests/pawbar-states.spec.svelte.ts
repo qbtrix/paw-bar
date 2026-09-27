@@ -12,6 +12,8 @@
 // unavailable chat (read-only, email offer when a person can still be
 // reached), and the rejected alert. F: Default follows the host scheme,
 // branded themes do not; a narrow screen opens a conversation full screen.
+// 2026-09-27: the field is described by the notice AND the AI disclosure, so
+// the takeover test checks the notice is one of its describers.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
@@ -196,7 +198,7 @@ describe('conversation states', () => {
     expect(text(notice)).toBe("You're chatting with the team");
     const field = target.querySelector('textarea')!;
     expect(field.placeholder).toBe('Reply to the team…');
-    expect(field.getAttribute('aria-describedby')).toBe(notice.id);
+    expect(field.getAttribute('aria-describedby')!.split(' ')).toContain(notice.id);
   });
 
   it('the thread is the one live region, and nothing inside it is another', () => {

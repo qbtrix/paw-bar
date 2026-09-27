@@ -81,6 +81,12 @@
     mount point can hold the first paint until the pill is final.
   • Under 360px the pill takes the screen's width instead of overflowing it.
   • `focus()` is exported: the frame lands focus in the field after Retry.
+  • Sessions (2026-09-27): `onnewconversation` adds "New conversation" to ⋯
+    (inert with `newConversationDisabled`, e.g. an empty thread), and
+    `onshowconversations` adds "Conversations (N)" when `conversationCount`
+    is above one. Activity 'resume' is the continue pill after a page
+    navigation: the pill reads the last answer's first line, with no dot and
+    no announcement, because nothing new happened.
 
   `boundary` widens click-outside and hover to a parent element (PawBarFrame,
   whose thread and credit sit outside the bar). `logoSrc` is the site's logo,
@@ -96,7 +102,9 @@
   const SIZES: BarSize[] = ['sm', 'md', 'lg'];
   export const SIZE_LABELS: Record<BarSize, string> = { sm: 'Compact', md: 'Default', lg: 'Large' };
 
-  export type BarActivity = 'none' | 'thinking' | 'unread' | 'team';
+  /** 'resume' is not news: the visitor had the bar open on the previous page,
+   *  and the pill offers to carry on where they were. */
+  export type BarActivity = 'none' | 'thinking' | 'unread' | 'team' | 'resume';
   /** What a send can resolve to. A refused message comes back as `restoreDraft`. */
   export type BarSendResult = { ok: true } | { ok: false; restoreDraft?: string };
   export type BarContactRequest = { message: string; contact: string };
@@ -156,6 +164,10 @@
     onstop,
     onrequesthuman,
     handoffPending = false,
+    onnewconversation,
+    newConversationDisabled = false,
+    conversationCount = 0,
+    onshowconversations,
     onsuggestion,
     boundary = null,
     onopenchange,
@@ -198,6 +210,14 @@
     onrequesthuman?: (req: BarContactRequest) => Promise<BarContactResult>;
     /** A person has been asked for and not arrived yet. */
     handoffPending?: boolean;
+    /** Adds "New conversation" to ⋯. */
+    onnewconversation?: () => void;
+    /** Keeps the item but makes it inert (nothing to start over from). */
+    newConversationDisabled?: boolean;
+    /** How many conversations the visitor has; the list item shows above one. */
+    conversationCount?: number;
+    /** Adds "Conversations (N)" to ⋯. */
+    onshowconversations?: () => void;
     /** Defaults to sending the chip's text. */
     onsuggestion?: (text: string) => void;
     boundary?: HTMLElement | null;
@@ -270,12 +290,24 @@
   let triggerEl: HTMLButtonElement | null = $state(null);
   let fieldEl: HTMLTextAreaElement | null = $state(null);
   let menuBtnEl: HTMLButtonElement | null = $state(null);
-  // The menu holds whichever groups apply: sizes + full screen (when
-  // `resizable`), then "Talk to a person" (when `oncontact`). Its items are
-  // read from the DOM, so the keyboard walk never counts a group that is not
-  // there.
+  // The menu holds whichever groups apply: the conversation items (new, the
+  // list), sizes + full screen (when `resizable`), then "Talk to a person"
+  // (when `onrequesthuman`). Its items are read from the DOM, so the keyboard
+  // walk never counts a group that is not there.
   let menuEl: HTMLDivElement | null = $state(null);
   const menuItems = () => [...(menuEl?.querySelectorAll<HTMLButtonElement>('.menu-item') ?? [])];
+  const showHistoryItem = $derived(!!onshowconversations && conversationCount > 1);
+  const hasSessionItems = $derived(!!onnewconversation || showHistoryItem);
+  const hasMenu = $derived(resizable || !!onrequesthuman || hasSessionItems);
+  // Exactly one item is in the tab order: the checked size when there are
+  // sizes, otherwise whichever item comes first.
+  const firstItem = $derived(
+    resizable ? '' : onnewconversation ? 'new' : showHistoryItem ? 'history' : 'human',
+  );
+  function menuAction(fn: (() => void) | undefined) {
+    menuOpen = false;
+    fn?.();
+  }
 
   // Hover is tracked on the boundary when there is one, else on our own host.
   $effect(() => {
@@ -473,14 +505,18 @@
     activity === 'thinking' ? 'Replying…'
     : activity === 'team' ? `Team: ${preview || 'New message'}`
     : activity === 'unread' ? preview || 'New reply'
+    : activity === 'resume' ? preview || 'Continue the conversation'
     : placeholder,
   );
   const activityName = $derived(
     activity === 'thinking' ? 'reply in progress'
     : activity === 'team' ? `new message from the team: ${preview || 'New message'}`
     : activity === 'unread' ? `1 new reply: ${preview || 'New reply'}`
+    : activity === 'resume' ? `continue the conversation${preview ? `: ${preview}` : ''}`
     : '',
   );
+  // The dot means news. Resuming is not news, so it gets none.
+  const dotted = $derived(activity !== 'none' && activity !== 'resume');
   const launchLabel = $derived(activityName ? `Open chat, ${activityName}` : 'Open chat');
   // The one announcement: only while closed, only for unread/team, once per
   // change. It empties as soon as the card opens, where the thread speaks.
@@ -583,7 +619,7 @@
 {/snippet}
 
 {#snippet menuButton()}
-  {#if resizable || onrequesthuman}
+  {#if hasMenu}
     <button
       type="button"
       class="icon"
@@ -736,7 +772,7 @@
         <button type="button" class="launch" bind:this={triggerEl} aria-expanded="false" aria-label={launchLabel} onclick={openAndFocus}>
           {@render brand()}
         </button>
-        {#if activity !== 'none'}{@render activityDot()}{/if}
+        {#if dotted}{@render activityDot()}{/if}
       </div>
     {:else}
       <div class="face pill" class:busy={activity !== 'none'} bind:offsetWidth={pillW} bind:offsetHeight={pillH} in:fade={fadeIn} out:fade={fadeOut}>
@@ -745,6 +781,7 @@
           type="button"
           class="trigger"
           class:news={activity === 'unread' || activity === 'team'}
+          class:resume={activity === 'resume'}
           bind:this={triggerEl}
           aria-expanded="false"
           aria-label={activityName ? launchLabel : undefined}
@@ -752,7 +789,7 @@
         >
           {triggerText}
         </button>
-        {#if activity !== 'none'}{@render activityDot()}{/if}
+        {#if dotted}{@render activityDot()}{/if}
         {@render menuButton()}
       </div>
     {/if}
@@ -760,6 +797,35 @@
 
   {#if menuOpen}
     <div class="menu" role="menu" aria-label="Chat options" tabindex="-1" bind:this={menuEl} onkeydown={onMenuKeydown} transition:fade={fadeOut}>
+      {#if onnewconversation}
+        <button
+          type="button"
+          class="menu-item"
+          role="menuitem"
+          tabindex={firstItem === 'new' ? 0 : -1}
+          aria-disabled={newConversationDisabled || undefined}
+          onclick={() => {
+            if (!newConversationDisabled) menuAction(onnewconversation);
+          }}
+        >
+          <span>New conversation</span>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+      {/if}
+      {#if showHistoryItem}
+        <button
+          type="button"
+          class="menu-item"
+          role="menuitem"
+          tabindex={firstItem === 'history' ? 0 : -1}
+          onclick={() => menuAction(onshowconversations)}
+        >
+          <span>Conversations ({conversationCount})</span>
+        </button>
+      {/if}
+      {#if hasSessionItems && (resizable || onrequesthuman)}<span class="menu-sep" role="separator"></span>{/if}
       {#if resizable}
       <span class="menu-label" aria-hidden="true">Size</span>
       {#each SIZES as s (s)}
@@ -800,13 +866,13 @@
       {/if}
       {#if onrequesthuman}
         {#if resizable}<span class="menu-sep" role="separator"></span>{/if}
-        <!-- The only item when the menu is contact-only, so it is the one in
-             the tab order then. -->
+        <!-- The first item when there are no sizes or conversation items, so
+             it is the one in the tab order then. -->
         <button
           type="button"
           class="menu-item"
           role="menuitem"
-          tabindex={resizable ? -1 : 0}
+          tabindex={firstItem === 'human' ? 0 : -1}
           aria-disabled={handoffPending || undefined}
           onclick={() => void openContact()}
         >
@@ -983,7 +1049,8 @@
   }
 
   /* A preview of something new reads as content, not as a placeholder. */
-  .trigger.news {
+  .trigger.news,
+  .trigger.resume {
     color: var(--pawbar-preview-fg, var(--pawbar-fg, #1c1c21));
   }
 

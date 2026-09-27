@@ -11,6 +11,9 @@
   2026-09-27 (section E): "Next reply" adds markdown, a form card, one
   product and 4- / 12-product catalogs; Reset also empties the demo cart and
   clears the email prompt.
+  2026-09-27 (sessions + compliance): "Seed history" adds older
+  conversations for the ⋯ list, "Ask consent" puts the bar behind the consent
+  step, and a reload shows the continue pill. Reset also forgets all of it.
 -->
 <html lang="en">
   <head>
@@ -103,6 +106,8 @@
       <button type="button" data-act="team">Team takes over</button>
       <button type="button" data-act="closed">Reply while closed</button>
       <button type="button" data-act="restore">Restore</button>
+      <button type="button" data-act="history">Seed history</button>
+      <button type="button" data-act="consent">Ask consent</button>
       <button type="button" data-act="reset">Reset</button>
       <label>Corners <input type="range" name="radius" min="0" max="40" value="" id="radius" /> <output id="radius-out">theme</output></label>
     </form>

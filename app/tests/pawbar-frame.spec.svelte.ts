@@ -9,6 +9,8 @@
 // 2026-09-27 (states): rows carry a visually hidden speaker prefix ("You:",
 // "Assistant:"), so text is read without it; a page click does not fold a
 // reply that is still being written.
+// 2026-09-27 (compliance): poweredBy={false} drops the credit but not the AI
+// disclosure, which shares its line.
 // Branding: the pill carries the site's logo (falling back to the plain mark
 // when it fails to load), and "Powered by Paw Sites" shows only while open.
 
@@ -196,10 +198,12 @@ describe('PawBarFrame', () => {
     vi.useRealTimers();
   });
 
-  it('poweredBy={false} drops the credit', () => {
+  it('poweredBy={false} drops the credit and keeps the AI disclosure', () => {
     const { target } = render({ poweredBy: false });
     target.querySelector('.frame-wrap')!.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
     flushSync();
-    expect(target.querySelector('.credit')).toBeNull();
+    const line = target.querySelector('.credit')!;
+    expect(line.textContent).not.toContain('Paw Sites');
+    expect(line.textContent).toContain('AI assistant');
   });
 });
