@@ -1,5 +1,5 @@
 {
-  "_comment": "Created 2026-07-15 (A3 glass-bar concierge). Self-contained Vite + Svelte 5 SPA that renders inside an iframe and streams the grounded concierge chat from /paw-bar/chat. Nested under app/ so the frozen vanilla widget in ../src stays untouched (own package.json, own lockfile, own node_modules — all git-ignored via root .gitignore). Dep versions pinned to the exact aged builds paw-enterprise ships (7-day supply-chain min-age satisfied). Zero Ripple, zero SvelteKit. 2026-09-27: the vanilla widget in ../src was removed; app/ keeps its own package.json and lockfile. 2026-09-27: marked + dompurify moved to devDependencies; replies render through the native parser in src/lib/md/, and the two remain only as the test oracle (tests/fixtures/md-oracle.ts).",
+  "_comment": "Created 2026-07-15 (A3 glass-bar concierge). Self-contained Vite + Svelte 5 SPA that renders inside an iframe and streams the grounded concierge chat from /paw-bar/chat. Nested under app/ so the frozen vanilla widget in ../src stays untouched (own package.json, own lockfile, own node_modules — all git-ignored via root .gitignore). Dep versions pinned to the exact aged builds paw-enterprise ships (7-day supply-chain min-age satisfied). Zero Ripple, zero SvelteKit. 2026-09-27: the vanilla widget in ../src was removed; app/ keeps its own package.json and lockfile. 2026-09-27: marked + dompurify moved to devDependencies; replies render through the native parser in src/lib/md/, and the two remain only as the test oracle (tests/fixtures/md-oracle.ts). 2026-09-27: + @ripple-ui/core (vendored tarball, vendor/) for components/spec/, which uses only its headless engine; no Ripple widgets or CSS.",
   "name": "paw-bar-glass",
   "version": "0.1.0",
   "description": "Glass concierge iframe app for Paw Bar — markdown-rich grounded chat, white-label headless surface.",
@@ -13,6 +13,9 @@
     "test:watch": "vitest",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "size": "node scripts/check-size.mjs"
+  },
+  "dependencies": {
+    "@ripple-ui/core": "./vendor/ripple-ui-core-0.5.0.tgz"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "6.2.4",

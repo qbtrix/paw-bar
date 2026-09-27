@@ -10,7 +10,9 @@
      about the frozen vanilla widget in ../src is gone with that widget.
      2026-09-27 (native markdown): marked and DOMPurify no longer ship; the
      build-output line, the test list and the security note describe the
-     parsed-tree renderer in src/lib/md/ instead. -->
+     parsed-tree renderer in src/lib/md/ instead.
+     2026-09-27 (spec renderer): added "Drawing a Ripple spec", covering
+     components/spec/ and the vendored @ripple-ui/core tarball. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -132,6 +134,39 @@ Card parsing/validation lives in `src/lib/cards.ts`; transport in
 unknown `kind`, renders a quiet "card unavailable" line — never raw JSON. An
 in-flight (still-streaming) card fence shows the shimmer placeholder until it
 closes.
+
+## Drawing a Ripple spec
+
+`src/components/spec/` draws a Ripple spec (`{ ui, state?, theme? }`) with
+components the app passes in, keyed by spec `type`. Ripple's headless engine
+(`@ripple-ui/core/headless`) resolves expressions, `show`, `if` and `each`,
+holds state and runs actions; `SpecRenderer.svelte` and `SpecNode.svelte` only
+draw the result. No Ripple widget, stylesheet or schema is bundled, and
+`tests/spec-renderer-imports.spec.ts` fails if anything beyond `svelte`, the
+headless engine and that folder gets imported.
+
+```svelte
+<SpecRenderer {spec} components={{ text: Text, button: Button }} onEvent={handle} fallback={Unavailable} />
+```
+
+- **Props to components** match Ripple's NodeRenderer: resolved props, `id`,
+  `class`, `style`, the bound value and `name` for a bound node, `on*`
+  handlers, `hasChildren`, and one snippet per non-empty slot.
+- **Styling:** the spec's `theme` becomes CSS variables on the root, named as
+  Ripple names them (`--primary`, `--radius`, `--ripple-font-sans`, ...), and
+  `mode` becomes `data-mode`. Node `class` and `style` go to the component.
+  Spec CSS is agent-written, so `components/spec/style.ts` drops anything that
+  could load a resource or escape its declaration. The host's own `class` and
+  `style` on the root are applied last and win.
+- **Failures:** a type with no component, or a component that throws, draws
+  `fallback` for that node only.
+- **Size:** renderer plus engine is about 13 KB gzipped on top of Svelte. It is
+  not imported by `main.ts` yet, so `pawbar.js` is unchanged.
+
+`@ripple-ui/core` is not on npm, so it is vendored as
+`vendor/ripple-ui-core-0.5.0.tgz`, packed from ripple-iui with the fix for
+handlers inside `each` (ripple-iui #142). To update it, run `bun run build` and
+`npm pack` in ripple's `packages/core`, replace the tarball, and `bun install`.
 
 ## Security note
 
