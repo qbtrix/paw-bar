@@ -81,6 +81,14 @@ describe('native markdown matches the old marked + DOMPurify output', () => {
     expect(renderOld('a <span>b</span> c')).toBe('<p>a <span>b</span> c</p>');
   });
 
+  it('known difference: an HTML block is parsed as markdown, not passed through raw', () => {
+    // marked passed `<div>` blocks through untouched, so markdown inside one
+    // showed literally inside a <div>. The native renderer drops the tags and
+    // renders the markdown. Harmless, and not something replies rely on.
+    expect(renderOld('<div>\n**x**\n</div>')).toBe('<div>**x**</div>');
+    expect(renderNew('<div>\n**x**\n</div>')).toBe('<p><br></br><strong>x</strong><br></br></p>');
+  });
+
   it('site-relative links resolve the same way', () => {
     setLinkBase('https://shop.example');
     oracleSetLinkBase('https://shop.example');

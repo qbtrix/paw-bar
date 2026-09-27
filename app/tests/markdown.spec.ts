@@ -268,6 +268,21 @@ describe('what a reply can produce', () => {
   });
 });
 
+describe('parsing cost stays linear on hostile input', () => {
+  // A prompt-injected reply is the input most likely to be pathological. Runs
+  // of unclosed delimiters were quadratic (about 450ms for 15KB) until the
+  // closer search remembered its failures; they now take a few ms. The bound
+  // is loose on purpose, to catch a return to quadratic, not to time a machine.
+  for (const [name, unit] of [['*', '*a '], ['_', '_a '], ['~', '~a '], ['`', '`a '], ['<', '< '], ['url', 'https://x.example/a ']]) {
+    it(`30KB of unclosed ${name} parses in well under a second`, () => {
+      const s = unit.repeat(Math.ceil(30000 / unit.length));
+      const t0 = performance.now();
+      parseSegments(s);
+      expect(performance.now() - t0).toBeLessThan(250);
+    });
+  }
+});
+
 describe('parseSegments', () => {
   it('splits prose and a fenced code block', () => {
     const segs = parseSegments('Try this:\n```js\nconst x = 1;\n```\nDone.');

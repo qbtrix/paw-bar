@@ -79,7 +79,7 @@
 // allowlisted inline tags keep their meaning, others lose the tag and keep the
 // text, script/style-like tags lose their content too. The old path lives on
 // as tests/fixtures/md-oracle.ts, and tests/md-parity.spec.ts compares the two.
-// pawbar.js dropped from 74,840 to 59,097 bytes gzipped (marked and DOMPurify
+// pawbar.js dropped from 74,840 to 59,479 bytes gzipped (marked and DOMPurify
 // were 29% of the minified bundle). Streaming cost: see Markdown.svelte.
 
 

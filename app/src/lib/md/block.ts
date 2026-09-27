@@ -9,10 +9,13 @@
 // with alignment, escaped pipes and rows without edge pipes; ~~~ fences and
 // indented code as plain <pre>. Triple-backtick fences never reach here:
 // lib/markdown.ts splits them out first for CodeBlock and the card layer.
-// Reference-style links and HTML blocks are not special: their text renders
-// as inline content.
+// Link reference definitions (`[label]: url`) at the start of a paragraph are
+// collected once per document, removed from the output, and handed to the
+// inline parser so `[text][label]` resolves. HTML blocks are not special: their
+// text renders as inline content.
 
-import { parseInline } from './inline';
+import { decodeEntities } from './entities';
+import { normalizeLabel, parseInline, type LinkDefs } from './inline';
 import type { Align, Block, ListItem } from './types';
 
 const BLANK = /^[ \t]*$/;
@@ -25,7 +28,31 @@ const BULLET = /^( {0,3})([-+*])([ \t]+|$)(.*)$/;
 const ORDERED = /^( {0,3})(\d{1,9})([.)])([ \t]+|$)(.*)$/;
 const TABLE_DELIM = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 
+const DEF = /^ {0,3}\[([^\]\n]+)\]:[ \t]*(<[^>\n]*>|\S+)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$/;
+
 const indentOf = (l: string) => /^ */.exec(l)![0].length;
+
+/** Pull `[label]: url` definitions out of the document. A definition only
+ *  counts where a paragraph could start (first line, after a blank line, or
+ *  after another definition), so prose containing `[x]:` is left alone. The
+ *  first definition of a label wins, as in CommonMark. */
+function extractDefs(lines: string[]): { lines: string[]; defs: LinkDefs } {
+  const defs: LinkDefs = new Map();
+  const kept: string[] = [];
+  let canStart = true;
+  for (const line of lines) {
+    const m = canStart ? DEF.exec(line) : null;
+    if (m) {
+      const key = normalizeLabel(m[1]);
+      const dest = m[2].startsWith('<') ? m[2].slice(1, -1) : m[2];
+      if (key && !defs.has(key)) defs.set(key, decodeEntities(dest.replace(/\\([!-/:-@[-`{-~])/g, '$1')));
+      continue;
+    }
+    kept.push(line);
+    canStart = BLANK.test(line);
+  }
+  return { lines: kept, defs };
+}
 
 interface Marker {
   ordered: boolean;
@@ -77,7 +104,14 @@ class BlockParser {
   private para: string[] | null = null;
   private i = 0;
 
-  constructor(private lines: string[]) {}
+  constructor(
+    private lines: string[],
+    private defs: LinkDefs,
+  ) {}
+
+  private inline(s: string) {
+    return parseInline(s, this.defs);
+  }
 
   run(): Block[] {
     const lines = this.lines;
@@ -90,7 +124,7 @@ class BlockParser {
         this.indentedCode();
       } else if (this.para && SETEXT.test(line)) {
         const level = line.trim().startsWith('=') ? 1 : 2;
-        this.out.push({ t: 'h', level, c: parseInline(this.para.join('\n')) });
+        this.out.push({ t: 'h', level, c: this.inline(this.para.join('\n')) });
         this.para = null;
         this.i += 1;
       } else if (HR.test(line)) {
@@ -100,7 +134,7 @@ class BlockParser {
       } else if (ATX.test(line)) {
         this.flush();
         const [, hashes, text = ''] = ATX.exec(line)!;
-        this.out.push({ t: 'h', level: hashes.length as 1, c: parseInline(text.replace(/^#+$/, '').trim()) });
+        this.out.push({ t: 'h', level: hashes.length as 1, c: this.inline(text.replace(/^#+$/, '').trim()) });
         this.i += 1;
       } else if (FENCE.test(line)) {
         this.flush();
@@ -125,7 +159,7 @@ class BlockParser {
 
   private flush() {
     if (!this.para) return;
-    this.out.push({ t: 'p', c: parseInline(this.para.join('\n')) });
+    this.out.push({ t: 'p', c: this.inline(this.para.join('\n')) });
     this.para = null;
   }
 
@@ -157,7 +191,7 @@ class BlockParser {
       this.i += 1;
     }
     const width = head.length;
-    const fit = (r: string[]) => Array.from({ length: width }, (_, k) => parseInline(r[k] ?? ''));
+    const fit = (r: string[]) => Array.from({ length: width }, (_, k) => this.inline(r[k] ?? ''));
     this.out.push({ t: 'table', align, head: fit(head), rows: rows.map(fit) });
   }
 
@@ -202,7 +236,7 @@ class BlockParser {
       } else break;
       this.i += 1;
     }
-    this.out.push({ t: 'quote', c: parseBlocks(inner.join('\n')) });
+    this.out.push({ t: 'quote', c: parseBlocks(inner.join('\n'), this.defs) });
   }
 
   private list() {
@@ -246,17 +280,20 @@ class BlockParser {
         task = t[1] !== ' ';
         body[0] = body[0].slice(t[0].length);
       }
-      items.push({ task, c: parseBlocks(body.join('\n')) });
+      items.push({ task, c: parseBlocks(body.join('\n'), this.defs) });
     }
     this.out.push({ t: 'list', ordered: first.ordered, start: first.start, loose, items });
   }
 }
 
-/** Parse a markdown document (without triple-backtick fences) into blocks. */
-export function parseBlocks(src: string): Block[] {
-  const lines = src
+/** Parse a markdown document (without triple-backtick fences) into blocks.
+ *  `defs` is passed only for nested content (list items, quotes), which shares
+ *  the document's link definitions. */
+export function parseBlocks(src: string, defs?: LinkDefs): Block[] {
+  let lines = src
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .map((l) => l.replace(/^\t+/, (tabs) => '    '.repeat(tabs.length)));
-  return new BlockParser(lines).run();
+  if (!defs) ({ lines, defs } = extractDefs(lines));
+  return new BlockParser(lines, defs).run();
 }

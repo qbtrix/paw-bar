@@ -96,4 +96,11 @@ export const CORPUS: Record<string, string> = {
   underscoreEmphasisWords: 'This is _really_ important and __very__ clear.',
   starInWord: 'un*frigging*believable and **mid**word',
   tripleStarList: '- ***Important*** item\n- Normal',
+  refLinks: 'See [the guide][1] and [FAQ].\n\n[1]: https://shop.example/guide\n[FAQ]: https://shop.example/faq',
+  refCollapsed: 'Read [Returns][] today.\n\n[returns]: https://shop.example/returns "Returns policy"',
+  refCaseAndSpace: 'Our [Size  Guide] helps.\n\n[size guide]: <https://shop.example/sizes>',
+  refInList: '- Check [the FAQ][faq]\n- Or [email us][mail]\n\n[faq]: https://shop.example/faq\n[mail]: mailto:help@shop.example',
+  refUndefined: 'An [undefined][nope] ref and a [bracket] stay text.',
+  refFirstWins: '[x][a]\n\n[a]: https://one.example\n[a]: https://two.example',
+  refNotAfterText: 'Some text\n[a]: https://x.example\n\n[b][a]',
 };

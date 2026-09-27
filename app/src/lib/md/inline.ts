@@ -7,6 +7,9 @@
 // bare https:// / www. / email autolinks, backslash escapes, character
 // references, and a line break for every newline.
 //
+// Reference links ([text][label], [text][], [label]) resolve against the
+// document's `[label]: url` definitions, which block.ts collects and removes.
+//
 // Raw HTML follows what DOMPurify did to marked's output: an allowlisted inline
 // tag becomes its node (strong, em, del, code, sup, sub, br, and a with its href
 // vetted), any other tag is dropped and its text kept, and the tags whose
@@ -58,12 +61,33 @@ function unescape(s: string): string {
   return decodeEntities(s.replace(/\\([!-/:-@[-`{-~])/g, '$1'));
 }
 
+/** Link reference definitions, keyed by normalizeLabel. */
+export type LinkDefs = Map<string, string>;
+
+/** Case- and whitespace-insensitive, as CommonMark matches labels. */
+export function normalizeLabel(label: string): string {
+  return label.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 class InlineParser {
   private out: Inline[] = [];
   private text = '';
   private i = 0;
+  /** Earliest position a closer search for this key already failed from. A
+   *  closer's eligibility doesn't depend on its opener, so a later search for
+   *  the same key can only fail too; this keeps a run of unclosed `*a *a *a`
+   *  linear instead of quadratic. */
+  private noCloserFrom = new Map<string, number>();
 
-  constructor(private s: string, private inLink = false) {}
+  constructor(
+    private s: string,
+    private inLink = false,
+    private defs: LinkDefs = new Map(),
+  ) {}
+
+  private child(s: string, inLink = this.inLink): InlineParser {
+    return new InlineParser(s, inLink, this.defs);
+  }
 
   run(): Inline[] {
     const s = this.s;
@@ -215,21 +239,36 @@ class InlineParser {
     return { dest: unescape(dest), end: j + 1 };
   }
 
+  /** `[label]` / `[]` after a link's text, or the text itself as a shortcut. */
+  private reference(close: number, text: string): { dest: string; end: number } | null {
+    if (this.defs.size === 0) return null;
+    const after = close + 1;
+    if (this.s[after] === '[') {
+      const end = this.s.indexOf(']', after);
+      if (end === -1) return null;
+      const label = this.s.slice(after + 1, end);
+      const dest = this.defs.get(normalizeLabel(label || text));
+      return dest === undefined ? null : { dest, end: end + 1 };
+    }
+    const dest = this.defs.get(normalizeLabel(text));
+    return dest === undefined ? null : { dest, end: after };
+  }
+
   private linkOrImage(image: boolean) {
     const open = this.i + (image ? 1 : 0);
     const close = this.closeBracket(open);
-    const target = close === -1 ? null : this.destination(close + 1);
+    const label = close === -1 ? '' : this.s.slice(open + 1, close);
+    const target = close === -1 ? null : (this.destination(close + 1) ?? this.reference(close, label));
     if (!target || (!image && this.inLink)) {
       this.char(image ? '!' : '[');
       return;
     }
-    const label = this.s.slice(open + 1, close);
     if (image) {
       // Model-written images would be a request fired on render: alt text only.
       this.flush();
       this.text += label;
     } else {
-      this.push({ t: 'link', href: safeHref(target.dest), c: new InlineParser(label, true).run() });
+      this.push({ t: 'link', href: safeHref(target.dest), c: this.child(label, true).run() });
     }
     this.i = target.end;
   }
@@ -278,18 +317,18 @@ class InlineParser {
     const inner = after.slice(0, m.index);
     this.i += m.index + m[0].length;
     if (name === 'a') {
-      if (this.inLink) this.pushAll(new InlineParser(inner, true).run());
+      if (this.inLink) this.pushAll(this.child(inner, true).run());
       else {
         const href = attr(attrs, 'href');
         // An HTML attribute has no backslash escapes: decode references only, or
         // two leading backslashes (protocol-relative, dropped) would become one
         // (a same-origin path, kept).
-        this.push({ t: 'link', href: href === null ? null : safeHref(decodeEntities(href)), c: new InlineParser(inner, true).run() });
+        this.push({ t: 'link', href: href === null ? null : safeHref(decodeEntities(href)), c: this.child(inner, true).run() });
       }
     } else if (kind === 'code') {
       this.push({ t: 'code', v: decodeEntities(inner.replace(/<[^>]*>/g, '')) });
     } else {
-      this.push({ t: kind, c: new InlineParser(inner, this.inLink).run() });
+      this.push({ t: kind, c: this.child(inner).run() });
     }
   }
 
@@ -317,6 +356,9 @@ class InlineParser {
 
   /** Find a closing run of `c` usable for an opener needing `need`. */
   private findCloser(from: number, c: string, need: number, exact: boolean): { at: number; len: number } | null {
+    const key = `${c}${need}${exact}`;
+    const failed = this.noCloserFrom.get(key);
+    if (failed !== undefined && from >= failed) return null;
     for (let j = from; j < this.s.length; j++) {
       const ch = this.s[j];
       if (ch === '\\') { j += 1; continue; }
@@ -332,6 +374,7 @@ class InlineParser {
       if (fits && this.canClose(j, len, c)) return { at: j, len };
       j += len - 1;
     }
+    this.noCloserFrom.set(key, Math.min(failed ?? Infinity, from));
     return null;
   }
 
@@ -343,7 +386,7 @@ class InlineParser {
         this.char(c.repeat(len), len);
         return;
       }
-      this.push({ t: 'del', c: new InlineParser(this.s.slice(this.i + len, closer.at), this.inLink).run() });
+      this.push({ t: 'del', c: this.child(this.s.slice(this.i + len, closer.at)).run() });
       this.i = closer.at + len;
       return;
     }
@@ -358,7 +401,7 @@ class InlineParser {
       if (!closer || closer.at === this.i + need) continue;
       // Surplus opening delimiters stay literal, before the node.
       if (len > need) this.char(c.repeat(len - need), len - need);
-      const inner = new InlineParser(this.s.slice(this.i + need, closer.at), this.inLink).run();
+      const inner = this.child(this.s.slice(this.i + need, closer.at)).run();
       const node: Inline =
         kind === 'both' ? { t: 'em', c: [{ t: 'strong', c: inner }] } : { t: kind, c: inner };
       this.push(node);
@@ -394,6 +437,6 @@ class InlineParser {
 }
 
 /** Parse one run of inline markdown (a paragraph, heading or table cell). */
-export function parseInline(s: string): Inline[] {
-  return new InlineParser(s).run();
+export function parseInline(s: string, defs?: LinkDefs): Inline[] {
+  return new InlineParser(s, false, defs).run();
 }
