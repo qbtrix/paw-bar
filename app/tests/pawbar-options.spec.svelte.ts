@@ -7,7 +7,8 @@
 // 2026-09-27: ✕ closes the card on both launchers and from full screen, even
 // with a draft typed (the draft comes back on the next open), a pointer left
 // over the bar cannot hover it back open until it leaves, and the
-// conversation list has its own ✕.
+// conversation list has its own ✕. The controls (clock, full screen, ✕)
+// live in a header at the top of the chat, never in the input.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
@@ -134,13 +135,49 @@ describe('icon launcher', () => {
 });
 
 describe('close (✕)', () => {
-  const closeBtn = (t: HTMLElement) => q<HTMLButtonElement>(t, '.card button[aria-label="Close chat"]')!;
+  const closeBtn = (t: HTMLElement) => q<HTMLButtonElement>(t, '.frame-head button[aria-label="Close chat"]')!;
   const type = (t: HTMLElement, v: string) => {
     const f = q<HTMLTextAreaElement>(t, 'textarea')!;
     f.value = v;
     f.dispatchEvent(new Event('input'));
     flushSync();
   };
+
+  it('the controls sit in a header at the top, and the input holds none of them', () => {
+    const { target } = render({
+      expanded: true,
+      messages: [{ id: 'u1', role: 'user', content: 'hi', status: 'done' }],
+      onopenconversation: vi.fn(),
+    });
+    const head = q(target, '.frame-head')!;
+    expect([...head.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Your conversations',
+      'Full screen',
+      'Close chat',
+    ]);
+    const card = q(target, '.card')!;
+    expect(card.querySelector('button[aria-label="Close chat"]')).toBeNull();
+    expect(card.querySelector('button[aria-label="Full screen"]')).toBeNull();
+    expect(card.querySelector('button[aria-label="Your conversations"]')).toBeNull();
+  });
+
+  it('a card opened by hover with nothing to show has no header', () => {
+    const { target } = render();
+    q(target, '.frame-wrap')!.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+    flushSync();
+    expect(q(target, '.card')).not.toBeNull();
+    expect(q(target, '.frame-head')).toBeNull();
+  });
+
+  it('a press inside a hover-opened card pins it, and the header comes with it', () => {
+    const { target, props } = render({ expanded: false });
+    q(target, '.frame-wrap')!.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+    flushSync();
+    q(target, 'textarea')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }));
+    flushSync();
+    expect(props.expanded).toBe(true);
+    expect(q(target, '.frame-head')).not.toBeNull();
+  });
 
   it('the bar launcher has one too, and it closes the card', async () => {
     const { target, props } = render({ expanded: true });

@@ -133,7 +133,14 @@
     empty one is already new; the button just goes back to it). Leaving the
     list brings the field back with focus in it and the draft intact. The
     header's right side is a ✕ that closes the bar outright (PawBar
-    closeChat), matching the ✕ on the card. None of it is in a ⋯ menu any
+    closeChat).
+  • Header (captain, 2026-09-27: the ✕ belongs at the top, not in the
+    input). Whenever the thread shows, a slim row sits at the top of the
+    frame: the conversations clock on the left, full screen (`expandable`)
+    and ✕ on the right. The bar's card keeps only the field, the chips and
+    Send (PawBar `chrome={false}`). The list's own header (Back, title, ✕)
+    takes its place while the list is open. A card opened by hover alone,
+    with nothing to show, has no header; it closes when the pointer leaves. None of it is in a ⋯ menu any
     more (captain, 2026-09-27), and `resizable` (the visitor size menu) is
     off by default. The list is a plain region, never inside the
     live log, and Escape inside it goes back to the thread. A conversation
@@ -219,6 +226,7 @@
     side = 'right',
     size = 'md',
     resizable = false,
+    expandable = true,
     fullscreen = $bindable(false),
     theme = 'default',
     tokens = {},
@@ -267,6 +275,8 @@
     /** The site's default size; the visitor can change it from ⋯. */
     size?: BarSize;
     resizable?: boolean;
+    /** The full screen toggle in the header. */
+    expandable?: boolean;
     fullscreen?: boolean;
     /** A preset from lib/bar-themes. Unknown ids fall back to the default. */
     theme?: string;
@@ -539,6 +549,10 @@
     view = 'thread';
     if (messages.length > 0) await onnewconversation?.();
     void focusField();
+  }
+  async function toggleFull() {
+    fullscreen = !fullscreen;
+    await focusField();
   }
   const canList = $derived(
     !!(onopenconversation || onnewconversation) && (conversations.length > 0 || messages.length > 0),
@@ -858,6 +872,41 @@
   bind:this={frameEl}
 >
 <div class="frame" class:open={showThread}>
+  {#if showThread && !history}
+    <div class="frame-head" transition:slide={soft}>
+      {#if canList}
+        <button type="button" class="head-btn" aria-label="Your conversations" title="Your conversations" onclick={showConversations}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
+            <path d="M3.5 4v4h4M12 8v4.5l3 2" />
+          </svg>
+        </button>
+      {/if}
+      <span class="head-gap"></span>
+      {#if expandable || fullscreen}
+        <button
+          type="button"
+          class="head-btn"
+          aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+          title={fullscreen ? 'Exit full screen' : 'Full screen'}
+          onclick={toggleFull}
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            {#if fullscreen}
+              <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+            {:else}
+              <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+            {/if}
+          </svg>
+        </button>
+      {/if}
+      <button type="button" class="head-btn" aria-label="Close chat" title="Close" onclick={() => bar?.closeChat()}>
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+        </svg>
+      </button>
+    </div>
+  {/if}
   <div class="thread-box">
   <div
     class="thread"
@@ -1085,7 +1134,8 @@
     handoffPending={handoff === 'pending'}
     onrequesthuman={unavailable && !unavailable.contactable ? undefined : onrequesthuman}
     {onstop}
-    onshowconversations={canList ? showConversations : undefined}
+    chrome={false}
+    {expandable}
     footer={history ? listFooter : undefined}
     {suggestions}
     {logo}
@@ -1246,6 +1296,49 @@
     scrollbar-width: thin;
     scrollbar-color: color-mix(in oklab, currentColor 25%, transparent) transparent;
   }
+  /* ── Header ──────────────────────────────────────────────────────────── */
+  .frame-head {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    align-self: stretch;
+    padding: 0 2px 2px;
+  }
+  .frame-wrap[data-full] .frame-head {
+    width: 100%;
+    max-width: var(--pawbar-full-width, 760px);
+    margin-inline: auto;
+  }
+  .head-gap {
+    flex: 1;
+  }
+  .head-btn {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
+    cursor: pointer;
+  }
+  .head-btn:hover {
+    background: color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 9%, transparent);
+    color: var(--pawbar-frame-fg, #f2f2f5);
+  }
+  .head-btn:focus-visible {
+    outline: 2px solid var(--pawbar-ring, currentColor);
+    outline-offset: 1px;
+  }
+  @media (pointer: coarse) {
+    .head-btn {
+      width: 40px;
+      height: 40px;
+    }
+  }
+
   /* Only anchors the jump pill over the bottom of the thread. */
   .thread-box {
     position: relative;

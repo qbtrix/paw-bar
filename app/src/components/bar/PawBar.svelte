@@ -105,6 +105,12 @@
     bar, because the surface reshaping under a still pointer fires a fresh
     pointerenter. `closeChat()` is exported for the frame's list header.
     Escape still peels one layer at a time and keeps a drafted card open.
+    A press anywhere inside a hover-opened card pins it, as a click on the
+    pill does.
+    `chrome={false}` takes the clock, full screen and ✕ out of the card:
+    PawBarFrame draws them in a header at the top of the chat instead
+    (captain, 2026-09-27: window controls belong at the top, not in the
+    input). They stay in the card for a bar used on its own.
     ⋯ is left for the sizes, and only when the owner turns on `resizable`
     (now off by default). Low-frequency items (privacy, delete my data)
     belong there when they arrive.
@@ -187,6 +193,7 @@
     onrequesthuman,
     handoffPending = false,
     onshowconversations,
+    chrome = true,
     footer,
     onsuggestion,
     boundary = null,
@@ -234,6 +241,8 @@
     handoffPending?: boolean;
     /** Adds the conversations icon to the card's top row. */
     onshowconversations?: () => void;
+    /** The clock, full screen and ✕ in the card's top row. */
+    chrome?: boolean;
     /** Replaces the whole card (field, icons, chips, Send) while it is set.
      *  The draft is kept and comes back with the field. */
     footer?: Snippet;
@@ -421,6 +430,12 @@
     expanded = true;
     await tick();
     fieldEl?.focus();
+  }
+
+  // A press inside a card that hover opened pins it: the visitor chose it, so
+  // it gets the full view (thread or greeting, and the header with ✕).
+  function pinOnPress() {
+    if (!expanded) expanded = true;
   }
 
   /** ✕: close for real, from any layer, whatever is typed. */
@@ -700,6 +715,7 @@
         bind:offsetHeight={cardH}
         in:fade={fadeIn}
         out:fade={fadeOut}
+        onpointerdown={pinOnPress}
       >
         {#if footer}
           {@render footer()}
@@ -719,7 +735,7 @@
             aria-describedby={describedby}
             onkeydown={onFieldKeydown}
           ></textarea>
-          {#if onshowconversations}
+          {#if chrome && onshowconversations}
             <button type="button" class="icon" aria-label="Your conversations" title="Your conversations" onclick={onshowconversations}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
@@ -727,7 +743,7 @@
               </svg>
             </button>
           {/if}
-          {#if expandable || fullscreen}
+          {#if chrome && (expandable || fullscreen)}
             <button
               type="button"
               class="icon"
@@ -745,11 +761,13 @@
             </button>
           {/if}
           {@render menuButton()}
-          <button type="button" class="icon" aria-label="Close chat" title="Close" onclick={closeChat}>
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
-            </svg>
-          </button>
+          {#if chrome}
+            <button type="button" class="icon" aria-label="Close chat" title="Close" onclick={closeChat}>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+              </svg>
+            </button>
+          {/if}
         </div>
         {#if contactOpen}
           <div class="contact" role="group" aria-labelledby="pb-contact-title" transition:fade={swap}>
