@@ -122,23 +122,18 @@
     {
       "type": "text",
       "category": "display",
-      "description": "A run of plain text. No markdown: put formatting in the reply prose instead.",
+      "description": "A run of plain text. No markdown.",
       "props": {
-        "content": {
+        "text": {
           "type": "string",
           "required": true,
           "description": "The text."
-        },
-        "tone": {
-          "type": "\"default\" | \"muted\"",
-          "required": false,
-          "description": "muted for secondary lines."
         }
       },
       "example": {
         "type": "text",
         "props": {
-          "content": "Ships in 2 working days."
+          "text": "Ships in 2 working days."
         }
       }
     },
@@ -147,10 +142,10 @@
       "category": "display",
       "description": "A short title for a block.",
       "props": {
-        "content": {
+        "text": {
           "type": "string",
           "required": true,
-          "description": "The title, under 200 characters."
+          "description": "The title."
         },
         "level": {
           "type": "2 | 3 | 4",
@@ -161,7 +156,8 @@
       "example": {
         "type": "heading",
         "props": {
-          "content": "Your options"
+          "text": "Your options",
+          "level": 3
         }
       }
     },
@@ -170,39 +166,39 @@
       "category": "display",
       "description": "A short status label, such as stock or delivery time.",
       "props": {
-        "label": {
+        "text": {
           "type": "string",
           "required": true,
-          "description": "Under 80 characters."
+          "description": "The label."
         },
-        "tone": {
-          "type": "\"neutral\" | \"success\" | \"warning\" | \"danger\"",
+        "variant": {
+          "type": "\"default\" | \"success\" | \"warning\" | \"destructive\"",
           "required": false,
-          "description": "Default neutral."
+          "description": "Default \"default\"."
         }
       },
       "example": {
         "type": "badge",
         "props": {
-          "label": "In stock",
-          "tone": "success"
+          "text": "In stock",
+          "variant": "success"
         }
       }
     },
     {
       "type": "button",
       "category": "input",
-      "description": "A button. on_click runs local actions (set, toggle, ...) or an emit the bar acts on: target \"add_to_cart\" with value { product_id, qty? }, or target \"checkout\". Any other emit is ignored.",
+      "description": "A button. on_click runs actions: local state, or an emit the host acts on.",
       "props": {
         "label": {
           "type": "string",
           "required": true,
-          "description": "Button text, under 60 characters."
+          "description": "Button text."
         },
         "variant": {
-          "type": "\"primary\" | \"secondary\"",
+          "type": "\"default\" | \"secondary\" | \"outline\"",
           "required": false,
-          "description": "primary for the one main action."
+          "description": "\"default\" for the one main action."
         },
         "disabled": {
           "type": "boolean",
@@ -220,58 +216,60 @@
       "example": {
         "type": "button",
         "props": {
-          "label": "Add to cart",
-          "variant": "primary"
+          "label": "Show details",
+          "variant": "secondary"
         },
         "on_click": {
-          "action": "emit",
-          "target": "add_to_cart",
-          "value": {
-            "product_id": "wetsuit-43"
-          }
+          "action": "toggle",
+          "target": "details"
         }
       }
     },
     {
-      "type": "stack",
+      "type": "flex",
       "category": "layout",
-      "description": "Lays its children out in a column (default) or a wrapping row. The only layout widget.",
+      "description": "Lays its children out in a row or a column. The only layout atom.",
       "props": {
         "direction": {
-          "type": "\"column\" | \"row\"",
+          "type": "\"row\" | \"column\"",
           "required": false,
-          "description": "Default column."
+          "description": "Default \"column\"."
         },
         "gap": {
-          "type": "\"sm\" | \"md\" | \"lg\"",
+          "type": "number",
           "required": false,
-          "description": "Default md."
+          "description": "Space between children in px (0-24)."
         },
         "align": {
           "type": "\"start\" | \"center\" | \"end\"",
           "required": false,
-          "description": "Default start."
+          "description": "Cross-axis alignment."
+        },
+        "wrap": {
+          "type": "boolean",
+          "required": false,
+          "description": "Wrap a row onto more lines."
         }
       },
       "example": {
-        "type": "stack",
+        "type": "flex",
         "props": {
           "direction": "row",
-          "gap": "sm"
+          "gap": 8,
+          "align": "center"
         },
         "children": [
           {
             "type": "badge",
             "props": {
-              "label": "In stock",
-              "tone": "success"
+              "text": "In stock",
+              "variant": "success"
             }
           },
           {
             "type": "text",
             "props": {
-              "content": "Ships tomorrow",
-              "tone": "muted"
+              "text": "Ships tomorrow"
             }
           }
         ]

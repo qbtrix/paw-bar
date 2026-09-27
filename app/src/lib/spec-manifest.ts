@@ -2,7 +2,9 @@
 // Created 2026-09-27.
 //
 // One entry per widget in components/spec-widgets/registry.ts, in the shape of
-// Ripple's manifest entries. buildPawBarManifest() wraps them with
+// Ripple's manifest entries. The atoms (text, heading, badge, button, flex) come
+// straight from Ripple's SLIM_WIDGETS, so the bar and Ripple can't describe
+// them differently; product-card and form are the bar's own. buildPawBarManifest() wraps them with
 // @ripple-ui/core/manifest's buildSlimManifest: the spec envelope, and only the
 // actions the bar actually honours. Of the slim runtime's actions the bar keeps
 // the local ones (set, toggle, push, remove, open) and `emit`; it ignores
@@ -13,78 +15,14 @@
 //
 // Not imported by the app bundle: only the build script and tests use it.
 
-import { buildSlimManifest, type SlimManifest, type SlimWidgetEntry } from '@ripple-ui/core/manifest';
+import { buildSlimManifest, SLIM_WIDGETS, type SlimManifest, type SlimWidgetEntry } from '@ripple-ui/core/manifest';
 
 const text = (description: string, required = false) => ({ type: 'string', required, description });
 
 export const PAWBAR_ACTIONS = ['set', 'toggle', 'push', 'remove', 'open', 'emit'] as const;
 
-export const PAWBAR_WIDGETS: SlimWidgetEntry[] = [
-  {
-    type: 'text',
-    category: 'display',
-    description: 'A run of plain text. No markdown: put formatting in the reply prose instead.',
-    props: {
-      content: text('The text.', true),
-      tone: { type: '"default" | "muted"', required: false, description: 'muted for secondary lines.' },
-    },
-    example: { type: 'text', props: { content: 'Ships in 2 working days.' } },
-  },
-  {
-    type: 'heading',
-    category: 'display',
-    description: 'A short title for a block.',
-    props: {
-      content: text('The title, under 200 characters.', true),
-      level: { type: '2 | 3 | 4', required: false, description: 'Heading level. Default 3.' },
-    },
-    example: { type: 'heading', props: { content: 'Your options' } },
-  },
-  {
-    type: 'badge',
-    category: 'display',
-    description: 'A short status label, such as stock or delivery time.',
-    props: {
-      label: text('Under 80 characters.', true),
-      tone: { type: '"neutral" | "success" | "warning" | "danger"', required: false, description: 'Default neutral.' },
-    },
-    example: { type: 'badge', props: { label: 'In stock', tone: 'success' } },
-  },
-  {
-    type: 'button',
-    category: 'input',
-    description:
-      'A button. on_click runs local actions (set, toggle, ...) or an emit the bar acts on: target "add_to_cart" with value { product_id, qty? }, or target "checkout". Any other emit is ignored.',
-    props: {
-      label: text('Button text, under 60 characters.', true),
-      variant: { type: '"primary" | "secondary"', required: false, description: 'primary for the one main action.' },
-      disabled: { type: 'boolean', required: false, description: 'Disable the button.' },
-    },
-    events: { on_click: { type: 'EventAction', required: false, description: 'Action run on click.' } },
-    example: {
-      type: 'button',
-      props: { label: 'Add to cart', variant: 'primary' },
-      on_click: { action: 'emit', target: 'add_to_cart', value: { product_id: 'wetsuit-43' } },
-    },
-  },
-  {
-    type: 'stack',
-    category: 'layout',
-    description: 'Lays its children out in a column (default) or a wrapping row. The only layout widget.',
-    props: {
-      direction: { type: '"column" | "row"', required: false, description: 'Default column.' },
-      gap: { type: '"sm" | "md" | "lg"', required: false, description: 'Default md.' },
-      align: { type: '"start" | "center" | "end"', required: false, description: 'Default start.' },
-    },
-    example: {
-      type: 'stack',
-      props: { direction: 'row', gap: 'sm' },
-      children: [
-        { type: 'badge', props: { label: 'In stock', tone: 'success' } },
-        { type: 'text', props: { content: 'Ships tomorrow', tone: 'muted' } },
-      ],
-    },
-  },
+/** The bar's own widgets, beyond Ripple's standard slim atoms. */
+const BAR_WIDGETS: SlimWidgetEntry[] = [
   {
     type: 'product-card',
     category: 'commerce',
@@ -124,6 +62,9 @@ export const PAWBAR_WIDGETS: SlimWidgetEntry[] = [
     },
   },
 ];
+
+/** Everything the bar draws: Ripple's standard atoms, then the bar's own. */
+export const PAWBAR_WIDGETS: SlimWidgetEntry[] = [...SLIM_WIDGETS, ...BAR_WIDGETS];
 
 /** The manifest the agent reads when it writes a spec for the Paw Bar. */
 export function buildPawBarManifest(): SlimManifest {

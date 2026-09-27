@@ -175,8 +175,9 @@ is bundled, and `tests/spec-renderer-imports.spec.ts` fails if anything beyond
 
 `@ripple-ui/core` is not on npm, so it is vendored as
 `vendor/ripple-ui-core-0.6.0.tgz`, the asset attached to the ripple-iui
-[v0.8.0 release](https://github.com/qbtrix/ripple-iui/releases/tag/v0.8.0):
-the slim runtime, the slim manifest, and loop variables in headless handlers.
+[v0.8.0 release](https://github.com/qbtrix/ripple-iui/releases/tag/v0.8.0)
+(re-released 2026-09-27 with `SLIM_WIDGETS`): the slim runtime, the slim
+manifest and its standard atoms, and loop variables in headless handlers.
 To update it, download the new release's `ripple-ui-core-<v>.tgz` into
 `vendor/` (`gh release download <tag> --repo qbtrix/ripple-iui --pattern
 'ripple-ui-core-*.tgz' --dir vendor`), point `package.json` at it, and change
@@ -199,8 +200,10 @@ part stream exists.
   tree over 80 nodes or nested deeper than 8, and a malformed tree or state.
   Refused specs show "Card unavailable". The spec's `theme` is dropped: the bar
   keeps the site owner's styling.
-- **Widgets** (`components/spec-widgets/registry.ts`): `text`, `heading`,
-  `badge`, `button`, `stack`, `product-card` and `form`. `product-card` and
+- **Widgets** (`components/spec-widgets/registry.ts`): Ripple's standard slim
+  atoms `text`, `heading`, `badge`, `button` and `flex` (`SLIM_WIDGETS` from
+  `@ripple-ui/core/manifest`, same props as the full Ripple widgets), plus the
+  bar's own `product-card` and `form`. `product-card` and
   `form` are the existing `BarCatalog` and `FormCard`, with props validated by
   `lib/cards.parseCard` exactly as for a legacy card. There is no image widget
   on purpose: a model-chosen image is a request fired on render. A type outside
@@ -214,7 +217,10 @@ part stream exists.
   than trusting model-written prices.
 - **Manifest:** `pawbar-manifest.json` is what the agent is told the bar can
   draw: the spec envelope, the six actions the bar honours (`set`, `toggle`,
-  `push`, `remove`, `open`, `emit`) and the seven widgets. It is generated from
+  `push`, `remove`, `open`, `emit`) and the seven widgets. Ripple's own slim
+  manifest (atoms only) is always at
+  `https://github.com/qbtrix/ripple-iui/releases/latest/download/manifest.slim.json`;
+  this file adds the bar's two widgets and narrows the actions. It is generated from
   `src/lib/spec-manifest.ts` with `@ripple-ui/core/manifest`'s
   `buildSlimManifest` by `bun run manifest`, and committed;
   `tests/spec-widgets.spec.svelte.ts` fails if it is stale or if the manifest

@@ -1,7 +1,8 @@
 <!--
   SpecButton.svelte — the `button` widget. Created 2026-09-27. Styled like the
-  catalog's CTAs (BarCatalog `.cta`): `variant: "primary"` takes the site's
-  accent, anything else is the outlined secondary button. The click runs the
+  catalog's CTAs (BarCatalog `.cta`). Props follow Ripple's standard slim atom:
+  `variant` "default" (the main action) takes the site's accent; "secondary"
+  and "outline" are the outlined button. The click runs the
   node's `on_click` through the spec runtime: local state actions, or an `emit`
   the thread turns into a bar action (see SpecCard.svelte).
 -->
@@ -24,7 +25,7 @@
     style?: string;
   } = $props();
 
-  const v = $derived(oneOf(variant, ['primary', 'secondary'], 'secondary'));
+  const v = $derived(oneOf(variant, ['default', 'secondary', 'outline'], 'default'));
 </script>
 
 <button
@@ -51,12 +52,12 @@
   .spec-button:hover:not(:disabled) {
     background: var(--pawbar-thread-wash, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 9%, transparent));
   }
-  .primary {
+  .default {
     border-color: transparent;
     background: var(--pawbar-accent, var(--pawbar-bubble-bg, rgb(255 255 255 / 0.86)));
     color: var(--pawbar-accent-fg, var(--pawbar-bubble-fg, #1c1c21));
   }
-  .primary:hover:not(:disabled) {
+  .default:hover:not(:disabled) {
     background: color-mix(in oklab, var(--pawbar-accent, var(--pawbar-bubble-bg, rgb(255 255 255 / 0.86))) 88%, var(--pawbar-frame-fg, #f2f2f5));
   }
   .spec-button:disabled {

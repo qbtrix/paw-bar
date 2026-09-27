@@ -7,6 +7,8 @@
 // else it emits does anything), and the manifest: that it lists exactly the
 // registered widgets and the actions the bar honours, and that the committed
 // pawbar-manifest.json is current.
+// 2026-09-27: the atoms use Ripple's standard slim props (text, badge variant,
+// button variant default/secondary/outline, flex instead of stack).
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync, tick } from 'svelte';
@@ -43,7 +45,7 @@ const unavailable = (t: HTMLElement) => t.textContent?.includes('Card unavailabl
 
 describe('routing a pawbar-card fence', () => {
   it('draws a spec (JSON with `ui`) with the bar widgets', () => {
-    const { target } = render({ ui: node('stack', {}, { children: [node('heading', { content: 'Your options' }), node('text', { content: 'Pick one.' })] }) });
+    const { target } = render({ ui: node('flex', {}, { children: [node('heading', { text: 'Your options' }), node('text', { text: 'Pick one.' })] }) });
     expect(target.querySelector('.spec-card h3')?.textContent).toBe('Your options');
     expect(target.querySelector('.spec-card p.spec-text')?.textContent).toBe('Pick one.');
   });
@@ -55,7 +57,7 @@ describe('routing a pawbar-card fence', () => {
   });
 
   it('shows "Card unavailable" without a cart store, for specs as for cards', () => {
-    const { target } = render({ ui: node('text', { content: 'x' }) }, null);
+    const { target } = render({ ui: node('text', { text: 'x' }) }, null);
     expect(unavailable(target)).toBe(true);
   });
 
@@ -67,37 +69,37 @@ describe('routing a pawbar-card fence', () => {
 
 describe('bounds on an agent-written spec', () => {
   it(`refuses more than ${MAX_SPEC_NODES} nodes`, () => {
-    const kids = Array.from({ length: MAX_SPEC_NODES }, () => node('text', { content: 'x' }));
-    expect(parseSpecCard(JSON.stringify({ ui: node('stack', {}, { children: kids }) })).kind).toBe('invalid');
-    expect(unavailable(render({ ui: node('stack', {}, { children: kids }) }).target)).toBe(true);
+    const kids = Array.from({ length: MAX_SPEC_NODES }, () => node('text', { text: 'x' }));
+    expect(parseSpecCard(JSON.stringify({ ui: node('flex', {}, { children: kids }) })).kind).toBe('invalid');
+    expect(unavailable(render({ ui: node('flex', {}, { children: kids }) }).target)).toBe(true);
   });
 
   it(`refuses nesting deeper than ${MAX_SPEC_DEPTH}`, () => {
-    let ui: Record<string, unknown> = node('text', { content: 'deep' });
-    for (let i = 0; i < MAX_SPEC_DEPTH; i++) ui = node('stack', {}, { children: [ui] });
+    let ui: Record<string, unknown> = node('text', { text: 'deep' });
+    for (let i = 0; i < MAX_SPEC_DEPTH; i++) ui = node('flex', {}, { children: [ui] });
     expect(parseSpecCard(JSON.stringify({ ui })).kind).toBe('invalid');
   });
 
   it(`refuses a fence longer than ${MAX_SPEC_CHARS} characters`, () => {
-    const big = JSON.stringify({ ui: node('text', { content: 'x'.repeat(MAX_SPEC_CHARS) }) });
+    const big = JSON.stringify({ ui: node('text', { text: 'x'.repeat(MAX_SPEC_CHARS) }) });
     expect(parseSpecCard(big).kind).toBe('invalid');
   });
 
   it('refuses a malformed tree or state', () => {
     expect(parseSpecCard('{"ui":"text"}').kind).toBe('invalid');
     expect(parseSpecCard('{"ui":{"props":{}}}').kind).toBe('invalid');
-    expect(parseSpecCard('{"ui":{"type":"stack","children":{}}}').kind).toBe('invalid');
+    expect(parseSpecCard('{"ui":{"type":"flex","children":{}}}').kind).toBe('invalid');
     expect(parseSpecCard('{"ui":{"type":"text"},"state":[1]}').kind).toBe('invalid');
   });
 
   it('accepts a spec at exactly the bounds', () => {
-    let ui: Record<string, unknown> = node('text', { content: 'x' });
-    for (let i = 1; i < MAX_SPEC_DEPTH; i++) ui = node('stack', {}, { children: [ui] });
+    let ui: Record<string, unknown> = node('text', { text: 'x' });
+    for (let i = 1; i < MAX_SPEC_DEPTH; i++) ui = node('flex', {}, { children: [ui] });
     expect(parseSpecCard(JSON.stringify({ ui })).kind).toBe('spec');
   });
 
   it('draws nothing for a type outside the manifest, and keeps the rest', () => {
-    const { target } = render({ ui: node('stack', {}, { children: [node('image', { src: 'https://evil.example/p.png' }), node('text', { content: 'kept' })] }) });
+    const { target } = render({ ui: node('flex', {}, { children: [node('image', { src: 'https://evil.example/p.png' }), node('text', { text: 'kept' })] }) });
     expect(target.querySelector('img')).toBeNull();
     expect(target.querySelector('[data-spec-unavailable="image"]')).not.toBeNull();
     expect(target.textContent).toContain('kept');
@@ -105,40 +107,44 @@ describe('bounds on an agent-written spec', () => {
 });
 
 describe('widgets', () => {
-  it('text: coerces numbers, ignores objects, supports muted', () => {
-    const { target } = render({ ui: node('stack', {}, { children: [node('text', { content: 42 }), node('text', { content: { a: 1 } }), node('text', { content: 'm', tone: 'muted' })] }) });
+  it('text: coerces numbers, ignores objects', () => {
+    const { target } = render({ ui: node('flex', {}, { children: [node('text', { text: 42 }), node('text', { text: { a: 1 } }), node('text', { text: 'm' })] }) });
     const ps = [...target.querySelectorAll('p.spec-text')];
     expect(ps.map((p) => p.textContent)).toEqual(['42', '', 'm']);
-    expect(ps[2].classList.contains('muted')).toBe(true);
   });
 
   it('heading: level 2-4, default 3', () => {
-    const { target } = render({ ui: node('stack', {}, { children: [node('heading', { content: 'a', level: 2 }), node('heading', { content: 'b', level: 9 })] }) });
+    const { target } = render({ ui: node('flex', {}, { children: [node('heading', { text: 'a', level: 2 }), node('heading', { text: 'b', level: 9 })] }) });
     expect(target.querySelector('h2')?.textContent).toBe('a');
     expect(target.querySelector('h3')?.textContent).toBe('b');
   });
 
-  it('badge: known tones only', () => {
-    const { target } = render({ ui: node('stack', {}, { children: [node('badge', { label: 'In stock', tone: 'success' }), node('badge', { label: 'x', tone: 'neon' })] }) });
+  it('badge: known variants only', () => {
+    const { target } = render({ ui: node('flex', {}, { children: [node('badge', { text: 'In stock', variant: 'success' }), node('badge', { text: 'x', variant: 'neon' })] }) });
     const b = [...target.querySelectorAll('.spec-badge')];
     expect(b[0].classList.contains('success')).toBe(true);
-    expect(b[1].classList.contains('neutral')).toBe(true);
+    expect(b[1].classList.contains('default')).toBe(true);
   });
 
-  it('stack: row and column', () => {
-    const { target } = render({ ui: node('stack', { direction: 'row', gap: 'sm' }, { children: [node('text', { content: 'a' })] }) });
-    const s = target.querySelector('.spec-stack')!;
+  it('flex: row, numeric gap clamped to 0-24px', () => {
+    const { target } = render({ ui: node('flex', { direction: 'row', gap: 4, wrap: true }, { children: [node('text', { text: 'a' })] }) });
+    const s = target.querySelector('.spec-flex') as HTMLElement;
     expect(s.classList.contains('row')).toBe(true);
-    expect(s.classList.contains('gap-sm')).toBe(true);
+    expect(s.style.gap).toBe('4px');
+    expect(s.classList.contains('wrap')).toBe(true);
+    unmount(live!);
+    live = null;
+    const big = render({ ui: node('flex', { gap: 500 }, { children: [node('text', { text: 'a' })] }) });
+    expect((big.target.querySelector('.spec-flex') as HTMLElement).style.gap).toBe('24px');
   });
 
   it('button: local state actions run inside the spec', async () => {
     const { target } = render({
       state: { open: false },
-      ui: node('stack', {}, {
+      ui: node('flex', {}, {
         children: [
           node('button', { label: 'More' }, { on_click: { action: 'toggle', target: 'open' } }),
-          node('if', {}, { condition: '{state.open}', children: [node('text', { content: 'Details' })] }),
+          node('if', {}, { condition: '{state.open}', children: [node('text', { text: 'Details' })] }),
         ],
       }),
     });
@@ -189,7 +195,7 @@ describe('what a spec can make the bar do', () => {
     const cart = newCart();
     const add = vi.spyOn(cart, 'addToCart').mockResolvedValue(true);
     const { target } = render({
-      ui: node('stack', {}, {
+      ui: node('flex', {}, {
         children: [
           node('button', { label: 'Two' }, { on_click: { action: 'emit', target: 'add_to_cart', value: { product_id: 'w', qty: 2 } } }),
           node('button', { label: 'None' }, { on_click: { action: 'emit', target: 'add_to_cart', value: { qty: 2 } } }),

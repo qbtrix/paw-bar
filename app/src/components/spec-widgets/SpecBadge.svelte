@@ -1,24 +1,24 @@
 <!--
   SpecBadge.svelte — the `badge` widget: a short status label ("In stock",
-  "Ships in 2 days"). Created 2026-09-27. `tone` is neutral (default), success,
-  warning or danger; success and warning are tinted from the thread's own ink
-  rather than fixed colours, and danger uses --pawbar-danger. Corners follow
-  the site's --pawbar-radius like every other surface (tests/radius-scale).
+  "Ships in 2 days"). Created 2026-09-27; props follow Ripple's standard slim
+  atom: `text`, and `variant` default | success | warning | destructive.
+  destructive uses --pawbar-danger. Corners follow the site's --pawbar-radius
+  like every other surface (tests/radius-scale).
 -->
 <script lang="ts">
   import { asString, oneOf } from './props';
 
   let {
-    label,
-    tone,
+    text,
+    variant,
     class: className,
     style,
-  }: { label?: unknown; tone?: unknown; class?: string; style?: string } = $props();
+  }: { text?: unknown; variant?: unknown; class?: string; style?: string } = $props();
 
-  const t = $derived(oneOf(tone, ['neutral', 'success', 'warning', 'danger'], 'neutral'));
+  const t = $derived(oneOf(variant, ['default', 'success', 'warning', 'destructive'], 'default'));
 </script>
 
-<span class={['spec-badge', t, className]} {style}>{asString(label, 80)}</span>
+<span class={['spec-badge', t, className]} {style}>{asString(text, 80)}</span>
 
 <style>
   .spec-badge {
@@ -37,7 +37,7 @@
   .warning {
     background: color-mix(in oklab, #c98a14 20%, transparent);
   }
-  .danger {
+  .destructive {
     color: var(--pawbar-danger, #e5484d);
     border-color: color-mix(in oklab, var(--pawbar-danger, #e5484d) 40%, transparent);
   }

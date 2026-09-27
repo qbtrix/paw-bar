@@ -1,28 +1,25 @@
 <!--
-  SpecText.svelte — the `text` widget of the Paw Bar spec manifest: one run of
-  plain text. Created 2026-09-27. `tone: "muted"` uses the thread's muted ink.
-  Text only, always a text binding.
+  SpecText.svelte — the `text` widget: one run of plain text. Created
+  2026-09-27; the same day its props moved to Ripple's standard slim atom
+  (`text: string`), so a bar spec is also a valid Ripple spec. Text only,
+  always a text binding.
 -->
 <script lang="ts">
   import { asString } from './props';
 
   let {
-    content,
-    tone,
+    text,
     class: className,
     style,
-  }: { content?: unknown; tone?: unknown; class?: string; style?: string } = $props();
+  }: { text?: unknown; class?: string; style?: string } = $props();
 </script>
 
-<p class={['spec-text', tone === 'muted' && 'muted', className]} {style}>{asString(content)}</p>
+<p class={['spec-text', className]} {style}>{asString(text)}</p>
 
 <style>
   .spec-text {
     margin: 0;
     line-height: 1.45;
     overflow-wrap: anywhere;
-  }
-  .muted {
-    color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
 </style>

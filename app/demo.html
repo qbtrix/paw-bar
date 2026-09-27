@@ -109,23 +109,23 @@
       // using every widget the bar registers, with server-filled product items.
       const SPEC = {
         state: { more: false },
-        ui: { type: 'stack', props: { gap: 'md' }, children: [
-          { type: 'heading', props: { content: 'Two ways to get it' } },
-          { type: 'stack', props: { direction: 'row', gap: 'sm', align: 'center' }, children: [
-            { type: 'badge', props: { label: 'In stock', tone: 'success' } },
-            { type: 'badge', props: { label: 'Medium only', tone: 'warning' } },
-            { type: 'text', props: { content: 'Ships tomorrow', tone: 'muted' } },
+        ui: { type: 'flex', props: { gap: 10 }, children: [
+          { type: 'heading', props: { text: 'Two ways to get it' } },
+          { type: 'flex', props: { direction: 'row', gap: 6, align: 'center', wrap: true }, children: [
+            { type: 'badge', props: { text: 'In stock', variant: 'success' } },
+            { type: 'badge', props: { text: 'Medium only', variant: 'warning' } },
+            { type: 'text', props: { text: 'Ships tomorrow' } },
           ] },
           { type: 'product-card', props: { items: [
             { id: 'wetsuit-43', name: 'Winter 4/3 Wetsuit', price_cents: 32900, currency: 'EUR', actions: ['add_to_cart', 'checkout'] },
             { id: 'booties-5', name: '5mm Booties', price_cents: 5900, currency: 'EUR', actions: ['add_to_cart'] },
           ] } },
-          { type: 'stack', props: { direction: 'row', gap: 'sm' }, children: [
-            { type: 'button', props: { label: 'Add the suit', variant: 'primary' }, on_click: { action: 'emit', target: 'add_to_cart', value: { product_id: 'wetsuit-43' } } },
-            { type: 'button', props: { label: 'Fitting details' }, on_click: { action: 'toggle', target: 'more' } },
+          { type: 'flex', props: { direction: 'row', gap: 6 }, children: [
+            { type: 'button', props: { label: 'Add the suit', variant: 'default' }, on_click: { action: 'emit', target: 'add_to_cart', value: { product_id: 'wetsuit-43' } } },
+            { type: 'button', props: { label: 'Fitting details', variant: 'outline' }, on_click: { action: 'toggle', target: 'more' } },
           ] },
           { type: 'if', condition: '{state.more}', children: [
-            { type: 'text', props: { content: 'Book a free fitting at the shop and we will size you in ten minutes.' } },
+            { type: 'text', props: { text: 'Book a free fitting at the shop and we will size you in ten minutes.' } },
             { type: 'form', props: { verb: 'book_visit', title: 'Book a fitting', submit_label: 'Request', fields: [
               { name: 'name', label: 'Name', type: 'text' },
               { name: 'phone', label: 'Phone', type: 'tel' },
