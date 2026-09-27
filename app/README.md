@@ -14,7 +14,9 @@
      2026-09-27 (spec renderer): added "Drawing a Ripple spec", covering
      components/spec/ and the vendored @ripple-ui/core tarball.
      2026-09-27 (slim runtime): the renderer runs on
-     @ripple-ui/core/headless/slim; sizes updated. -->
+     @ripple-ui/core/headless/slim; sizes updated.
+     2026-09-27 (after the native markdown renderer merged): sizes re-measured;
+     no budget change is needed; the tarball is packed from ripple-iui main. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -165,14 +167,17 @@ is bundled, and `tests/spec-renderer-imports.spec.ts` fails if anything beyond
   `style` on the root are applied last and win.
 - **Failures:** a type with no component, or a component that throws, draws
   `fallback` for that node only.
-- **Size:** importing it takes `pawbar.js` from 74.8 KB to 82.9 KB gzipped
-  (measured 2026-09-27; 84.3 KB with the full headless runtime). It is not
-  imported by `main.ts` yet, so `pawbar.js` is unchanged until it is wired in,
-  and that change has to raise the 80 KB budget in `scripts/check-size.mjs`.
+- **Size:** importing it takes `pawbar.js` from 59.5 KB to 67.6 KB gzipped
+  (measured 2026-09-27, after the native markdown renderer), inside the 80 KB
+  budget. It is not imported by `main.ts` yet, so `pawbar.js` is unchanged
+  until it is wired in.
 
 `@ripple-ui/core` is not on npm, so it is vendored as
-`vendor/ripple-ui-core-0.5.0.tgz`, packed from ripple-iui with the fix for
-handlers inside `each` (ripple-iui #142) and the slim runtime (#143). To update
+`vendor/ripple-ui-core-0.5.0.tgz`, packed from ripple-iui `main` (d8f3998),
+which has the fix for handlers inside `each` (#142), the slim runtime and the
+slim manifest (#143). A clean install may reuse a cached copy of a tarball with
+the same name; `bun pm cache rm` before reinstalling if the contents look stale.
+To update
 it, run `bun run build` and `npm pack` in ripple's `packages/core` and replace
 the tarball. bun keeps the tarball's hash in `bun.lock` and does not refresh it
 for a file with the same name, so update that one `sha512-` value by hand
