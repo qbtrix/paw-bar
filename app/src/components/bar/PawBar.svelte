@@ -81,12 +81,20 @@
     mount point can hold the first paint until the pill is final.
   • Under 360px the pill takes the screen's width instead of overflowing it.
   • `focus()` is exported: the frame lands focus in the field after Retry.
-  • Sessions (2026-09-27): `onnewconversation` adds "New conversation" to ⋯
-    (inert with `newConversationDisabled`, e.g. an empty thread), and
-    `onshowconversations` adds "Conversations (N)" when `conversationCount`
-    is above one. Activity 'resume' is the continue pill after a page
-    navigation: the pill reads the last answer's first line, with no dot and
-    no announcement, because nothing new happened.
+  • Activity 'resume' is the continue pill after a page navigation: the pill
+    reads the last answer's first line, with no dot and no announcement,
+    because nothing new happened.
+  • No visitor menu (captain, 2026-09-27: a ⋯ holding seven items confused
+    people). Each action sits where it is used instead:
+      – `onshowconversations`: a clock icon in the card's top row.
+      – `expandable` (default on): a full screen toggle icon beside it, which
+        becomes the exit icon. Full screen always has its exit, even when the
+        frame opened it on a narrow screen with `expandable` off.
+      – `onrequesthuman`: a "Talk to a person" chip in the bottom row, first
+        in line ("Waiting for the team", inert, once asked).
+    ⋯ is left for the sizes, and only when the owner turns on `resizable`
+    (now off by default). Low-frequency items (privacy, delete my data)
+    belong there when they arrive.
 
   `boundary` widens click-outside and hover to a parent element (PawBarFrame,
   whose thread and credit sit outside the bar). `logoSrc` is the site's logo,
@@ -151,7 +159,8 @@
     launcher = 'bar',
     side = 'right',
     size = 'md',
-    resizable = true,
+    resizable = false,
+    expandable = true,
     fullscreen = $bindable(false),
     value = $bindable(''),
     streaming = false,
@@ -164,9 +173,6 @@
     onstop,
     onrequesthuman,
     handoffPending = false,
-    onnewconversation,
-    newConversationDisabled = false,
-    conversationCount = 0,
     onshowconversations,
     onsuggestion,
     boundary = null,
@@ -187,8 +193,10 @@
     side?: BarSide;
     /** The site's default size. A visitor's own pick from ⋯ wins over it. */
     size?: BarSize;
-    /** Whether the visitor gets the ⋯ size menu. */
+    /** Whether the visitor gets the ⋯ size menu (owner opt-in). */
     resizable?: boolean;
+    /** The full screen toggle in the card's top row. */
+    expandable?: boolean;
     fullscreen?: boolean;
     /** The draft. Bindable so a refused message can be put back. */
     value?: string;
@@ -210,13 +218,7 @@
     onrequesthuman?: (req: BarContactRequest) => Promise<BarContactResult>;
     /** A person has been asked for and not arrived yet. */
     handoffPending?: boolean;
-    /** Adds "New conversation" to ⋯. */
-    onnewconversation?: () => void;
-    /** Keeps the item but makes it inert (nothing to start over from). */
-    newConversationDisabled?: boolean;
-    /** How many conversations the visitor has; the list item shows above one. */
-    conversationCount?: number;
-    /** Adds "Conversations (N)" to ⋯. */
+    /** Adds the conversations icon to the card's top row. */
     onshowconversations?: () => void;
     /** Defaults to sending the chip's text. */
     onsuggestion?: (text: string) => void;
@@ -290,24 +292,11 @@
   let triggerEl: HTMLButtonElement | null = $state(null);
   let fieldEl: HTMLTextAreaElement | null = $state(null);
   let menuBtnEl: HTMLButtonElement | null = $state(null);
-  // The menu holds whichever groups apply: the conversation items (new, the
-  // list), sizes + full screen (when `resizable`), then "Talk to a person"
-  // (when `onrequesthuman`). Its items are read from the DOM, so the keyboard
-  // walk never counts a group that is not there.
+  // The menu holds the sizes, when the owner turns them on. Its items are read
+  // from the DOM, so the keyboard walk counts whatever is there.
   let menuEl: HTMLDivElement | null = $state(null);
   const menuItems = () => [...(menuEl?.querySelectorAll<HTMLButtonElement>('.menu-item') ?? [])];
-  const showHistoryItem = $derived(!!onshowconversations && conversationCount > 1);
-  const hasSessionItems = $derived(!!onnewconversation || showHistoryItem);
-  const hasMenu = $derived(resizable || !!onrequesthuman || hasSessionItems);
-  // Exactly one item is in the tab order: the checked size when there are
-  // sizes, otherwise whichever item comes first.
-  const firstItem = $derived(
-    resizable ? '' : onnewconversation ? 'new' : showHistoryItem ? 'history' : 'human',
-  );
-  function menuAction(fn: (() => void) | undefined) {
-    menuOpen = false;
-    fn?.();
-  }
+  const hasMenu = $derived(resizable);
 
   // Hover is tracked on the boundary when there is one, else on our own host.
   $effect(() => {
@@ -681,14 +670,32 @@
             aria-describedby={describedby}
             onkeydown={onFieldKeydown}
           ></textarea>
-          {@render menuButton()}
-          {#if fullscreen}
-            <button type="button" class="icon" aria-label="Exit full screen" onclick={toggleFullscreen}>
+          {#if onshowconversations}
+            <button type="button" class="icon" aria-label="Your conversations" title="Your conversations" onclick={onshowconversations}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+                <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
+                <path d="M3.5 4v4h4M12 8v4.5l3 2" />
               </svg>
             </button>
           {/if}
+          {#if expandable || fullscreen}
+            <button
+              type="button"
+              class="icon"
+              aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+              title={fullscreen ? 'Exit full screen' : 'Full screen'}
+              onclick={toggleFullscreen}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                {#if fullscreen}
+                  <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+                {:else}
+                  <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                {/if}
+              </svg>
+            </button>
+          {/if}
+          {@render menuButton()}
           {#if isIcon && !fullscreen}
             <button type="button" class="icon" aria-label="Close chat" onclick={close}>
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -738,6 +745,16 @@
         {/if}
         <div class="row bottom">
           <div class="chips" hidden={contactOpen}>
+            {#if onrequesthuman}
+              <button
+                type="button"
+                class="chip person"
+                aria-disabled={handoffPending || undefined}
+                onclick={() => void openContact()}
+              >
+                {handoffPending ? 'Waiting for the team' : 'Talk to a person'}
+              </button>
+            {/if}
             {#each suggestions as s, i (s)}
               <button type="button" class="chip" class:primary={i === 0} onclick={() => pick(s)}>{s}</button>
             {/each}
@@ -797,35 +814,6 @@
 
   {#if menuOpen}
     <div class="menu" role="menu" aria-label="Chat options" tabindex="-1" bind:this={menuEl} onkeydown={onMenuKeydown} transition:fade={fadeOut}>
-      {#if onnewconversation}
-        <button
-          type="button"
-          class="menu-item"
-          role="menuitem"
-          tabindex={firstItem === 'new' ? 0 : -1}
-          aria-disabled={newConversationDisabled || undefined}
-          onclick={() => {
-            if (!newConversationDisabled) menuAction(onnewconversation);
-          }}
-        >
-          <span>New conversation</span>
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
-      {/if}
-      {#if showHistoryItem}
-        <button
-          type="button"
-          class="menu-item"
-          role="menuitem"
-          tabindex={firstItem === 'history' ? 0 : -1}
-          onclick={() => menuAction(onshowconversations)}
-        >
-          <span>Conversations ({conversationCount})</span>
-        </button>
-      {/if}
-      {#if hasSessionItems && (resizable || onrequesthuman)}<span class="menu-sep" role="separator"></span>{/if}
       {#if resizable}
       <span class="menu-label" aria-hidden="true">Size</span>
       {#each SIZES as s (s)}
@@ -845,39 +833,6 @@
           {/if}
         </button>
       {/each}
-      <span class="menu-sep" role="separator"></span>
-      <button
-        type="button"
-        class="menu-item"
-        role="menuitemcheckbox"
-        aria-checked={fullscreen}
-        tabindex={fullscreen ? 0 : -1}
-        onclick={toggleFullscreen}
-      >
-        <span>Full screen</span>
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          {#if fullscreen}
-            <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
-          {:else}
-            <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-          {/if}
-        </svg>
-      </button>
-      {/if}
-      {#if onrequesthuman}
-        {#if resizable}<span class="menu-sep" role="separator"></span>{/if}
-        <!-- The first item when there are no sizes or conversation items, so
-             it is the one in the tab order then. -->
-        <button
-          type="button"
-          class="menu-item"
-          role="menuitem"
-          tabindex={firstItem === 'human' ? 0 : -1}
-          aria-disabled={handoffPending || undefined}
-          onclick={() => void openContact()}
-        >
-          <span>{handoffPending ? 'Waiting for the team' : 'Talk to a person'}</span>
-        </button>
       {/if}
     </div>
   {/if}
@@ -1185,7 +1140,7 @@
     outline: 2px solid var(--pawbar-ring, var(--pawbar-accent, #111114));
     outline-offset: 2px;
   }
-  .menu-item[aria-disabled='true'] {
+  .chip[aria-disabled='true'] {
     opacity: 0.6;
     cursor: default;
   }
@@ -1413,11 +1368,6 @@
     font-size: 11px;
     letter-spacing: 0.02em;
     color: var(--pawbar-muted, color-mix(in oklab, currentColor 55%, transparent));
-  }
-  .menu-sep {
-    height: 1px;
-    margin: 4px 6px;
-    background: color-mix(in oklab, var(--pawbar-fg, #1c1c21) 12%, transparent);
   }
 
   @media (prefers-reduced-motion: reduce) {

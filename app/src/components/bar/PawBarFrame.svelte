@@ -122,12 +122,14 @@
 
   2026-09-27 (sessions + compliance, PRD V4/V5/V8/V12/V13):
   • `conversations` (the ConversationsStore's rows, as is) and
-    `conversationId`. "New conversation" in ⋯ calls `onnewconversation`
-    (inert on an empty thread, which has nothing to start over from).
-    "Conversations (N)", shown above one, swaps the thread for a list in the
-    same surface: back, New, and one row per conversation (preview, age,
-    "Waiting on team" for needs_human, "Current" on the active one); a row
-    calls `onopenconversation`. The list is a plain region, never inside the
+    `conversationId`. The clock icon in the card's top row (once there is a
+    conversation to list) swaps the thread for a list in the same surface:
+    back, New (`onnewconversation`; on an empty thread it only goes back,
+    since there is nothing to start over from), and one row per conversation
+    (preview, age, "Waiting on team" for needs_human, "Current" on the active
+    one); a row calls `onopenconversation`. None of it is in a ⋯ menu any
+    more (captain, 2026-09-27), and `resizable` (the visitor size menu) is
+    off by default. The list is a plain region, never inside the
     live log, and Escape inside it goes back to the thread. A conversation
     switch is a bulk replace: no row flies in, and following resets.
   • "↓ New message": when the reader has scrolled up and a turn arrives or
@@ -210,7 +212,7 @@
     launcher = 'bar',
     side = 'right',
     size = 'md',
-    resizable = true,
+    resizable = false,
     fullscreen = $bindable(false),
     theme = 'default',
     tokens = {},
@@ -524,9 +526,12 @@
   }
   async function newConversation() {
     view = 'thread';
-    await onnewconversation?.();
+    if (messages.length > 0) await onnewconversation?.();
     bar?.focus();
   }
+  const canList = $derived(
+    !!(onopenconversation || onnewconversation) && (conversations.length > 0 || messages.length > 0),
+  );
   // The list is a pinned view: folding the bar puts the thread back.
   $effect(() => {
     if (!pinned) view = 'thread';
@@ -1048,10 +1053,7 @@
     handoffPending={handoff === 'pending'}
     onrequesthuman={unavailable && !unavailable.contactable ? undefined : onrequesthuman}
     {onstop}
-    onnewconversation={onnewconversation ? newConversation : undefined}
-    newConversationDisabled={messages.length === 0}
-    conversationCount={conversations.length}
-    onshowconversations={onopenconversation ? showConversations : undefined}
+    onshowconversations={canList ? showConversations : undefined}
     {suggestions}
     {logo}
     {logoSrc}

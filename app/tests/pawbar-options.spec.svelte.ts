@@ -1,7 +1,7 @@
 // tests/pawbar-options.spec.svelte.ts — the bar's owner and visitor options
-// (2026-09-27): the ⋯ size menu (the visitor's pick is stored and beats the
-// site default), full screen (a menu item; Escape leaves it before closing
-// anything), the icon launcher (click-only, ✕ to close), and theme presets
+// (2026-09-27): the ⋯ size menu, an owner opt-in since the menu was cleared
+// out (the visitor's pick is stored and beats the site default), full screen
+// (an icon in the card's top row; Escape leaves it before closing anything), the icon launcher (click-only, ✕ to close), and theme presets
 // (applied as --pawbar-* properties, cleared when switching), and the owner's
 // corner `radius`, which beats the theme's and is clamped to 0–40px.
 
@@ -59,7 +59,7 @@ describe('size', () => {
   });
 
   it("a visitor's pick is applied, stored, and beats the site default next time", async () => {
-    const { target } = render({ size: 'md' });
+    const { target } = render({ size: 'md', resizable: true });
     await openMenu(target);
     const items = [...target.querySelectorAll<HTMLButtonElement>('.menu-item[role="menuitemradio"]')];
     expect(items.map((b) => b.textContent?.trim())).toEqual(['Compact', 'Default', 'Large']);
@@ -72,7 +72,7 @@ describe('size', () => {
 
     unmount(live!);
     document.body.innerHTML = '';
-    const again = render({ size: 'lg' });
+    const again = render({ size: 'lg', resizable: true });
     expect(q(again.target, '.pawbar-host')!.dataset.size).toBe('sm');
   });
 
@@ -82,17 +82,16 @@ describe('size', () => {
     expect(q(target, '.pawbar-host')!.dataset.size).toBe('lg');
   });
 
-  it('resizable={false} removes the menu', () => {
-    const { target } = render({ resizable: false });
+  it('there is no menu unless the owner turns sizes on', () => {
+    const { target } = render();
     expect(q(target, 'button[aria-label="Chat options"]')).toBeNull();
   });
 });
 
 describe('full screen', () => {
-  it('turns on from the menu and Escape leaves it before closing the card', async () => {
-    const { target } = render();
-    await openMenu(target);
-    q<HTMLButtonElement>(target, '.menu-item[role="menuitemcheckbox"]')!.click();
+  it('turns on from the top-row icon and Escape leaves it before closing the card', async () => {
+    const { target } = render({ expanded: true });
+    q<HTMLButtonElement>(target, 'button[aria-label="Full screen"]')!.click();
     await tick();
     flushSync();
     expect(q(target, '.frame-wrap')!.dataset.full).toBe('true');

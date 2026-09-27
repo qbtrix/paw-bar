@@ -1,8 +1,8 @@
 // tests/pawbar-sessions.spec.svelte.ts — sessions and compliance in the new bar
 // (2026-09-27; PRD V4, V5, V8, V12, V13).
-// ⋯ gets "New conversation" (inert on an empty thread) and, above one
-// conversation, "Conversations (N)", which swaps the thread for a list that is
-// not a live log; a row opens that conversation and Escape goes back.
+// The clock icon in the card's top row (once there is anything to list) swaps
+// the thread for a list that is not a live log: New starts a conversation
+// (only when the thread has turns), a row opens one, Escape goes back.
 // "↓ New message" shows when a scrolling thread grows under a reader who has
 // scrolled up, and an emptied thread starts over. The bar's own state
 // survives a page load per tab: it comes back closed as a continue pill (no
@@ -87,51 +87,52 @@ const enter = (field: HTMLTextAreaElement) => {
   field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
   flushSync();
 };
-function openMenu(target: HTMLElement) {
-  target.querySelector<HTMLButtonElement>('button[aria-label="Chat options"]')!.click();
+const listIcon = (target: HTMLElement) => target.querySelector<HTMLButtonElement>('button[aria-label="Your conversations"]');
+async function openList(target: HTMLElement) {
+  listIcon(target)!.click();
+  await tick();
   flushSync();
-  return [...target.querySelectorAll<HTMLButtonElement>('.menu-item')];
 }
-const item = (items: HTMLButtonElement[], label: string) => items.find((b) => text(b)?.startsWith(label));
+const newButton = (target: HTMLElement) =>
+  [...target.querySelectorAll<HTMLButtonElement>('.history-head button')].find((b) => text(b) === 'New')!;
 const hover = (target: HTMLElement) => {
   target.querySelector('.frame-wrap')!.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
   flushSync();
 };
 
-describe('conversations in ⋯ (V8, V11)', () => {
-  it('"New conversation" is inert on an empty thread and calls onnewconversation otherwise', async () => {
+describe('conversations (V8)', () => {
+  it('there is no menu; the list icon shows once there is something to list', () => {
+    const { target, props } = frame({ expanded: true, onopenconversation: vi.fn(), onnewconversation: vi.fn() });
+    expect(target.querySelector('button[aria-label="Chat options"]')).toBeNull();
+    expect(listIcon(target)).toBeNull();
+    props.messages = [say('u1', 'user', 'hi')];
+    flushSync();
+    expect(listIcon(target)).not.toBeNull();
+  });
+
+  it('New starts a conversation only when the thread has turns', async () => {
     const onnewconversation = vi.fn();
-    const { target, props } = frame({ expanded: true, resizable: false, onnewconversation });
-    let items = openMenu(target);
-    const inert = item(items, 'New conversation')!;
-    expect(inert.getAttribute('aria-disabled')).toBe('true');
-    inert.click();
+    const { target, props } = frame({
+      expanded: true,
+      onnewconversation,
+      conversations: [conv('c1', 'Shipping to Oslo')],
+    });
+    await openList(target);
+    newButton(target).click();
+    await tick();
     flushSync();
     expect(onnewconversation).not.toHaveBeenCalled();
+    expect(target.querySelector('.history-row')).toBeNull();
 
     props.messages = [say('u1', 'user', 'hi'), say('a1', 'assistant', 'Hello')];
     flushSync();
-    items = openMenu(target);
-    items = items.length ? items : openMenu(target);
-    item(items, 'New conversation')!.click();
+    await openList(target);
+    newButton(target).click();
     await tick();
     expect(onnewconversation).toHaveBeenCalledOnce();
   });
 
-  it('the list item only shows above one conversation', () => {
-    const { target, props } = frame({
-      expanded: true,
-      onopenconversation: vi.fn(),
-      conversations: [conv('c1', 'Shipping to Oslo')],
-    });
-    expect(item(openMenu(target), 'Conversations')).toBeUndefined();
-    openMenu(target); // close
-    props.conversations = [conv('c1', 'Shipping to Oslo'), conv('c2', 'Gift ideas')];
-    flushSync();
-    expect(text(item(openMenu(target), 'Conversations')!)).toBe('Conversations (2)');
-  });
-
-  it('the list replaces the thread, is not a live log, marks the current one, and a row opens it', () => {
+  it('the list replaces the thread, is not a live log, marks the current one, and a row opens it', async () => {
     const onopenconversation = vi.fn();
     const { target } = frame({
       expanded: true,
@@ -140,8 +141,7 @@ describe('conversations in ⋯ (V8, V11)', () => {
       onopenconversation,
       conversations: [conv('c1', 'Shipping to Oslo', { active: true }), conv('c2', 'Gift ideas', { state: 'needs_human' })],
     });
-    item(openMenu(target), 'Conversations')!.click();
-    flushSync();
+    await openList(target);
     const region = target.querySelector('.thread')!;
     expect(region.getAttribute('role')).toBe('region');
     expect(region.getAttribute('aria-live')).toBe('off');
@@ -157,15 +157,14 @@ describe('conversations in ⋯ (V8, V11)', () => {
     expect(target.querySelector('.thread')!.getAttribute('role')).toBe('log');
   });
 
-  it('Escape inside the list goes back to the thread without folding the bar', () => {
+  it('Escape inside the list goes back to the thread without folding the bar', async () => {
     const { target, props } = frame({
       expanded: true,
       messages: [say('u1', 'user', 'hi')],
       onopenconversation: vi.fn(),
       conversations: [conv('c1', 'a'), conv('c2', 'b')],
     });
-    item(openMenu(target), 'Conversations')!.click();
-    flushSync();
+    await openList(target);
     target.querySelector('.history-row')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     flushSync();
     expect(target.querySelector('.history-row')).toBeNull();

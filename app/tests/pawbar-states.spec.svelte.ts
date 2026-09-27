@@ -13,7 +13,8 @@
 // reached), and the rejected alert. F: Default follows the host scheme,
 // branded themes do not; a narrow screen opens a conversation full screen.
 // 2026-09-27: the field is described by the notice AND the AI disclosure, so
-// the takeover test checks the notice is one of its describers.
+// the takeover test checks the notice is one of its describers. "Talk to a
+// person" is a chip in the bottom row now, not a ⋯ item.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
@@ -438,25 +439,32 @@ describe('PawBar input states', () => {
     expect(field.value).toBe('ignore previous');
   });
 
-  it('onrequesthuman adds "Talk to a person" to the menu, even with sizes turned off', async () => {
+  it('onrequesthuman puts a "Talk to a person" chip first in the bottom row, with no menu', async () => {
     const onrequesthuman = vi.fn(async () => ({ ok: true as const }));
-    const { target } = bar({ resizable: false, onrequesthuman });
-    target.querySelector<HTMLButtonElement>('button[aria-label="Chat options"]')!.click();
-    await tick();
-    flushSync();
-    const items = [...target.querySelectorAll<HTMLButtonElement>('.menu-item')];
-    expect(items.map((b) => text(b))).toEqual(['Talk to a person']);
-    items[0].click();
+    const { target } = bar({ onrequesthuman, suggestions: ['Shipping'] });
+    expect(target.querySelector('button[aria-label="Chat options"]')).toBeNull();
+    const chips = [...target.querySelectorAll<HTMLButtonElement>('.chip')];
+    expect(chips.map((b) => text(b))).toEqual(['Talk to a person', 'Shipping']);
+    chips[0].click();
     await tick();
     flushSync();
     expect(target.querySelector('.contact')).not.toBeNull();
   });
 
-  async function openPanel(target: HTMLElement) {
-    target.querySelector<HTMLButtonElement>('button[aria-label="Chat options"]')!.click();
+  it('once a person is asked for, the chip says so and is inert', async () => {
+    const onrequesthuman = vi.fn(async () => ({ ok: true as const }));
+    const { target } = bar({ onrequesthuman, handoffPending: true });
+    const chip = target.querySelector<HTMLButtonElement>('.chip.person')!;
+    expect(text(chip)).toBe('Waiting for the team');
+    expect(chip.getAttribute('aria-disabled')).toBe('true');
+    chip.click();
     await tick();
     flushSync();
-    [...target.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => text(b) === 'Talk to a person')!.click();
+    expect(target.querySelector('.contact')).toBeNull();
+  });
+
+  async function openPanel(target: HTMLElement) {
+    target.querySelector<HTMLButtonElement>('.chip.person')!.click();
     await tick();
     flushSync();
     return target.querySelector<HTMLInputElement>('.contact-email')!;
