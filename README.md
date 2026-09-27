@@ -1,4 +1,5 @@
-<!-- Renamed 2026-07-08 to Paw Bar. Package name is now paw-bar-widget; host attribute data-paw-bar; global window.PawBar. -->
+<!-- Renamed 2026-07-08 to Paw Bar. Package name is now paw-bar-widget; host attribute data-paw-bar; global window.PawBar.
+     2026-09-27: Development now points at app/README.md for the live glass app's dev pages. -->
 
 # Paw Bar
 
@@ -29,6 +30,8 @@ The host element emits native `CustomEvent`s that embedders can listen for:
 - `pp.error` — spec load or event post failed. `detail.reason` holds the message.
 
 ## Development
+
+The widget customers see is the glass app in [`app/`](app/README.md). To work on its UI with no backend, see [Design without a backend](app/README.md#design-without-a-backend). The commands below build and test the older standalone widget in `src/`.
 
 ```bash
 bun install        # or npm install
