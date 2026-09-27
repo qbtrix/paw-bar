@@ -6,6 +6,8 @@
 // protocol: view('chip') at boot and never open/bar, overlay(true) only while
 // the card is open, expand(on) for full screen. A pinned bar polls fast and a
 // closed one slow.
+// 2026-09-27 (old shell removed): the config fixture drops `ui`, which
+// PawBarConfig no longer has.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 
@@ -61,7 +63,6 @@ function config(extra: Partial<PawBarConfig> = {}): PawBarConfig {
     avatars: [],
     launcherLabel: '',
     barResting: 'compact',
-    ui: 'bar',
     barTheme: 'default',
     radius: undefined,
     launcher: 'bar',

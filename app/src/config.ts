@@ -8,8 +8,9 @@
 // origin (the embedding page) or '*' ONLY as a dev-page fallback — the real
 // frame always supplies an exact origin, and postMessage refuses to post to a
 // pinned origin mismatch in production.
-// 2026-09-27 (new bar): reads the new bar's owner settings. `ui` picks the
-// widget ('bar' by default, 'glass' mounts the old shell); `barTheme`,
+// 2026-09-27 (old shell removed): `ui` is no longer read. There is one widget,
+// so any value a backend sends (including 'glass') is ignored.
+// 2026-09-27 (new bar): reads the new bar's owner settings. `barTheme`,
 // `radius`, `launcher`, `side`, `barSize`, `logo`, `disclosure`,
 // `privacyHref` and `consentRequired` style and gate it. The backend sends
 // none of them yet, so each one has a default and an unknown value falls back
@@ -71,12 +72,11 @@ export interface PawBarConfig {
    *              hover or focus. The behaviour the morph used to provide, minus
    *              the clipping: the LOADER animates the frame and the app just
    *              fills it, so there is no longer an app-side width for the box
-   *              to chase (see GlassShell's header and loader.ts BAR_W_REST).
+   *              to chase (see loader.ts BAR_W_REST).
    *
    *  Defaults to 'compact' — a resting widget on somebody else's site should
    *  ask for as little of their page as it can and grow when it is wanted. */
   barResting: 'full' | 'compact';
-  ui: 'bar' | 'glass';
   barTheme: string;
   radius: number | undefined;
   launcher: 'bar' | 'icon';
@@ -167,7 +167,6 @@ export function readConfig(): PawBarConfig {
     // that has never heard of this field gets the new resting behaviour rather
     // than a widget stuck in a mode nobody chose.
     barResting: boot?.barResting === 'full' ? 'full' : 'compact',
-    ui: boot?.ui === 'glass' ? 'glass' : 'bar',
     barTheme: typeof boot?.barTheme === 'string' ? boot.barTheme : 'default',
     radius: typeof boot?.radius === 'number' && Number.isFinite(boot.radius) ? boot.radius : undefined,
     launcher: boot?.launcher === 'icon' ? 'icon' : 'bar',

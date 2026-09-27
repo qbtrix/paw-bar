@@ -13,6 +13,10 @@
   contents (capped, then it scrolls), so a new turn or a streaming reply grows
   the frame instead of snapping it.
 
+  2026-09-27 (old shell removed): comments below that mention the old shell,
+  glass.css or GlassShell describe where things came from. That code is gone;
+  this thread's own markdown and form-card styles are the only ones left.
+
   2026-09-27 (scrollbar flicker): the thread only scrolls once its content is
   past the cap, and always reserves the gutter. It used to be `overflow-y:
   auto` throughout, so a streaming reply briefly overflowing the still-growing
@@ -117,8 +121,7 @@
     (copy word for word from GlassShell), and a reply that settles as done
     asks it to `maybeOffer()` once. A "Cart · N · Checkout ↗" row joins the
     tail while the cart holds anything.
-  • E4: the conversation list now IS in this bar (see Sessions below); the
-    Messages tab's own list stays in the old shell.
+  • E4: the conversation list now IS in this bar (see Sessions below).
 
   2026-09-27 (sessions + compliance, PRD V4/V5/V8/V12/V13):
   • `conversations` (the ConversationsStore's rows, as is) and
@@ -1948,9 +1951,9 @@
     }
   }
 
-  /* ── E2 form card (FormCard.svelte, shared with the old shell) ──────────
-     The card's own styles read the old shell's scale; inside this thread they
-     are replaced, so the old shell keeps its look untouched. */
+  /* ── E2 form card (FormCard.svelte) ─────────────────────────────────────
+     The card's own styles read a token scale this bar does not declare (the
+     old shell's, removed 2026-09-27); inside this thread they are replaced. */
   .frame :global(.pawbar-md .form-card) {
     max-width: 420px;
     gap: 10px;

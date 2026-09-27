@@ -7,6 +7,8 @@
   dev defaults so the shell renders and the composer works (a real streamed
   reply still needs a running backend — that's the A4 smoke). The gradient body
   simulates an arbitrary host page behind the transparent iframe surface.
+  2026-09-27 (old shell removed): the frame comment below no longer points at
+  host.html, which was deleted with the old shell. main.ts mounts the new bar.
 -->
 <html lang="en">
   <head>
@@ -31,7 +33,8 @@
     </style>
     <script>
       // The gradient above is a STANDALONE dev aid: it proves the glass reads
-      // well over a busy page. Embedded in host.html (or the real frame) it
+      // well over a busy page. Embedded in a frame (the real loader, or
+      // scripts/widget-harness.mjs) it
       // would paint the iframe's own rectangle over the host site, so a
       // transparent widget would look like a grey box. Strip it when we are in
       // a frame — otherwise every screenshot lies about what a visitor sees.

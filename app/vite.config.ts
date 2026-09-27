@@ -1,8 +1,9 @@
 /// <reference types="vitest/config" />
-// vite.config.ts — Build + test config for the glass concierge iframe app.
-// 2026-09-27 (new bar): `__PAWBAR_GLASS__` is a build-time literal from
-// VITE_PAWBAR_UI, so the default bundle carries only the new bar and a glass
-// build only reaches the old shell; inlineDynamicImports keeps that one file.
+// vite.config.ts — Build + test config for the Paw Bar iframe app.
+// 2026-09-27 (old shell removed): the `__PAWBAR_GLASS__` define, the
+// VITE_PAWBAR_UI switch and inlineDynamicImports (which only existed to fold
+// the old shell's lazy import back into pawbar.js) are gone. The bundle has no
+// dynamic imports, so it is still one file.
 // Created 2026-07-15 (A3): emits a SINGLE, un-hashed JS + CSS pair
 // (pawbar.js / pawbar.css) so the backend-served frame HTML can reference the
 // bundle by a stable name. cssCodeSplit off + no manualChunks keeps it to one
@@ -12,17 +13,8 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
-// No Node typings in this project; the config still runs under Node.
-function buildEnv(name: string): string | undefined {
-  return (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env[name];
-}
-
 export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
-  // Which widget the bundle carries (2026-09-27). Default: the new bar only.
-  // VITE_PAWBAR_UI=glass builds the old GlassShell instead (see main.ts). A
-  // literal, so the unused shell is dropped from the bundle, not just skipped.
-  define: { __PAWBAR_GLASS__: JSON.stringify(buildEnv('VITE_PAWBAR_UI') === 'glass') },
   build: {
     target: 'es2020',
     cssCodeSplit: false,
@@ -35,9 +27,6 @@ export default defineConfig(({ mode }) => ({
         assetFileNames: (asset) =>
           asset.names?.some((n) => n.endsWith('.css')) ? 'pawbar.css' : 'assets/[name][extname]',
         manualChunks: undefined,
-        // One file, always: the frame loads pawbar.js by name, so the glass
-        // build's lazy import of the old shell is folded back into it.
-        inlineDynamicImports: true,
       },
     },
   },
@@ -60,8 +49,8 @@ export default defineConfig(({ mode }) => ({
     setupFiles: ['tests/setup.ts'],
     // Vitest disables CSS processing by default, which makes every stylesheet
     // read as an empty string — `?raw`, `?inline` and a plain import alike. The
-    // white-label guard in tests/theming.spec.ts asserts on tokens.css, and
-    // without this it would have passed by reading nothing at all.
+    // source scans in tests/theming.spec.ts and tests/radius-scale.spec.ts read
+    // component styles, and without this they would pass by reading nothing.
     css: true,
   },
 }));

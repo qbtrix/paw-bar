@@ -40,14 +40,16 @@
   • The agent's conversation starters (config.starters) are not shown
     (captain, 2026-09-27); the bar has no chips for them.
   • The stage sets a system font for the bar to inherit: in the iframe there
-    is no site font, and glass.css (shared bundle) points the body at a token
-    only the old shell defines, which left every word in Times.
-  • It owns the iframe document's reset (no margin, transparent background):
-    glass.css, which did that for the old shell, is not in this bundle.
+    is no site font, so every word would fall to Times.
+  • It owns the iframe document's reset (no margin, transparent background).
+    The old shell's glass.css did that before; it was removed 2026-09-27.
   • Layout: a fixed, bottom-anchored stage in the transparent iframe, aligned
     to the launcher's corner. The wrapper never shrinks to the stage (flex:
     none), so a box that lags the content for a frame clips it rather than
     reflowing it into a smaller measurement.
+
+  2026-09-27 (old shell removed): comments no longer describe glass.css as
+  sharing this bundle; it and the old shell are deleted.
 -->
 <script lang="ts" module>
   import type { ChatStore } from '../../store/chat.svelte';
@@ -290,8 +292,7 @@
 </div>
 
 <style>
-  /* The iframe document is see-through; only the bar paints. (glass.css did
-     this for the old shell and is no longer in the bundle.) */
+  /* The iframe document is see-through; only the bar paints. */
   :global(html),
   :global(body) {
     margin: 0;
@@ -307,8 +308,7 @@
     padding: 8px;
     box-sizing: border-box;
     /* The bar inherits its font, which on a plain page is the site's. In the
-       iframe there is no site font to inherit (and glass.css points the body
-       at a token only the old shell defines), so it would fall to Times. */
+       iframe there is no site font to inherit, so it would fall to Times. */
     font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     color: #1c1c21;
   }
