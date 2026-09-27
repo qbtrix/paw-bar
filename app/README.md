@@ -2,7 +2,9 @@
      boot contract, build output, and commands for the loader (A2) + frame
      endpoint (A1) + smoke (A4) that integrate with this bundle.
      2026-09-27: added "Design without a backend", which documents the
-     demo.html / host.html dev pages and their ?state= presets. -->
+     demo.html / host.html dev pages and their ?state= presets.
+     2026-09-27 (new bar): bar.html, and scripts/widget-harness.mjs for
+     checking the built widget under the real loader. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -86,8 +88,19 @@ bun run dev
 | `demo.html?state=long` | A very long streamed reply, for layout and scrolling |
 | `localhost:5173/host.html?demo` | The widget inside a fake customer page, using the real loader's frame protocol. This is how it actually looks on a site. |
 
+| `localhost:5173/bar.html` | The new Paw Bar on its own, with a control strip for launcher, size, theme and corners, and a "Next reply" picker that fakes every reply type and failure. |
+
 Run `bun run dev` from `app/`, not the repo root. The root `package.json` has
-no `dev` script. Edits hot-reload in both pages.
+no `dev` script. Edits hot-reload in these pages.
+
+`host.html` imitates the loader. To check the real thing, build both halves
+(`node loader/build.mjs` at the root, `npx vite build` here), then run
+`node scripts/widget-harness.mjs` from `app/`. It serves the real loader on a
+fake customer page and the real app in its sandboxed frame, with a fake
+backend, and prints the iframe's box at each step. `SCEN=` picks a scenario
+(`main`, `icon`, `phone`, `consent`, `leave`, `viewport`, `grow`). The script
+header explains each one. Anything that touches sizing or the loader protocol
+should pass it: jsdom has no layout, so the unit tests can't see the iframe.
 
 ## Action loop (C2) — cards + cart + checkout
 
