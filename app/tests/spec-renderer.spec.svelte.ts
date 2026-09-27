@@ -9,7 +9,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync, tick } from 'svelte';
-import type { UINode } from '@ripple-ui/core/headless';
+import type { UINode } from '@ripple-ui/core/headless/slim';
 import SpecRenderer from '../src/components/spec/SpecRenderer.svelte';
 import Label from './fixtures/spec/Label.svelte';
 import Press from './fixtures/spec/Press.svelte';

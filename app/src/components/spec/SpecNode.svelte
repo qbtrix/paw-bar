@@ -1,7 +1,7 @@
 <!--
   SpecNode.svelte — draws one resolved Ripple node with the component the host
   supplied for its type, then its children. Created 2026-09-27 with the spec
-  renderer.
+  renderer; typed against the slim headless runtime the same day.
 
   Props follow Ripple's NodeRenderer so a component written for Ripple works
   here unchanged: `id`, `class`, `style`, resolved props, `name` from the bind
@@ -17,14 +17,14 @@
 -->
 <script lang="ts">
   import type { Component } from 'svelte';
-  import type { ResolvedNode, RippleHeadless } from '@ripple-ui/core/headless';
+  import type { HeadlessRuntimeBase, ResolvedNode } from '@ripple-ui/core/headless/slim';
   import Self from './SpecNode.svelte';
   import { specStyle } from './style';
   import type { SpecComponents, SpecFallbackProps } from './types';
 
   interface Props {
     node: ResolvedNode;
-    runtime: RippleHeadless;
+    runtime: HeadlessRuntimeBase;
     components: SpecComponents;
     fallback?: Component<SpecFallbackProps>;
   }

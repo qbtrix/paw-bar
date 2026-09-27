@@ -107,7 +107,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@ripple-ui/core": ["@ripple-ui/core@./vendor/ripple-ui-core-0.5.0.tgz", { "dependencies": { "esm-env": "^1.2.2", "zod": "^4.0.0" }, "peerDependencies": { "svelte": "^5.0.0" }, "optionalPeers": ["svelte"] }, "sha512-5FsZiNBdHslOxfuY4csnWb9/tG0Gj5JH9aT0Qz7HbSYnTiVAm1r6W2OAhlYt3d2+Aaq7T+gfEFlae1+nfxCQMQ=="],
+    "@ripple-ui/core": ["@ripple-ui/core@./vendor/ripple-ui-core-0.5.0.tgz", { "dependencies": { "esm-env": "^1.2.2", "zod": "^4.0.0" }, "peerDependencies": { "svelte": "^5.0.0" }, "optionalPeers": ["svelte"] }, "sha512-6DTQCx5YErs8BseRpApb9RFby4JXHQ7Xm3qmQdDlGNDR1bJFYQZ8MR1/Fn1G0X2qy/zUj3rgl252fCuZpqPx8g=="],
 
     "@rollup/rollup-android-arm-eabi": ["@rollup/rollup-android-arm-eabi@4.62.2", "", { "os": "android", "cpu": "arm" }, "sha512-6o7ZLZK+BeenkZCFNDXqpbjw9bD6nuWonvS/lwQJp7NoVVxm6p3qE7qQ5jGuBjiFsgvqjD8mZAU5oWxTmbOeOg=="],
 

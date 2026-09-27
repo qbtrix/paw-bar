@@ -1,12 +1,17 @@
 <!--
   SpecRenderer.svelte — draws a Ripple spec with components the host passes in.
   Created 2026-09-27.
+  2026-09-27: runs on @ripple-ui/core/headless/slim (local state actions and
+  host events only; about 1.5 KB gzipped smaller than the full runtime).
 
-  The engine is @ripple-ui/core/headless: it resolves expressions, `show`,
-  `if` and `each`, holds the spec's state, and runs actions. This file and
-  SpecNode.svelte only draw the resolved tree, so no Ripple widget, stylesheet
-  or schema is bundled. Host actions (`emit`, `api`, `invoke_tool`, ...) go to
-  `onEvent` with Ripple's own callback contract.
+  The engine is Ripple's slim headless runtime
+  (@ripple-ui/core/headless/slim): it resolves expressions, `show`, `if` and
+  `each`, holds the spec's state, and runs `set`, `toggle`, `push`, `remove`
+  and `open`. Host actions (`emit`, `navigate`, `toast`, `pin`, `unpin`) go to
+  `onEvent` with Ripple's own callback contract. Anything else (`api`, flows,
+  `animate`, ...) is skipped with a warning; bar actions like add-to-cart
+  arrive as `emit`. This file and SpecNode.svelte only draw the resolved tree,
+  so no Ripple widget, stylesheet or schema is bundled.
 
   Styling, from least to most authoritative:
     1. `theme` (the prop, else the spec's `theme`) becomes CSS variables on the
@@ -22,7 +27,12 @@
 -->
 <script lang="ts">
   import { onDestroy, untrack, type Component } from 'svelte';
-  import { createHeadlessRuntime, type OnEventCallback, type UINode, type UISpec } from '@ripple-ui/core/headless';
+  import {
+    createSlimHeadlessRuntime,
+    type OnEventCallback,
+    type UINode,
+    type UISpec,
+  } from '@ripple-ui/core/headless/slim';
   import SpecNode from './SpecNode.svelte';
   import { themeStyle, type SpecTheme } from './style';
   import type { SpecComponents, SpecFallbackProps } from './types';
@@ -76,7 +86,7 @@
 
   const runtime = untrack(() => {
     const { root, initial } = split(spec);
-    return createHeadlessRuntime({
+    return createSlimHeadlessRuntime({
       spec: root,
       state: initialState ?? initial ?? {},
       data: data ?? {},

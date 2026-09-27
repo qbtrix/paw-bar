@@ -6,8 +6,10 @@
 // would bring in the zod schema, and one import of app code would tie the
 // renderer to the bar. Every other test would stay green. So this walks the
 // real import graph from SpecRenderer.svelte and allows only `svelte`,
-// `svelte/*`, `@ripple-ui/core/headless`, and files inside
+// `svelte/*`, `@ripple-ui/core/headless/slim`, and files inside
 // src/components/spec/. Type-only imports count too.
+// 2026-09-27: the full `@ripple-ui/core/headless` entry is no longer allowed;
+// it brings the whole event dispatcher back.
 
 import { describe, it, expect } from 'vitest';
 
@@ -42,7 +44,7 @@ function resolveLocal(from: string, spec: string): string | undefined {
 }
 
 function isAllowedExternal(spec: string): boolean {
-  return spec === 'svelte' || spec.startsWith('svelte/') || spec === '@ripple-ui/core/headless';
+  return spec === 'svelte' || spec.startsWith('svelte/') || spec === '@ripple-ui/core/headless/slim';
 }
 
 function crawl(): { reached: string[]; offenders: string[] } {
@@ -80,6 +82,7 @@ describe('spec renderer imports', () => {
   it('would flag the core root, a schema import and app code', () => {
     expect(isAllowedExternal('@ripple-ui/core')).toBe(false);
     expect(isAllowedExternal('@ripple-ui/core/schema')).toBe(false);
+    expect(isAllowedExternal('@ripple-ui/core/headless')).toBe(false);
     expect(resolveLocal(ENTRY, '../../lib/cards')).toBeUndefined();
   });
 });

@@ -12,7 +12,9 @@
      build-output line, the test list and the security note describe the
      parsed-tree renderer in src/lib/md/ instead.
      2026-09-27 (spec renderer): added "Drawing a Ripple spec", covering
-     components/spec/ and the vendored @ripple-ui/core tarball. -->
+     components/spec/ and the vendored @ripple-ui/core tarball.
+     2026-09-27 (slim runtime): the renderer runs on
+     @ripple-ui/core/headless/slim; sizes updated. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -138,12 +140,15 @@ closes.
 ## Drawing a Ripple spec
 
 `src/components/spec/` draws a Ripple spec (`{ ui, state?, theme? }`) with
-components the app passes in, keyed by spec `type`. Ripple's headless engine
-(`@ripple-ui/core/headless`) resolves expressions, `show`, `if` and `each`,
-holds state and runs actions; `SpecRenderer.svelte` and `SpecNode.svelte` only
-draw the result. No Ripple widget, stylesheet or schema is bundled, and
-`tests/spec-renderer-imports.spec.ts` fails if anything beyond `svelte`, the
-headless engine and that folder gets imported.
+components the app passes in, keyed by spec `type`. Ripple's slim headless
+runtime (`@ripple-ui/core/headless/slim`) resolves expressions, `show`, `if`
+and `each`, holds state and runs `set`, `toggle`, `push`, `remove` and `open`;
+`SpecRenderer.svelte` and `SpecNode.svelte` only draw the result. Host actions
+(`emit`, `navigate`, `toast`, `pin`, `unpin`) go to `onEvent`, so bar actions
+such as add-to-cart arrive as `emit`. Other Ripple actions (`api`, flows,
+`animate`) are skipped with a warning. No Ripple widget, stylesheet or schema
+is bundled, and `tests/spec-renderer-imports.spec.ts` fails if anything beyond
+`svelte`, the slim runtime and that folder gets imported.
 
 ```svelte
 <SpecRenderer {spec} components={{ text: Text, button: Button }} onEvent={handle} fallback={Unavailable} />
@@ -160,13 +165,19 @@ headless engine and that folder gets imported.
   `style` on the root are applied last and win.
 - **Failures:** a type with no component, or a component that throws, draws
   `fallback` for that node only.
-- **Size:** renderer plus engine is about 13 KB gzipped on top of Svelte. It is
-  not imported by `main.ts` yet, so `pawbar.js` is unchanged.
+- **Size:** importing it takes `pawbar.js` from 74.8 KB to 82.9 KB gzipped
+  (measured 2026-09-27; 84.3 KB with the full headless runtime). It is not
+  imported by `main.ts` yet, so `pawbar.js` is unchanged until it is wired in,
+  and that change has to raise the 80 KB budget in `scripts/check-size.mjs`.
 
 `@ripple-ui/core` is not on npm, so it is vendored as
 `vendor/ripple-ui-core-0.5.0.tgz`, packed from ripple-iui with the fix for
-handlers inside `each` (ripple-iui #142). To update it, run `bun run build` and
-`npm pack` in ripple's `packages/core`, replace the tarball, and `bun install`.
+handlers inside `each` (ripple-iui #142) and the slim runtime (#143). To update
+it, run `bun run build` and `npm pack` in ripple's `packages/core` and replace
+the tarball. bun keeps the tarball's hash in `bun.lock` and does not refresh it
+for a file with the same name, so update that one `sha512-` value by hand
+(`openssl dgst -sha512 -binary <tgz> | base64 -w0`) rather than deleting the
+entry: a fresh resolve also upgrades unrelated packages.
 
 ## Security note
 
