@@ -1,4 +1,7 @@
 // loader/test/loader.test.mjs — jsdom unit tests for the glass-bar loader (A2).
+// Updated 2026-09-27 (CR-7): on load the frame gets {pawbar:page} with the
+// host URL as origin + pathname (no query, no hash), the title clipped to 120,
+// and targetOrigin pinned to the frame origin.
 // Updated 2026-09-27: the new bar's two additions: a chip resize with `side`
 // docks the box in that corner (and anything else stays centred), and the
 // frame is told the host viewport on load and on resize, origin pinned.
@@ -344,6 +347,26 @@ test('the frame is told the host viewport on load and on every host resize, pinn
   assert.equal(vps[0].data.w, window.innerWidth);
   assert.equal(vps[0].data.h, window.innerHeight);
   assert.ok(vps.every((p) => p.targetOrigin === FRAME_ORIGIN)); // never "*"
+});
+
+test('on load the frame is told the host page: origin + pathname only, title clipped, origin pinned', () => {
+  const window = mount({ path: '/cart?session=s3cr3t&email=a%40b.c#step-2' });
+  window.document.title = 'T'.repeat(300);
+  const iframe = onlyIframe(window);
+  const posts = [];
+  Object.defineProperty(iframe.contentWindow, 'postMessage', {
+    value: (data, targetOrigin) => posts.push({ data, targetOrigin }),
+    configurable: true,
+  });
+  iframe.dispatchEvent(new window.Event('load'));
+  const pages = posts.filter((p) => p.data.type === 'pawbar:page');
+  assert.equal(pages.length, 1);
+  assert.equal(pages[0].data.url, HOST_ORIGIN + '/cart');
+  assert.equal(pages[0].data.title, 'T'.repeat(120));
+  assert.equal(pages[0].targetOrigin, FRAME_ORIGIN); // never "*"
+  // Nothing from the query string or hash crosses into the frame.
+  assert.ok(!JSON.stringify(pages).includes('s3cr3t'));
+  assert.ok(!JSON.stringify(pages).includes('step-2'));
 });
 
 test('drag: start goes full-viewport and replies with the box; end docks at the new anchor', () => {

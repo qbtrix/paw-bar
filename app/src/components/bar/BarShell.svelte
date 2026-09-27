@@ -50,6 +50,10 @@
 
   2026-09-27 (old shell removed): comments no longer describe glass.css as
   sharing this bundle; it and the old shell are deleted.
+  2026-09-27 (CR-7, page context): pawbar:page (new loader, posted at frame
+  load) is the host page's {url, title}. It goes to lib/host-page, which
+  re-strips the query and hash, and chat-client sends it as `page` on every
+  chat request. An old loader never posts it, and the field is then omitted.
 -->
 <script lang="ts" module>
   import type { ChatStore } from '../../store/chat.svelte';
@@ -76,6 +80,7 @@
   import type { ConversationsStore } from '../../store/conversations.svelte';
   import { resolveScheme } from '../../lib/scheme';
   import { dockSize } from '../../lib/dock-size';
+  import { setHostPage } from '../../lib/host-page';
 
   let {
     config,
@@ -206,6 +211,9 @@
           break;
         case 'pawbar:scheme':
           if (data.s === 'l' || data.s === 'd') hostScheme = data.s;
+          break;
+        case 'pawbar:page':
+          setHostPage(data);
           break;
         case 'pawbar:viewport': {
           const w = Number(data.w);

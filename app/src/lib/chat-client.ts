@@ -32,10 +32,19 @@
 //   store can tell offline (queue) from unreachable (Retry); a reader.read()
 //   rejection is `afterResponse` (a cut-off reply, never auto-resent). SSE
 //   `error` / `interrupted` become frame failures. dispatchFrame stays pure.
+// 2026-09-27 (CR-7, page context): the request body carries
+//   `page: {url, title}`, the host page the bar is embedded on, read from
+//   lib/host-page (the loader posts it at frame load; origin + pathname only,
+//   title clipped to 120). When no page is known the key is left off, never
+//   sent as null. Older servers ignore the field (pydantic extra='ignore').
+//   The `sources` frame also accepts the concierge v2 shape
+//   {"items":[{id,title,url}]} alongside the original {"sources":[...]}; both
+//   go through the same sanitizer to the existing onSources slot.
 
 import { createSseParser, type SseFrame } from './sse';
 import { sanitizeSources, type Source } from './sources';
 import type { RawFailure } from './chat-errors';
+import { getHostPage } from './host-page';
 
 export interface ConciergeChatConfig {
   endpoint: string;
@@ -118,7 +127,8 @@ export function dispatchFrame(frame: SseFrame, cb: ChatCallbacks): boolean {
       // Optional citations for the current reply. Sanitized (strings only,
       // http(s) only, capped) — a malformed frame degrades to no sources.
       const data = safeParse(frame.data);
-      const sources = sanitizeSources(data?.sources);
+      // v2 servers name the list `items` ({id,title,url}); `id` is dropped.
+      const sources = sanitizeSources(data?.sources ?? data?.items);
       if (sources.length > 0) cb.onSources?.(sources);
       return true;
     }
@@ -145,6 +155,7 @@ export async function streamConciergeChat(
   callbacks: ChatCallbacks,
   signal?: AbortSignal,
 ): Promise<void> {
+  const page = getHostPage();
   let res: Response;
   try {
     res = await fetch(chatUrl(config.endpoint), {
@@ -160,6 +171,7 @@ export async function streamConciergeChat(
         customer_ref: config.customerRef,
         message,
         ...(config.conversationId ? { conversation_id: config.conversationId } : {}),
+        ...(page ? { page } : {}),
       }),
     });
   } catch (err) {
