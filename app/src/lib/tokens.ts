@@ -5,11 +5,16 @@
 // so nothing in it can be unit-tested, and the clear-then-apply cycle below is
 // exactly the kind of logic that fails silently.
 //
-// WHERE THESE LAND MATTERS. They MUST be set on .pawbar-root itself, never on
-// the mount target above it: tokens.css declares the whole --pawbar-* scale ON
-// .pawbar-root, and a declaration on an element always beats a value inherited
-// from its parent. Setting them on the parent is what made every owner override
-// silently vanish for months (see tests/tokens.spec.ts).
+// 2026-09-27 (old shell removed): the only caller now is lib/preview-tokens.ts
+// (owner preview live restyling). main.ts points it at the new bar's
+// .frame-wrap, the element PawBarFrame also writes its inline theme vars on.
+// The old tokens.css and its .pawbar-root no longer exist.
+//
+// WHERE THESE LAND MATTERS. They must be set on the element that declares the
+// --pawbar-* values, never on an ancestor: a declaration on an element always
+// beats a value inherited from its parent. Setting them on the parent is what
+// made every owner override silently vanish for months under the old shell.
+// tests/tokens-apply.spec.ts covers the apply/retract cycle below.
 
 /** Keys set by the LAST call, so the next one can retract them. */
 let appliedTokenKeys: string[] = [];

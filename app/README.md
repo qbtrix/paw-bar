@@ -4,7 +4,9 @@
      2026-09-27: added "Design without a backend", which documents the
      demo.html / host.html dev pages and their ?state= presets.
      2026-09-27 (new bar): bar.html, and scripts/widget-harness.mjs for
-     checking the built widget under the real loader. -->
+     checking the built widget under the real loader.
+     2026-09-27 (old shell removed): host.html and demo.html?state=light are
+     gone; demo.html now shows the new bar with a fake backend. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -81,19 +83,16 @@ bun run dev
 
 | URL | What you get |
 |---|---|
-| `localhost:5173/demo.html` | The widget alone, with `fetch` stubbed. Streamed replies (with code and sources), a conversation list, the cart and an owner reply all work with no server. |
+| `localhost:5173/demo.html` | The bar through the real `main.ts` boot, with `fetch` stubbed. Streamed replies (with code and sources), the conversation list, the cart and an owner reply all work with no server. |
 | `demo.html?state=thread` | Opens straight into a populated conversation |
 | `demo.html?state=cart` | Items in the cart, so the checkout controls show |
-| `demo.html?state=light` | The light theme |
 | `demo.html?state=long` | A very long streamed reply, for layout and scrolling |
-| `localhost:5173/host.html?demo` | The widget inside a fake customer page, using the real loader's frame protocol. This is how it actually looks on a site. |
-
 | `localhost:5173/bar.html` | The new Paw Bar on its own, with a control strip for launcher, size, theme and corners, and a "Next reply" picker that fakes every reply type and failure. |
 
 Run `bun run dev` from `app/`, not the repo root. The root `package.json` has
 no `dev` script. Edits hot-reload in these pages.
 
-`host.html` imitates the loader. To check the real thing, build both halves
+To see the bar under the real loader, build both halves
 (`node loader/build.mjs` at the root, `npx vite build` here), then run
 `node scripts/widget-harness.mjs` from `app/`. It serves the real loader on a
 fake customer page and the real app in its sandboxed frame, with a fake

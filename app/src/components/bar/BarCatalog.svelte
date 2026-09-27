@@ -28,6 +28,9 @@
   thread (role=log) already announces the card as an addition. Colours, radii
   and borders come only from var(--pawbar-*, fallback) in the thread's inks
   (--pawbar-frame-fg), never declared here.
+
+  2026-09-27 (old shell removed): the matchMedia note in page() no longer
+  cites the old shell as a CardBlock consumer.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -100,9 +103,9 @@
     ro.observe(listEl);
     return () => ro.disconnect();
   });
-  // Read at call time, not through svelte/motion: CardBlock pulls this file
-  // into the old shell too, and a module-level MediaQuery there would need
-  // matchMedia at import.
+  // Read at call time, not through svelte/motion: a module-level MediaQuery
+  // would need matchMedia at import, and CardBlock can pull this file into a
+  // test that never stubs it.
   function page(dir: 1 | -1) {
     const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     listEl?.scrollBy({ left: dir * listEl.clientWidth * 0.8, behavior: still ? 'auto' : 'smooth' });

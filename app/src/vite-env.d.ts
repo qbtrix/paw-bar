@@ -1,4 +1,4 @@
-// vite-env.d.ts — ambient types for the glass concierge app.
+// vite-env.d.ts — ambient types for the Paw Bar iframe app.
 // Created 2026-07-15 (A3): registers Vite client + Svelte types and declares
 // the window.__PAWBAR__ config contract the serving frame HTML injects before
 // the bundle loads (see src/config.ts for the reader + dev fallback).
@@ -9,6 +9,9 @@
 // (`ui`, `barTheme`, `radius`, `launcher`, `side`, `barSize`, `logo`,
 // `disclosure`, `privacyHref`, `consentRequired`). The backend sends none of
 // them yet; config.ts defaults every one.
+// 2026-09-27 (old shell removed): dropped the __PAWBAR_GLASS__ build-time
+// declaration. `ui` stays on the boot shape so frame HTML that still sends it
+// type-checks, but nothing reads it: the new bar is always mounted.
 /// <reference types="svelte" />
 /// <reference types="vite/client" />
 
@@ -49,8 +52,9 @@ interface PawBarBootConfig {
   /** How the docked bar rests: 'full' (always its whole width) or 'compact'
    *  (a narrow pill that widens on hover/focus). Absent → 'compact'. */
   barResting?: 'full' | 'compact';
-  /** Which widget to mount: the new bar (default) or the old 'glass' shell. */
-  ui?: 'bar' | 'glass';
+  /** IGNORED since 2026-09-27, when the old 'glass' shell was removed. Kept so
+   *  a frame that still sends it type-checks; readConfig does not read it. */
+  ui?: string;
   /** A preset id from lib/bar-themes. `theme` above is an older, ignored field. */
   barTheme?: string;
   /** Corner radius in px (0–40). */
@@ -66,9 +70,6 @@ interface PawBarBootConfig {
   /** The site's consent manager says chatting needs consent first. */
   consentRequired?: boolean;
 }
-
-/** Build-time: true only in a VITE_PAWBAR_UI=glass build (vite.config.ts). */
-declare const __PAWBAR_GLASS__: boolean;
 
 interface Window {
   __PAWBAR__?: PawBarBootConfig;

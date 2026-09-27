@@ -16,16 +16,16 @@
   `index.html`, so this file is dev-only by construction, and the app itself
   cannot tell the difference between this and a server.
 
-  Open `/host.html?demo` to get it inside the real host harness (a page with
-  its own content, the loader's box protocol, and a click counter proving the
-  page underneath stays live). Open `/demo.html` on its own to work on the
-  panel's interior without the frame around it.
-
   `?state=` seeds the widget: `?state=thread` opens straight into a populated
   conversation, `?state=cart` adds items so the checkout affordances appear, and
-  `?state=light` applies the five-token light re-skin from tokens.css so the
-  override contract is something you can look at rather than something that file
-  claims. It used to claim it and be wrong.
+  `?state=long` streams a very long reply.
+
+  2026-09-27 (old shell removed): this page now always shows the new bar
+  (main.ts mounts it unconditionally). Removed with the old shell: the
+  host.html link (that harness imitated the old loader protocol; use
+  scripts/widget-harness.mjs for the real loader), `?state=light` (it set the
+  old tokens.css scale, which the bar never read; bar.html has the theme
+  presets), and the fake /paw-bar/articles route (the bar has no articles).
 -->
 <html lang="en">
   <head>
@@ -60,36 +60,9 @@
         agentSubtitle: 'The team can also help',
         launcherLabel: 'Ask about Ocean Supply',
         starters: ['Where is my order?', 'Do you ship to Portugal?', 'How do returns work?'],
-        // The LIGHT RE-SKIN, exactly as an owner would send it: five tokens
-        // through the existing white-label path (window.__PAWBAR__.tokens →
-        // main.ts → inline custom properties on .pawbar-root). No second theme
-        // block, no attribute — ink decides which way round the scale goes and
-        // the four surfaces say what the ground is.
-        //
-        // This is here to be RUN. The same five overrides used to produce white
-        // text on a white panel, because every foreground was hard-coded white
-        // and thirteen component rules painted literal white washes.
-        ...(wants('light')
-          ? {
-              tokens: {
-                ink: 'oklch(0.24 0.012 264)',
-                surface: 'oklch(0.99 0.002 264 / 0.88)',
-                'surface-strong': 'oklch(1 0 0 / 0.96)',
-                'surface-raised': 'oklch(1 0 0 / 0.94)',
-                'surface-sunken': 'oklch(0.94 0.004 264 / 0.9)',
-              },
-            }
-          : {}),
       };
 
       // ── the fake router ────────────────────────────────────────────────────
-      const ARTICLES = [
-        { title: 'Shipping and delivery times', url: 'https://ocean.example/shipping', snippet: 'Orders leave the warehouse within one working day. Europe is 2-4 days, everywhere else 5-9.' },
-        { title: 'Returns and exchanges', url: 'https://ocean.example/returns', snippet: 'Thirty days, free, no questions. Wetsuits have to be dry.' },
-        { title: 'Wetsuit sizing guide', url: 'https://ocean.example/sizing', snippet: 'Measure your chest, not your t-shirt size. A suit should feel tight on land.' },
-        { title: 'Board fin compatibility', url: 'https://ocean.example/fins', snippet: 'FCS II boxes take FCS I fins with the tab removed. Futures do not.' },
-      ];
-
       const iso = (minsAgo) => new Date(Date.now() - minsAgo * 60000).toISOString();
       const CONVERSATIONS = [
         { id: 'ppc_live', state: 'open', preview: 'Is the 4/3 back in stock in medium?', last_message_at: iso(2), active: true },
@@ -152,7 +125,6 @@
 
         await new Promise((r) => setTimeout(r, 220)); // enough to see a skeleton
 
-        if (path.endsWith('/paw-bar/articles')) return jsonResponse({ articles: ARTICLES });
         if (path.endsWith('/paw-bar/conversations')) {
           if ((init?.method || 'GET').toUpperCase() === 'POST') {
             const fresh = { id: 'ppc_' + Math.random().toString(36).slice(2, 8), state: 'open', preview: '', last_message_at: new Date().toISOString(), active: true };

@@ -6,9 +6,11 @@
 // so this is the check for anything that changes sizing or the protocol.
 //
 // Build first: `node loader/build.mjs` (repo root) and `npx vite build` (app).
+// 2026-09-27 (old shell removed): dropped the `glass` scenario, which checked a
+// VITE_PAWBAR_UI=glass build. That build no longer exists.
+//
 // Run from app/:  node scripts/widget-harness.mjs
-//   SCEN=main|icon|phone|consent|leave|viewport|grow|glass  (default main;
-//   glass expects a VITE_PAWBAR_UI=glass build)
+//   SCEN=main|icon|phone|consent|leave|viewport|grow  (default main)
 //   BOOT='{"launcher":"icon","side":"left"}'     boot config overrides
 //   VW=390 VH=800                                viewport
 // Prints the iframe box at each step; screenshots go to test-results/wh-*.png.
@@ -180,10 +182,6 @@ if (SCEN !== 'main') {
     const g = await fr().evaluate(() => window.__g);
     const clipped = g.filter(([, need, have]) => need > have + 1);
     log('frames', g.length, 'frames where content was taller than the box', clipped.length, 'worst', clipped.reduce((m, [, n, h]) => Math.max(m, n - h), 0) + 'px');
-  } else if (SCEN === 'glass') {
-    // A VITE_PAWBAR_UI=glass build: the old shell must boot under the loader.
-    log('glass root', await fr().evaluate(() => !!document.querySelector('.pawbar-root')), 'new bar', await fr().evaluate(() => !!document.querySelector('.frame-wrap')));
-    await shot(tag);
   } else if (SCEN === 'viewport') {
     const hostW = await fr().evaluate(() => getComputedStyle(document.querySelector('.frame-wrap')).getPropertyValue('--pb-host-w'));
     log('frame --pb-host-w', hostW || '(unset)', 'host innerWidth', W, 'screen 1920');

@@ -1,11 +1,13 @@
 // tests/tokens-apply.spec.ts — applyTokens replaces, rather than accumulates.
 //
 // Created 2026-08-20, alongside live restyling in the owner preview.
+// 2026-09-27 (old shell removed): tokens.css and its sibling tokens.spec.ts are
+// gone. The fixture below still declares the scale on the element under test,
+// which is the arrangement applyTokens relies on in the new bar too (see the
+// header of lib/tokens.ts).
 //
-// Sibling of tokens.spec.ts, which pins WHERE the overrides must land (the root,
-// not the parent). This one pins what happens on the SECOND call, which only
-// started happening when the appearance editor began repainting the preview on
-// every edit.
+// This pins what happens on the SECOND call, which only started happening when
+// the appearance editor began repainting the preview on every edit.
 //
 // The failure it exists for is one-directional and therefore easy to miss: set
 // an accent, then clear it. Applying is obviously tested by any happy path;
@@ -21,7 +23,7 @@ function build(): HTMLElement {
   const root = document.createElement('div');
   root.className = 'pawbar-root';
   const style = document.createElement('style');
-  // What tokens.css does: the scale is declared on the root itself.
+  // The scale is declared on the element applyTokens writes to.
   style.textContent = '.pawbar-root { --pawbar-accent: DEFAULT; --pawbar-radius: 20px; }';
   document.head.append(style);
   document.body.append(root);

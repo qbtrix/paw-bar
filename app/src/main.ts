@@ -1,4 +1,4 @@
-// main.ts — Entry point for the glass concierge iframe app.
+// main.ts — Entry point for the Paw Bar iframe app.
 // Created 2026-07-15 (A3 glass bar): reads the window.__PAWBAR__ boot config
 // (dev fallback in config.ts), injects any white-label token overrides as inline
 // CSS vars on the mount root, builds the ChatStore + lifecycle poster, and mounts
@@ -27,6 +27,10 @@
 // markdown rules) leaked onto the new bar. In `vite dev` the old dev pages
 // still get it at runtime with `ui: 'glass'`. Cart, contact and conversations
 // touch nothing until used.
+// 2026-09-27 (old shell removed): mounts BarShell unconditionally. The
+// __PAWBAR_GLASS__ build flag, the `ui: 'glass'` dev switch and mount-glass.ts
+// are gone with the old GlassShell; a boot config that still sends `ui` is
+// ignored (config.ts no longer reads it).
 // 2026-09-26 (reply links): calls setLinkBase(config.parentOrigin) before
 // mount, so site-relative links in agent replies (`/returns`) resolve to the
 // host page instead of rendering as dead text (lib/markdown.ts validates it).
@@ -62,30 +66,22 @@ const contact = new ContactStore(storeConfig);
 const conversations = new ConversationsStore(storeConfig);
 const poster = createPoster(config.parentOrigin);
 
-// __PAWBAR_GLASS__ is a build-time literal (vite.config.ts), so in the default
-// build this whole branch, and the old shell with it, is dropped.
-if (__PAWBAR_GLASS__ || (import.meta.env.DEV && config.ui === 'glass')) {
-  void import('./mount-glass').then((m) =>
-    m.mountGlass({ target, config, storeConfig, cart, contact, conversations, poster }),
-  );
-} else {
-  mount(BarShell, {
-    target,
-    props: {
-      config,
-      poster,
-      cart,
-      contact,
-      conversations,
-      createChat: () => {
-        const chat = new ChatStore(storeConfig);
-        return { chat, operator: new OperatorStore(chat, storeConfig) };
-      },
+mount(BarShell, {
+  target,
+  props: {
+    config,
+    poster,
+    cart,
+    contact,
+    conversations,
+    createChat: () => {
+      const chat = new ChatStore(storeConfig);
+      return { chat, operator: new OperatorStore(chat, storeConfig) };
     },
-  });
-  installPreviewTokenListener({
-    preview: config.preview,
-    parentOrigin: config.parentOrigin,
-    getRoot: () => target.querySelector<HTMLElement>('.frame-wrap'),
-  });
-}
+  },
+});
+installPreviewTokenListener({
+  preview: config.preview,
+  parentOrigin: config.parentOrigin,
+  getRoot: () => target.querySelector<HTMLElement>('.frame-wrap'),
+});
