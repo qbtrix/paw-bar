@@ -11,6 +11,7 @@
 // reply that is still being written.
 // 2026-09-27 (compliance): poweredBy={false} drops the credit but not the AI
 // disclosure, which shares its line.
+// 2026-09-27: with no logo, the mark shows the Lucide paw-print.
 // Branding: the pill carries the site's logo (falling back to the plain mark
 // when it fails to load), and "Powered by Paw Sites" shows only while open.
 
@@ -169,6 +170,15 @@ describe('PawBarFrame', () => {
     flushSync();
     expect(target.querySelector('.pill img')).toBeNull();
     expect(target.querySelector('.pill .mark')).not.toBeNull();
+  });
+
+  it('with no logo the mark is the paw print, not a blank circle', () => {
+    const { target } = render();
+    const mark = target.querySelector('.pill .mark')!;
+    expect(mark.querySelector('svg')).not.toBeNull();
+    // Lucide paw-print: three toe pads and the pad path.
+    expect(mark.querySelectorAll('svg circle')).toHaveLength(3);
+    expect(mark.querySelector('svg path')).not.toBeNull();
   });
 
   it('shows "Powered by Paw Sites" only while open, outside the chat surface', () => {
