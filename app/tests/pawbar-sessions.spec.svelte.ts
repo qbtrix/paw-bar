@@ -1,8 +1,10 @@
 // tests/pawbar-sessions.spec.svelte.ts — sessions and compliance in the new bar
 // (2026-09-27; PRD V4, V5, V8, V12, V13).
 // The clock icon in the card's top row (once there is anything to list) swaps
-// the thread for a list that is not a live log: New starts a conversation
-// (only when the thread has turns), a row opens one, Escape goes back.
+// the thread for a list that is not a live log, and the card for one "New
+// conversation" button (no field to type into the wrong conversation). New
+// starts one only when the thread has turns, a row opens one, Escape (even on
+// the button) goes back, and the field returns focused with the draft.
 // "↓ New message" shows when a scrolling thread grows under a reader who has
 // scrolled up, and an emptied thread starts over. The bar's own state
 // survives a page load per tab: it comes back closed as a continue pill (no
@@ -93,8 +95,7 @@ async function openList(target: HTMLElement) {
   await tick();
   flushSync();
 }
-const newButton = (target: HTMLElement) =>
-  [...target.querySelectorAll<HTMLButtonElement>('.history-head button')].find((b) => text(b) === 'New')!;
+const newButton = (target: HTMLElement) => target.querySelector<HTMLButtonElement>('.new-conversation')!;
 const hover = (target: HTMLElement) => {
   target.querySelector('.frame-wrap')!.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
   flushSync();
@@ -155,6 +156,43 @@ describe('conversations (V8)', () => {
     flushSync();
     expect(onopenconversation).toHaveBeenCalledWith('c2');
     expect(target.querySelector('.thread')!.getAttribute('role')).toBe('log');
+  });
+
+  it('the list has no field; leaving it brings the field back with focus and the draft', async () => {
+    const { target } = frame({
+      expanded: true,
+      messages: [say('u1', 'user', 'hi')],
+      onopenconversation: vi.fn(),
+      conversations: [conv('c1', 'a'), conv('c2', 'b')],
+    });
+    type(target, 'half typed');
+    await openList(target);
+    expect(target.querySelector('textarea')).toBeNull();
+    expect(target.querySelector('button[aria-label="Send"]')).toBeNull();
+    expect(text(newButton(target))).toBe('New conversation');
+
+    [...target.querySelectorAll<HTMLButtonElement>('.history-head button')].find((b) => text(b) === 'Back')!.click();
+    await tick();
+    await tick();
+    flushSync();
+    const field = target.querySelector('textarea')!;
+    expect(field.value).toBe('half typed');
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('Escape on the New conversation button goes back to the thread, not out of the bar', async () => {
+    const { target, props } = frame({
+      expanded: true,
+      messages: [say('u1', 'user', 'hi')],
+      onopenconversation: vi.fn(),
+      conversations: [conv('c1', 'a'), conv('c2', 'b')],
+    });
+    await openList(target);
+    newButton(target).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    flushSync();
+    expect(target.querySelector('.history-row')).toBeNull();
+    expect(target.querySelector('textarea')).not.toBeNull();
+    expect(props.expanded).toBe(true);
   });
 
   it('Escape inside the list goes back to the thread without folding the bar', async () => {

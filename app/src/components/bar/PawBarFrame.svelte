@@ -124,10 +124,14 @@
   • `conversations` (the ConversationsStore's rows, as is) and
     `conversationId`. The clock icon in the card's top row (once there is a
     conversation to list) swaps the thread for a list in the same surface:
-    back, New (`onnewconversation`; on an empty thread it only goes back,
-    since there is nothing to start over from), and one row per conversation
-    (preview, age, "Waiting on team" for needs_human, "Current" on the active
-    one); a row calls `onopenconversation`. None of it is in a ⋯ menu any
+    Back, the title, and one row per conversation (preview,
+    age, "Waiting on team" for needs_human, "Current" on the active one); a
+    row calls `onopenconversation`. While the list shows, the bar's card is
+    replaced by one "New conversation" button (PawBar `footer`), since a
+    field there would type into a conversation the visitor is not looking
+    at. `onnewconversation` runs only when the current thread has turns (an
+    empty one is already new; the button just goes back to it). Leaving the
+    list brings the field back with focus in it and the draft intact. None of it is in a ⋯ menu any
     more (captain, 2026-09-27), and `resizable` (the visitor size menu) is
     off by default. The list is a plain region, never inside the
     live log, and Escape inside it goes back to the thread. A conversation
@@ -515,19 +519,24 @@
     await tick();
     historyEl?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
   }
+  // The field only exists again once the list is gone, so focus waits a tick.
+  async function focusField() {
+    await tick();
+    bar?.focus();
+  }
   function backToThread() {
     view = 'thread';
-    bar?.focus();
+    void focusField();
   }
   function openConversation(id: string) {
     view = 'thread';
     if (id !== conversationId) onopenconversation?.(id);
-    bar?.focus();
+    void focusField();
   }
   async function newConversation() {
     view = 'thread';
     if (messages.length > 0) await onnewconversation?.();
-    bar?.focus();
+    void focusField();
   }
   const canList = $derived(
     !!(onopenconversation || onnewconversation) && (conversations.length > 0 || messages.length > 0),
@@ -742,15 +751,25 @@
     const el = threadEl;
     if (!el) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && view === 'history') {
-        e.stopPropagation();
-        backToThread();
-        return;
-      }
       const t = e.target;
       if (e.key !== 'Escape' || !(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) || !t.value) return;
       e.stopPropagation();
       t.blur();
+    };
+    el.addEventListener('keydown', onKey);
+    return () => el.removeEventListener('keydown', onKey);
+  });
+
+  // Escape anywhere in the frame while the list shows (a row, Back, or the
+  // New conversation button, which lives in the bar) goes back to the thread
+  // rather than folding the bar.
+  $effect(() => {
+    const el = frameEl;
+    if (!el) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || view !== 'history') return;
+      e.stopPropagation();
+      backToThread();
     };
     el.addEventListener('keydown', onKey);
     return () => el.removeEventListener('keydown', onKey);
@@ -808,6 +827,15 @@
 
 <svelte:window bind:innerHeight={viewportH} bind:innerWidth={viewportW} onpagehide={snapshot} />
 
+{#snippet listFooter()}
+  <button type="button" class="new-conversation" onclick={newConversation}>
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+    New conversation
+  </button>
+{/snippet}
+
 {#snippet turnNote(m: BarMessage)}
   <p class="meta turn-note" class:error={m.status === 'error'} data-side={m.role === 'user' ? 'user' : 'bot'} in:fade={soft}>
     {#if m.status === 'error'}<span class="err-dot" aria-hidden="true"></span>{/if}
@@ -849,9 +877,8 @@
             Back
           </button>
           <h2 class="history-title">Conversations</h2>
-          {#if onnewconversation}
-            <button type="button" class="foot-btn" onclick={newConversation}>New</button>
-          {/if}
+          <!-- Balances Back so the title sits in the middle. -->
+          <span class="history-spacer" aria-hidden="true"></span>
         </div>
         <ul class="history-list">
           {#each conversations as c (c.id)}
@@ -1054,6 +1081,7 @@
     onrequesthuman={unavailable && !unavailable.contactable ? undefined : onrequesthuman}
     {onstop}
     onshowconversations={canList ? showConversations : undefined}
+    footer={history ? listFooter : undefined}
     {suggestions}
     {logo}
     {logoSrc}
@@ -1248,6 +1276,31 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .history-spacer {
+    width: 64px;
+  }
+  .new-conversation {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    border: none;
+    border-radius: var(--pawbar-radius-pill, var(--pawbar-radius, 999px));
+    /* The theme's accent, as on Send. Without one, the card's own pair
+       inverted, so it stands out on a light card and a dark one alike. */
+    background: var(--pawbar-accent, var(--pawbar-fg, #1c1c21));
+    color: var(--pawbar-accent-fg, var(--pawbar-bg, #fafafa));
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .new-conversation:focus-visible {
+    outline: 2px solid var(--pawbar-ring, currentColor);
+    outline-offset: 2px;
   }
   .history-title {
     flex: 1;

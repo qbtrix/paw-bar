@@ -92,6 +92,10 @@
         frame opened it on a narrow screen with `expandable` off.
       – `onrequesthuman`: a "Talk to a person" chip in the bottom row, first
         in line ("Waiting for the team", inert, once asked).
+    `footer` (a snippet) stands in for the card's contents while it is set:
+    the frame's conversation list uses it for one "New conversation" button,
+    because a field there would type into a conversation the visitor is not
+    looking at.
     ⋯ is left for the sizes, and only when the owner turns on `resizable`
     (now off by default). Low-frequency items (privacy, delete my data)
     belong there when they arrive.
@@ -174,6 +178,7 @@
     onrequesthuman,
     handoffPending = false,
     onshowconversations,
+    footer,
     onsuggestion,
     boundary = null,
     onopenchange,
@@ -220,6 +225,9 @@
     handoffPending?: boolean;
     /** Adds the conversations icon to the card's top row. */
     onshowconversations?: () => void;
+    /** Replaces the whole card (field, icons, chips, Send) while it is set.
+     *  The draft is kept and comes back with the field. */
+    footer?: Snippet;
     /** Defaults to sending the chip's text. */
     onsuggestion?: (text: string) => void;
     boundary?: HTMLElement | null;
@@ -649,12 +657,15 @@
       <div
         class="face card"
         role="group"
-        aria-label="Ask a question"
+        aria-label={footer ? undefined : 'Ask a question'}
         bind:offsetWidth={cardW}
         bind:offsetHeight={cardH}
         in:fade={fadeIn}
         out:fade={fadeOut}
       >
+        {#if footer}
+          {@render footer()}
+        {:else}
         <div class="row top">
           <textarea
             bind:this={fieldEl}
@@ -783,6 +794,7 @@
             </button>
           {/if}
         </div>
+        {/if}
       </div>
     {:else if isIcon}
       <div class="face launcher" bind:offsetWidth={launchW} bind:offsetHeight={launchH} in:fade={fadeIn} out:fade={fadeOut}>
