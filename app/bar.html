@@ -1,0 +1,112 @@
+<!doctype html>
+<!--
+  bar.html — dev harness for the fresh bar components (2026-09-27).
+  Run `bun run dev` and open /bar.html. The gradient stands in for a host
+  page. The control strip switches the launcher (centre bar, or the icon in
+  either corner), the site's default size, and the theme preset (each one is
+  only --pawbar-* values, see src/lib/bar-themes.ts). Picking a site size also
+  clears the visitor's own pick, which would otherwise win over it. The
+  Corners slider is the owner's `radius` setting (it beats the theme's). Full
+  screen lives in the bar's own ⋯ menu.
+  2026-09-27 (section E): "Next reply" adds markdown, a form card, one
+  product and 4- / 12-product catalogs; Reset also empties the demo cart and
+  clears the email prompt.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PawBar (dev)</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: system-ui, sans-serif;
+        background:
+          radial-gradient(900px 600px at 15% 20%, #5b3fd1 0%, transparent 60%),
+          radial-gradient(900px 700px at 85% 80%, #d98a3d 0%, transparent 60%),
+          #2a2230;
+      }
+      .controls {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        padding: 10px 14px;
+        border-radius: 12px;
+        background: rgb(0 0 0 / 0.45);
+        color: #eee;
+        font-size: 13px;
+      }
+      .controls fieldset {
+        display: flex;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+      .controls legend {
+        float: left;
+        margin-right: 6px;
+        opacity: 0.7;
+      }
+      #stage {
+        position: fixed;
+        bottom: 24px;
+        left: 24px;
+        right: 24px;
+        display: flex;
+        justify-content: center;
+      }
+      #stage[data-anchor='left'] {
+        justify-content: flex-start;
+      }
+      #stage[data-anchor='right'] {
+        justify-content: flex-end;
+      }
+    </style>
+  </head>
+  <body>
+    <form class="controls" id="controls">
+      <fieldset>
+        <legend>Launcher</legend>
+        <label><input type="radio" name="launcher" value="bar" checked /> Bar</label>
+        <label><input type="radio" name="launcher" value="icon-left" /> Icon left</label>
+        <label><input type="radio" name="launcher" value="icon-right" /> Icon right</label>
+      </fieldset>
+      <fieldset>
+        <legend>Site size</legend>
+        <label><input type="radio" name="size" value="sm" /> sm</label>
+        <label><input type="radio" name="size" value="md" checked /> md</label>
+        <label><input type="radio" name="size" value="lg" /> lg</label>
+      </fieldset>
+      <label>Theme <select name="theme" id="theme"></select></label>
+      <label>Next reply <select name="next" id="next">
+        <option value="normal">normal</option>
+        <option value="sources">with sources</option>
+        <option value="markdown">markdown</option>
+        <option value="form">form card</option>
+        <option value="product">product card</option>
+        <option value="catalog4">catalog (4 products)</option>
+        <option value="catalog12">catalog (12 products)</option>
+        <option value="slow">slow (10s)</option>
+        <option value="fail">fails midway</option>
+        <option value="empty">fails empty</option>
+        <option value="unsent">not sent (network)</option>
+        <option value="rate">rate limited</option>
+        <option value="rejected">rejected</option>
+        <option value="offline">offline</option>
+        <option value="unavailable">chat unavailable</option>
+      </select></label>
+      <button type="button" data-act="team">Team takes over</button>
+      <button type="button" data-act="closed">Reply while closed</button>
+      <button type="button" data-act="restore">Restore</button>
+      <button type="button" data-act="reset">Reset</button>
+      <label>Corners <input type="range" name="radius" min="0" max="40" value="" id="radius" /> <output id="radius-out">theme</output></label>
+    </form>
+    <div id="stage"></div>
+    <script type="module" src="/src/bar-demo.svelte.ts"></script>
+  </body>
+</html>

@@ -11,6 +11,14 @@
   line and nudges the contact prompt (existing decision-poll machinery); 4xx →
   inline error, form stays editable with values intact. Esc/blur never clear
   entered values (plain bound state, no reset paths).
+  2026-09-27 (Paw Bar states, E2): inside the new bar's thread (inBarThread)
+  the card follows the E2 spec: inputs go readonly (not disabled, so values
+  stay readable) and the form aria-busy while it submits, a failed submit
+  focuses the first bad field, the sent line reads "✓ Sent. We'll take it from
+  here.", and the sent/error lines carry no role, because the thread is the
+  bar's one live region and already announces them as additions. The look
+  comes from PawBarFrame (`.frame :global(.form-card …)`). Outside the thread
+  nothing changes.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -18,6 +26,7 @@
   import { FORM_VALUE_MAX, FormCardStore } from '../../store/form-card.svelte';
   import { useCart } from '../../store/cart.svelte';
   import { useContact } from '../../store/contact.svelte';
+  import { inBarThread } from './thread';
 
   let { card }: { card: PawBarCard } = $props();
   const cart = useCart();
@@ -30,16 +39,29 @@
     () => void contact?.maybeOffer(),
   );
 
-  function onSubmit(e: SubmitEvent) {
+  const thread = inBarThread();
+  let formEl: HTMLFormElement | undefined = $state();
+
+  async function onSubmit(e: SubmitEvent) {
     e.preventDefault();
-    void form.submit();
+    await form.submit();
+    if (!thread || !form.error || !formEl) return;
+    // E2: focus the first field the visitor has to fix (or the first field
+    // when the server refused the whole thing).
+    const bad = card.fields?.findIndex((f) => form.missing.includes(f.name)) ?? -1;
+    formEl.querySelectorAll<HTMLElement>('input, textarea')[Math.max(0, bad)]?.focus();
   }
+  const busy = $derived(form.phase === 'submitting');
 </script>
 
 {#if form.phase === 'sent'}
-  <p class="sent" role="status">Sent for review — the team will confirm.</p>
+  {#if thread}
+    <p class="sent">✓ Sent. We'll take it from here.</p>
+  {:else}
+    <p class="sent" role="status">Sent for review — the team will confirm.</p>
+  {/if}
 {:else}
-  <form class="form-card" onsubmit={onSubmit} novalidate>
+  <form class="form-card" bind:this={formEl} onsubmit={onSubmit} novalidate aria-busy={thread && busy ? 'true' : undefined}>
     {#if card.title}
       <p class="title">{card.title}</p>
     {/if}
@@ -54,6 +76,7 @@
           <textarea
             rows="3"
             maxlength={FORM_VALUE_MAX}
+            readonly={thread && busy}
             value={form.values[field.name] ?? ''}
             oninput={(e) => form.setValue(field.name, e.currentTarget.value)}
           ></textarea>
@@ -61,6 +84,7 @@
           <input
             type={field.type}
             maxlength={FORM_VALUE_MAX}
+            readonly={thread && busy}
             value={form.values[field.name] ?? ''}
             oninput={(e) => form.setValue(field.name, e.currentTarget.value)}
           />
@@ -68,7 +92,7 @@
       </label>
     {/each}
     {#if form.error}
-      <p class="error" role="alert">{form.error}</p>
+      <p class="error" role={thread ? undefined : 'alert'}>{form.error}</p>
     {/if}
     <button type="submit" class="submit" disabled={form.phase === 'submitting'}>
       {form.phase === 'submitting' ? 'Sending…' : card.submit_label || 'Send'}
