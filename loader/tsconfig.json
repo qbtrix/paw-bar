@@ -1,5 +1,5 @@
 {
-  "_comment": "loader/tsconfig.json — Created 2026-07-15 (A2). Type-checks the glass-bar loader in isolation from the frozen widget's src. Same strict evergreen-browser profile as the root tsconfig; includes only loader/src.",
+  "_comment": "loader/tsconfig.json — Created 2026-07-15 (A2). Type-checks the glass-bar loader on its own; includes only loader/src. Strict evergreen-browser profile. 2026-09-27: the root tsconfig and the old widget's src/ it sat beside were removed, so this no longer refers to them.",
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",

@@ -3,17 +3,15 @@
 # Updated 2026-09-26: `sandbox` job — the widget frame's sandbox proven in
 # Chromium, Firefox and WebKit against the real built loader (test:sandbox).
 # Its setup-bun comment corrected after review (it only reads the root lockfile).
+# Updated 2026-09-27: the old vanilla widget and its Playwright suite
+# (tests/widget.spec.ts, root `bun run test`) were removed, so the note about
+# that suite is gone. The `app` job's name no longer says "Glass".
 #
 # This repo had NO CI. Every check below already existed as a package script
 # and had to be remembered by hand, which is the same as not having them: the
 # messenger PR was the largest change this repo has taken and nothing was
 # checking it.
 #
-# The root `bun run test` (Playwright, tests/widget.spec.ts) is deliberately NOT
-# wired up yet. It fails 4 of 5 on a clean `main`, so adding it here would make
-# the first green build impossible and teach everyone to ignore the badge. It
-# wants its own fix first.
-
 name: CI
 
 on:
@@ -27,7 +25,7 @@ concurrency:
 
 jobs:
   app:
-    name: Glass app
+    name: App
     runs-on: ubuntu-latest
     defaults:
       run:

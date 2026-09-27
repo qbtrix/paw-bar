@@ -6,7 +6,8 @@
      2026-09-27 (new bar): bar.html, and scripts/widget-harness.mjs for
      checking the built widget under the real loader.
      2026-09-27 (old shell removed): host.html and demo.html?state=light are
-     gone; demo.html now shows the new bar with a fake backend. -->
+     gone; demo.html now shows the new bar with a fake backend. The note
+     about the frozen vanilla widget in ../src is gone with that widget. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -14,8 +15,8 @@ A self-contained Vite + Svelte 5 SPA that renders inside an iframe and streams a
 grounded, markdown-rich concierge chat from `/paw-bar/chat`. This is the
 **visitor** face (concierge mode); owner/manager mode is a later wave.
 
-It lives in `app/` beside the **frozen** vanilla widget in `../src` (untouched):
-own `package.json`, own lockfile, own `node_modules`/`dist` (git-ignored).
+It has its own `package.json`, own lockfile, own `node_modules`/`dist`
+(git-ignored). The embed script that mounts it is in `../loader`.
 
 ## Boot contract
 

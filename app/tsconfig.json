@@ -1,5 +1,5 @@
 {
-  "//": "Created 2026-07-15 (A3): app TS config scoped to app/src + app/tests. Kept separate from the frozen widget's root tsconfig (include: [\"src\"]) so its tooling is untouched. Bundler resolution + strict, matching the frozen widget's posture.",
+  "//": "Created 2026-07-15 (A3): app TS config scoped to app/src + app/tests. Bundler resolution + strict. 2026-09-27: the root tsconfig and the vanilla widget it covered were removed; this config was always separate from them.",
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",

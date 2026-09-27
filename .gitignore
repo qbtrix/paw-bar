@@ -1,6 +1,6 @@
+# .gitignore — 2026-09-27: dropped tests/fixtures/widget.js with the old vanilla widget.
 node_modules/
 dist/
-tests/fixtures/widget.js
 .DS_Store
 *.log
 .playwright/

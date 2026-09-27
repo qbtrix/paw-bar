@@ -1,6 +1,8 @@
 // playwright.sandbox.config.ts — the widget frame sandbox, in three engines.
 // Created 2026-09-26: separate from playwright.config.ts (the legacy vanilla
-// widget suite, which is not in CI) so neither setup disturbs the other. No
+// widget suite, which is not in CI) so neither setup disturbs the other.
+// 2026-09-27: that legacy suite and its config were removed; this is now the
+// repo's only Playwright config, still run as `bun run test:sandbox`. No
 // webServer: tests/sandbox/servers.ts starts both origins per worker, because
 // the host page has to be told the frame origin's port.
 // Needs `bun run build:loader` first; the host page serves loader/dist/loader.js.
