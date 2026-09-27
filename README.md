@@ -1,7 +1,8 @@
 <!-- Renamed 2026-07-08 to Paw Bar. Package name is now paw-bar-widget; host attribute data-paw-bar; global window.PawBar.
      2026-09-27: Development now points at app/README.md for the live glass app's dev pages.
      2026-09-27: the old zero-dependency vanilla widget (src/, dist/widget.js) was removed. This README now
-     describes the two parts that ship: the loader and the app. -->
+     describes the two parts that ship: the loader and the app.      2026-09-27: the security list says markdown renders as a parsed tree, not through DOMPurify.
+-->
 
 # Paw Bar
 
@@ -45,8 +46,9 @@ tracked file has CRLF line endings.
 
 - The loader sandboxes the iframe and only accepts messages from the frame's
   own origin and window. See [loader/README.md](loader/README.md).
-- The app sanitizes agent-written markdown with a pinned DOMPurify allowlist.
-  See the security note in [app/README.md](app/README.md#security-note).
+- The app renders agent-written markdown as a parsed tree with text bindings,
+  never as an HTML string. See the security note in
+  [app/README.md](app/README.md#security-note).
 - The server enforces the origin allowlist and rate limits. The client is a
   renderer, not a security boundary.
 

@@ -30,8 +30,9 @@
 //     visitor's localStorage row.
 //   * the list is capped (OPERATOR_MESSAGES_CAP) per poll.
 //   * bot_paused is honoured only as a real boolean; anything else reads false.
-// The content itself NEVER becomes markup — MessageRow binds owner/system
-// turns as text, unlike assistant turns which render sanitized markdown.
+// The content itself NEVER becomes markup — the thread binds owner/system
+// turns as text, while assistant turns render as parsed markdown (still no
+// HTML string; see lib/markdown.ts).
 
 import type { ConciergeChatConfig } from './chat-client';
 

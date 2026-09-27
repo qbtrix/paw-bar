@@ -106,8 +106,9 @@
 
   2026-09-27 (section E, spec -ux-bar-and-flows.md): rich replies and the
   side flows.
-  • Assistant replies render through Markdown.svelte (lib/markdown: DOMPurify,
-    pinned allowlist, every link forced to a new tab with noopener), still
+  • Assistant replies render through Markdown.svelte (lib/markdown: since
+    2026-09-27 a parsed tree drawn with text bindings, no HTML string; every
+    link forced to a new tab with noopener), still
     inside `{#key m.status}` with the sr-only prefix. Owner and system turns
     stay TEXT. The old shell's `.pawbar-md` styles are global in glass.css and
     keyed to its own token scale, which this bar does not load, so the thread
@@ -1860,8 +1861,8 @@
     border: none;
     border-top: 1px solid var(--pawbar-thread-line, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 16%, transparent));
   }
-  /* Unreachable today (the sanitizer renders images as their alt text), and
-     kept so a future allowlist change cannot overflow the thread. */
+  /* Unreachable today (the markdown renderer has no image node; images render
+     as their alt text), and kept so a future change cannot overflow the thread. */
   .frame :global(.pawbar-md img) {
     max-width: 100%;
     border-radius: min(var(--pawbar-radius, 8px), 8px);

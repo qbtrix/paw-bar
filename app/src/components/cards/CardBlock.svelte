@@ -4,8 +4,7 @@
   parse + kind gate + fallback (moved out of Markdown.svelte). Takes the raw JSON
   string the fence interceptor captured, validates it (cards.parseCard, which
   never throws and coerces every field), and renders native glass components via
-  Svelte props only — no HTML injection, the DOMPurify markdown path is
-  untouched. A malformed / stream-truncated card (parseCard → null) OR an unknown
+  Svelte props only — no HTML injection. A malformed / stream-truncated card (parseCard → null) OR an unknown
   kind (isRenderable → false) renders a quiet muted "card unavailable" line, with
   the raw fence stayed hidden. 2026-07-30 (form cards): kind "form" branches to
   FormCard — the structured gated-action detail collector; product keeps its

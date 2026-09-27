@@ -65,171 +65,70 @@
 // aria-* are off (MARKDOWN_PURIFY_FLAGS), bare `#frag` / `?query` / empty
 // hrefs are dropped rather than resolved to the host's home page, and
 // setLinkBase normalises an equivalent origin (`https://x:443`, trailing `/`).
+//
+// 2026-09-27 (native renderer): marked and DOMPurify are gone. Prose now parses
+// into a plain tree (lib/md/block.ts + inline.ts) that components/md/ draws
+// with Svelte elements and text bindings, so no HTML string is built anywhere
+// and there is nothing left to sanitize. Every rule above still holds, now by
+// construction rather than by filtering: the node kinds in lib/md/types.ts are
+// the only elements a reply can produce; links always get target=_blank and
+// rel=noopener noreferrer and keep only hrefs lib/md/links.ts allows (the same
+// safeHref / setLinkBase, moved there); images render as alt text; the only
+// input is a disabled task checkbox; there is no style, src, title, data-* or
+// aria-* attribute to strip. Raw HTML in a reply behaves as DOMPurify left it:
+// allowlisted inline tags keep their meaning, others lose the tag and keep the
+// text, script/style-like tags lose their content too. The old path lives on
+// as tests/fixtures/md-oracle.ts, and tests/md-parity.spec.ts compares the two.
+// pawbar.js dropped from 74,840 to 59,479 bytes gzipped (marked and DOMPurify
+// were 29% of the minified bundle). Streaming cost: see Markdown.svelte.
 
-import { Marked } from 'marked';
-import DOMPurify from 'dompurify';
 
-// ── DOMPurify allowlist — this app's own, pinned by tests/markdown.spec.ts ───
-// Do NOT edit without updating that pin. These are the ONLY tags/attributes
-// that survive sanitization of agent markdown.
-export const MARKDOWN_ALLOWED_TAGS = [
-  'p', 'br', 'strong', 'em', 'del', 'a', 'ul', 'ol', 'li',
-  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote',
-  'table', 'thead', 'tbody', 'tr', 'th', 'td',
-  'code', 'pre', 'hr', 'sup', 'sub', 'span', 'div',
-  'input', // GFM task-list checkboxes
-] as const;
 
-// Exactly what marked emits on this path (fences are intercepted upstream):
-// href on links (title dropped 2026-09-26: a tooltip adds nothing here and it
-// was the attribute the C1 payload rode in), align on table cells, start on <ol>, type/disabled/
-// checked on task-list checkboxes. colspan/rowspan/scope keep merged-cell
-// tables intact. target/rel are deliberately absent — the link hook is their
-// only writer.
-export const MARKDOWN_ALLOWED_ATTR = [
-  'href', 'align', 'start', 'type', 'disabled', 'checked', 'colspan', 'rowspan', 'scope',
-] as const;
+import { parseBlocks } from './md/block';
+import type { Block } from './md/types';
 
-// data-* and aria-* are allowed by DOMPurify's defaults even under an explicit
-// ALLOWED_ATTR. Nothing marked emits here needs either, and aria-label /
-// aria-hidden let a reply say one thing to a screen reader and show another.
-export const MARKDOWN_PURIFY_FLAGS = { ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false } as const;
+import { setLinkBase as setBase } from './md/links';
 
-const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
-
-// Host page origin that site-relative hrefs resolve against. Set once at boot
-// (main.ts → setLinkBase(config.parentOrigin)); null means "unknown", and then
-// relative hrefs are dropped as before.
-let linkBase: string | null = null;
-
-/** Accept only an exact http(s) ORIGIN (no path, no '*'); anything else clears
- *  the base so relative links fall back to being dropped. */
+/** Set the host origin site-relative links resolve against (see md/links). */
 export function setLinkBase(origin: string | null | undefined): void {
-  linkBase = null;
-  if (!origin) return;
-  try {
-    // Normalise (so `https://shop.example:443` and a trailing `/` are fine),
-    // but refuse anything carrying a path, query, hash or credentials: that is
-    // not an origin, and guessing which part was meant is worse than dropping.
-    const u = new URL(origin);
-    const bare =
-      u.pathname === '/' && !u.search && !u.hash && !u.username && !u.password && !/[?#]/.test(origin);
-    if ((u.protocol === 'https:' || u.protocol === 'http:') && bare) linkBase = u.origin;
-  } catch {
-    /* not a URL — leave the base unset */
-  }
-}
-
-/** Return the href to keep, or null to drop it. Absolute hrefs must use an
- *  allowlisted scheme. A relative href is resolved against linkBase and kept
- *  only if it lands on that SAME origin — which is what rejects
- *  protocol-relative `//evil`, and the `/\evil` / `\\evil` spellings browsers
- *  also read as protocol-relative, without having to enumerate them. */
-function safeHref(href: string): string | null {
-  let absolute: URL | null = null;
-  try {
-    absolute = new URL(href);
-  } catch {
-    /* relative — handled below */
-  }
-  if (absolute) return SAFE_LINK_PROTOCOLS.has(absolute.protocol) ? href : null;
-  if (!linkBase) return null;
-  // A bare fragment/query (`#faq`, `?q=1`) or empty href refers to the WIDGET's
-  // own document; resolving it would silently point at the host's home page.
-  // The URL parser strips leading C0 controls/spaces, so this regex does too.
-  if (/^[\x00-\x20]*(?:[#?]|$)/.test(href)) return null;
-  try {
-    const resolved = new URL(href, linkBase + '/');
-    return resolved.origin === linkBase ? resolved.href : null;
-  } catch {
-    return null;
-  }
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-// Private marked instance: images render as escaped alt text, never <img>.
-const markdown = new Marked({
-  async: false,
-  gfm: true,
-  breaks: true,
-  renderer: {
-    image({ text }) {
-      return escapeHtml(text);
-    },
-  },
-});
-
-let purifier: ReturnType<typeof DOMPurify> | null = null;
-
-// Private DOMPurify instance (created lazily, once a window exists) carrying
-// the link hook, so no other sanitize call in the bundle inherits it.
-function getPurifier(): ReturnType<typeof DOMPurify> {
-  if (purifier) return purifier;
-  const p = DOMPurify(window);
-  p.addHook('afterSanitizeAttributes', (node) => {
-    if (node.nodeName === 'INPUT') {
-      // Only the GFM task-list checkbox is legitimate here. Any other input
-      // (text, password, submit, ...) is a fake form field a reply could use
-      // to phish the visitor, so it goes; the checkbox is forced read-only.
-      if ((node.getAttribute('type') ?? '').toLowerCase() !== 'checkbox') node.remove();
-      else node.setAttribute('disabled', '');
-      return;
-    }
-    if (node.nodeName !== 'A') return;
-    const href = node.getAttribute('href');
-    if (href !== null) {
-      const kept = safeHref(href);
-      if (kept === null) node.removeAttribute('href');
-      else if (kept !== href) node.setAttribute('href', kept);
-    }
-    node.setAttribute('target', '_blank');
-    node.setAttribute('rel', 'noopener noreferrer');
-  });
-  purifier = p;
-  return p;
+  setBase(origin);
+  blockCache.clear();
 }
 
 export type Segment =
-  | { type: 'html'; html: string }
+  | { type: 'md'; blocks: Block[] }
   | { type: 'code'; code: string; lang: string }
   | { type: 'card'; json: string }
   | { type: 'code-loading' };
 
 /** Fence language that carries an agent-authored action card. Intercepted
- *  BEFORE markdown render and parsed as JSON into native glass components
- *  (Svelte props only) — it never touches the DOMPurify/markdown path. */
+ *  BEFORE markdown parsing and parsed as JSON into native components (Svelte
+ *  props only). */
 export const CARD_FENCE_LANG = 'pawbar-card';
 
-export function renderMarkdown(text: string): string {
-  // gfm + breaks: turn on GitHub Flavored Markdown extras (tables,
-  // strikethrough, autolinks, task lists) and treat single newlines as
-  // <br> so multi-line replies look the way users typed them.
-  const raw = markdown.parse(text) as string;
-  const fragment = getPurifier().sanitize(raw, {
-    ...MARKDOWN_PURIFY_FLAGS,
-    ALLOWED_ATTR: [...MARKDOWN_ALLOWED_ATTR],
-    ALLOWED_TAGS: [...MARKDOWN_ALLOWED_TAGS],
-    RETURN_DOM_FRAGMENT: true,
-  });
-  // Wrap tables in a scrollable container for mobile — in the DOM, NEVER with
-  // a string replace on sanitized output (see the security-review note above).
-  for (const table of fragment.querySelectorAll('table')) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'pawbar-table-wrapper';
-    table.replaceWith(wrapper);
-    wrapper.append(table);
-  }
-  const out = document.createElement('div');
-  out.append(fragment);
-  return out.innerHTML;
+// Streaming re-parses the whole reply on every delta, and a fresh tree makes
+// Svelte revisit every node even though only the last block changed. So each
+// top-level block is interned by its content: an unchanged block comes back as
+// the SAME object, Svelte's each-block sees an identical item and skips it,
+// and only the growing block re-renders. Bounded, and cleared when the link
+// base changes (hrefs are resolved at parse time).
+const blockCache = new Map<string, Block>();
+const BLOCK_CACHE_MAX = 400;
+
+function intern(block: Block): Block {
+  const key = JSON.stringify(block);
+  const hit = blockCache.get(key);
+  if (hit) return hit;
+  if (blockCache.size >= BLOCK_CACHE_MAX) blockCache.clear();
+  blockCache.set(key, block);
+  return block;
+}
+
+/** Parse one prose run and add it, unless it renders nothing. */
+function pushMarkdown(result: Segment[], text: string): void {
+  if (!text.trim()) return;
+  const blocks = parseBlocks(text).map(intern);
+  if (blocks.length) result.push({ type: 'md', blocks });
 }
 
 /** Return the index of the opener of a still-open triple-backtick fence in
@@ -254,8 +153,8 @@ function findUnclosedFenceStart(text: string): number {
   return openIdx !== -1 && openIsExtractable ? openIdx : -1;
 }
 
-/** Split streamed/finished content into renderable segments: sanitized-HTML
- *  runs interleaved with fenced code blocks. While ``streaming``, an in-flight
+/** Split streamed/finished content into renderable segments: markdown runs
+ *  (parsed to blocks) interleaved with fenced code blocks. While ``streaming``, an in-flight
  *  unclosed generic fence is masked as a single ``code-loading`` shimmer so raw
  *  backticks never flash in the bubble. Adapted from MarkdownRenderer.svelte's
  *  ``segments`` derivation, with the ui-spec branch removed. */
@@ -271,8 +170,7 @@ export function parseSegments(content: string, streaming = false): Segment[] {
 
   while ((match = codeBlockRegex.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      const html = renderMarkdown(content.slice(lastIndex, match.index));
-      if (html.trim()) result.push({ type: 'html', html });
+      pushMarkdown(result, content.slice(lastIndex, match.index));
     }
     const lang = match[1] || '';
     // Normalize interior CRLF so copy-to-clipboard never carries `\r`.
@@ -292,14 +190,10 @@ export function parseSegments(content: string, streaming = false): Segment[] {
     const maskStart = streaming ? findUnclosedFenceStart(remaining) : -1;
     if (maskStart !== -1) {
       const before = remaining.slice(0, maskStart);
-      if (before.trim()) {
-        const html = renderMarkdown(before);
-        if (html.trim()) result.push({ type: 'html', html });
-      }
+      pushMarkdown(result, before);
       result.push({ type: 'code-loading' });
     } else {
-      const html = renderMarkdown(remaining);
-      if (html.trim()) result.push({ type: 'html', html });
+      pushMarkdown(result, remaining);
     }
   }
 

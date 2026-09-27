@@ -2,8 +2,7 @@
   ProductCard.svelte — Native glass product cards for a `pawbar-card` block.
   Created 2026-07-15 (C2 action loop). Renders each item (image / name / price /
   description) with its allowlisted action CTAs. Every field is a Svelte
-  text/attribute binding — NO HTML injection, the DOMPurify markdown path is
-  untouched. CTA clicks post STRUCTURED action events through the cart store
+  text/attribute binding — NO HTML injection. CTA clicks post STRUCTURED action events through the cart store
   (never free text); the server validates + mutates the visitor cart. `checkout`
   is a handoff to the site's real checkout, opened in the click gesture.
   2026-08-19: a thumbnail that fails to load removes itself instead of leaving a
