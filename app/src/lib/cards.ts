@@ -1,8 +1,7 @@
 // cards.ts — Types + safe parse/format helpers for `pawbar-card` fence blocks.
 // Created 2026-07-15 (C2 action loop). Cards are AGENT-AUTHORED JSON on a PUBLIC
 // origin, so this module NEVER trusts a field for HTML: the app renders cards
-// through Svelte text/attribute bindings only (the DOMPurify markdown path is
-// untouched). parseCard validates + coerces the JSON and returns null on any
+// through Svelte text/attribute bindings only. parseCard validates + coerces the JSON and returns null on any
 // shape violation — a malformed or stream-truncated card is routed to a quiet
 // "card unavailable" fallback rather than throwing or leaking raw JSON into the
 // bubble. isRenderable gates the card KIND: only kinds with a native renderer

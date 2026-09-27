@@ -1,8 +1,9 @@
 // tests/cards.spec.ts — Fence interceptor + card parse/format coverage. Created
 // 2026-07-15 (C2 action loop). Pins that a ```pawbar-card fence is diverted from
-// the markdown/DOMPurify path into a `card` segment, that parseCard validates +
+// the markdown path into a `card` segment, that parseCard validates +
 // coerces agent-authored JSON safely (malformed → null, never throws), and that
 // the untrusted-field guards hold (safeImageUrl rejects javascript:/svg).
+// 2026-09-27: prose segments are `md` (a parsed tree), no longer `html`.
 // 2026-07-30 (form cards): + kind:"form" parse coverage — verb/fields required,
 // strict field shape + type allowlist (violation → null → quiet fallback),
 // fields capped at MAX_FORM_FIELDS, optional title/submit_label, renderable.
@@ -34,7 +35,7 @@ const FORM_CARD = JSON.stringify({
 describe('parseSegments — pawbar-card fence interceptor', () => {
   it('diverts a pawbar-card fence into a `card` segment (not `code`)', () => {
     const segs = parseSegments(`Here are our picks:\n\`\`\`pawbar-card\n${CARD}\n\`\`\`\nEnjoy.`);
-    expect(segs.map((s) => s.type)).toEqual(['html', 'card', 'html']);
+    expect(segs.map((s) => s.type)).toEqual(['md', 'card', 'md']);
     const card = segs.find((s) => s.type === 'card');
     expect(card && 'json' in card && card.json).toContain('"Espresso"');
   });
@@ -46,7 +47,7 @@ describe('parseSegments — pawbar-card fence interceptor', () => {
 
   it('shimmer-masks an in-flight unclosed card fence while streaming', () => {
     const segs = parseSegments(`Loading picks:\n\`\`\`pawbar-card\n{"kind":"product"`, true);
-    expect(segs.map((s) => s.type)).toEqual(['html', 'code-loading']);
+    expect(segs.map((s) => s.type)).toEqual(['md', 'code-loading']);
   });
 });
 

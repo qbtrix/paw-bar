@@ -2,8 +2,8 @@
   CodeBlock.svelte — Plain code fence with a copy button. Created 2026-07-15
   (A3 glass bar). v1 is deliberately unhighlighted (no hljs/mermaid, per the
   extraction cut) — textContent-only render, so agent code can never inject
-  markup. The ONLY innerHTML anywhere in this app is the DOMPurify-sanitized
-  markdown; this component uses a text binding.
+  markup. Since 2026-09-27 the app has no HTML string sink at all
+  (tests/no-html-injection.spec.ts); this component uses a text binding.
 -->
 <script lang="ts">
   let { code, lang = '' }: { code: string; lang?: string } = $props();

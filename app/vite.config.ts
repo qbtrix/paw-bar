@@ -7,9 +7,10 @@
 // Created 2026-07-15 (A3): emits a SINGLE, un-hashed JS + CSS pair
 // (pawbar.js / pawbar.css) so the backend-served frame HTML can reference the
 // bundle by a stable name. cssCodeSplit off + no manualChunks keeps it to one
-// chunk each; marked + dompurify bundle INTO the app chunk (never a loader).
-// Vitest runs under jsdom so DOMPurify.sanitize() and the runes store have a
-// window; the pure sse parser runs there too with no DOM deps.
+// chunk each. Vitest runs under jsdom so component tests and the runes store
+// have a window; the pure sse parser runs there too with no DOM deps.
+// 2026-09-27: marked and dompurify no longer ship (the markdown renderer is
+// native, lib/md/); they are devDependencies for tests/fixtures/md-oracle.ts.
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 

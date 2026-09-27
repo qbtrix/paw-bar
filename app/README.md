@@ -7,7 +7,10 @@
      checking the built widget under the real loader.
      2026-09-27 (old shell removed): host.html and demo.html?state=light are
      gone; demo.html now shows the new bar with a fake backend. The note
-     about the frozen vanilla widget in ../src is gone with that widget. -->
+     about the frozen vanilla widget in ../src is gone with that widget.
+     2026-09-27 (native markdown): marked and DOMPurify no longer ship; the
+     build-output line, the test list and the security note describe the
+     parsed-tree renderer in src/lib/md/ instead. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -52,7 +55,7 @@ sizing. The app posts (targetOrigin pinned to `parentOrigin`, never `*`):
 
 `bun run build` emits stable, un-hashed names the frame HTML can hard-reference:
 
-- `dist/pawbar.js` — the single app chunk (Svelte + marked + dompurify + app)
+- `dist/pawbar.js` — the single app chunk (Svelte + app; no markdown or sanitizer library)
 - `dist/pawbar.css` — the single stylesheet
 
 First-paint budget: **`pawbar.js` ≤ 80KB gz** (CI-enforced via `bun run size`).
@@ -65,7 +68,7 @@ bun install
 bun run dev      # dev harness (stubbed __PAWBAR__) at http://localhost:5173
 bun run build    # emit dist/pawbar.{js,css}
 bun run size     # enforce the ≤80KB gz main-chunk budget
-bun run test     # vitest: sse parser, DOMPurify allowlist pin, store flow + stop()
+bun run test     # vitest: sse parser, markdown security + parity with the old renderer, store flow + stop()
 bun run check    # svelte-check (types + a11y)
 ```
 
@@ -105,8 +108,7 @@ should pass it: jsdom has no layout, so the unit tests can't see the iframe.
 ## Action loop (C2) — cards + cart + checkout
 
 Replies can carry a fenced `pawbar-card` block the app intercepts **before**
-markdown render and renders as native glass components (Svelte props only — the
-DOMPurify path is untouched):
+markdown parsing and renders as native glass components (Svelte props only):
 
 ````
 ```pawbar-card
@@ -133,10 +135,19 @@ closes.
 
 ## Security note
 
-`pawbar.js` sanitizes **agent-authored** markdown on a **public** origin. The
-DOMPurify `ALLOWED_TAGS` / `ADD_ATTR` allowlist in `src/lib/markdown.ts` is
-copied verbatim from paw-enterprise's `MarkdownRenderer.svelte` and pinned by
-`tests/markdown.spec.ts` — any drift fails the test. The only `innerHTML` in the
-app is that sanitized output; everything else is a text binding. Action cards are
+`pawbar.js` renders **agent-authored** markdown on a **public** origin, and it
+never turns that markdown into an HTML string. `src/lib/md/` parses a reply
+into a small tree whose node kinds are the only elements a reply can produce
+(`src/lib/md/types.ts`), and `src/components/md/` draws it with text bindings.
+Links always open in a new tab with `noopener noreferrer` and keep only
+http(s), mailto and tel hrefs (site-relative ones resolve against the host
+origin, `src/lib/md/links.ts`); images render as their alt text; the only form
+control is a disabled task checkbox. `tests/markdown.spec.ts` renders every
+payload the old DOMPurify allowlist was pinned against and asserts the result
+stays inside that allowlist, including a fuzz run; `tests/md-parity.spec.ts`
+checks realistic replies render exactly as the old marked + DOMPurify path did
+(kept as `tests/fixtures/md-oracle.ts`, with both libraries as dev
+dependencies); and `tests/no-html-injection.spec.ts` fails if any `{@html}`,
+`innerHTML =` or similar sink appears in `src/`. Action cards are
 JSON parsed + validated (`cards.parseCard`) and rendered via props only — no HTML
 injection; untrusted `image_url`/`checkout_url` fields are scheme-guarded.
