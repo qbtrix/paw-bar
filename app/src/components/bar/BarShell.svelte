@@ -40,6 +40,8 @@
   • The stage sets a system font for the bar to inherit: in the iframe there
     is no site font, and glass.css (shared bundle) points the body at a token
     only the old shell defines, which left every word in Times.
+  • It owns the iframe document's reset (no margin, transparent background):
+    glass.css, which did that for the old shell, is not in this bundle.
   • Layout: a fixed, bottom-anchored stage in the transparent iframe, aligned
     to the launcher's corner. The wrapper never shrinks to the stage (flex:
     none), so a box that lags the content for a frame clips it rather than
@@ -287,6 +289,13 @@
 </div>
 
 <style>
+  /* The iframe document is see-through; only the bar paints. (glass.css did
+     this for the old shell and is no longer in the bundle.) */
+  :global(html),
+  :global(body) {
+    margin: 0;
+    background: transparent;
+  }
   /* The iframe's whole viewport, with the bar sitting on its bottom edge. */
   .stage {
     position: fixed;

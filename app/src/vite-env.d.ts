@@ -67,6 +67,9 @@ interface PawBarBootConfig {
   consentRequired?: boolean;
 }
 
+/** Build-time: true only in a VITE_PAWBAR_UI=glass build (vite.config.ts). */
+declare const __PAWBAR_GLASS__: boolean;
+
 interface Window {
   __PAWBAR__?: PawBarBootConfig;
 }
