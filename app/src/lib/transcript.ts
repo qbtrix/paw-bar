@@ -31,8 +31,16 @@
 // along so the operator poll can resume from its high-water mark after a
 // reload instead of re-appending messages the visitor already has. Roles
 // outside the allowlist are dropped, so an edited row can't invent a speaker.
+// 2026-09-27 (paw-bar states, sections C5/D/C11): rows keep three new things.
+// `status: 'queued'` — an offline send the server has never seen; coercing it to
+// 'done' on reload would show an unsent message as sent. `failure` — the
+// FailureKind of a failed turn, so its note survives a reload. `stopped` — a
+// reply the visitor stopped with partial text. Plus a per-conversation handoff
+// flag (loadHandoff / saveHandoff) so "Waiting for the team" survives a reload.
+// A row that predates these simply reads as it did before.
 
 import type { Message, MessageRole } from '../store/chat.svelte';
+import type { FailureKind } from './chat-errors';
 import { sanitizeSources } from './sources';
 
 // 2026-08-19 (conversation identity): the row is keyed per CONVERSATION, not
@@ -54,12 +62,16 @@ import { sanitizeSources } from './sources';
 const KEY_PREFIX = 'pawbar.transcript.v2.';
 const LEGACY_KEY_PREFIX = 'pawbar.transcript.v1.';
 const ACTIVE_PREFIX = 'pawbar.active.v1.';
+const HANDOFF_PREFIX = 'pawbar.handoff.v1.';
+const FAILURES: readonly FailureKind[] = [
+  'offline', 'unreachable', 'rate_limited', 'rejected', 'unavailable', 'interrupted', 'server', 'empty',
+];
 export const TRANSCRIPT_CAP = 60;
 export const TRANSCRIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface StoredTranscript {
   saved_at: number;
-  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status' | 'sources' | 'at'>>;
+  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status' | 'sources' | 'at' | 'failure' | 'stopped'>>;
 }
 
 const ROLES: readonly MessageRole[] = ['user', 'assistant', 'owner', 'system'];
@@ -179,10 +191,13 @@ export function loadTranscript(widgetId: string, conversationId = ''): Message[]
         id: typeof m.id === 'string' && m.id ? m.id : `m-restored-${out.length}`,
         role,
         content,
-        // Never rehydrate 'streaming' — nothing is streaming after a reload.
-        status: m.status === 'error' ? 'error' : 'done',
+        // Never rehydrate 'streaming' — nothing is streaming after a reload. A
+        // queued turn stays queued: the server has never seen it.
+        status: m.status === 'error' || (m.status === 'queued' && role === 'user') ? m.status : 'done',
         ...(sources.length > 0 ? { sources } : {}),
         ...(at ? { at } : {}),
+        ...(m.status === 'error' && FAILURES.includes(m.failure as FailureKind) ? { failure: m.failure } : {}),
+        ...(m.stopped === true ? { stopped: true } : {}),
       });
     }
     return out.slice(-TRANSCRIPT_CAP);
@@ -207,6 +222,8 @@ export function saveTranscript(widgetId: string, messages: Message[], conversati
         ? { sources: m.sources.map((s) => ({ title: s.title, url: s.url })) }
         : {}),
       ...(m.at ? { at: m.at } : {}),
+      ...(m.failure ? { failure: m.failure } : {}),
+      ...(m.stopped ? { stopped: true } : {}),
     }));
   try {
     if (terminal.length === 0) {
@@ -225,6 +242,25 @@ export function clearTranscript(widgetId: string, conversationId = ''): void {
     window.localStorage.removeItem(key(widgetId, conversationId));
   } catch {
     // ignore
+  }
+}
+
+/** Has this visitor asked for a person in this conversation (C11)? */
+export function loadHandoff(widgetId: string, conversationId = ''): boolean {
+  try {
+    return window.localStorage.getItem(`${HANDOFF_PREFIX}${widgetId}.${conversationId || 'active'}`) === 'pending';
+  } catch {
+    return false;
+  }
+}
+
+export function saveHandoff(widgetId: string, conversationId: string, pending: boolean): void {
+  const k = `${HANDOFF_PREFIX}${widgetId}.${conversationId || 'active'}`;
+  try {
+    if (pending) window.localStorage.setItem(k, 'pending');
+    else window.localStorage.removeItem(k);
+  } catch {
+    // Storage blocked — the flag lives for this page view only.
   }
 }
 

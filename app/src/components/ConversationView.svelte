@@ -22,13 +22,20 @@
      docked bar below the panel now, so it is the same input in the same place
      whichever surface is showing — which is what the comp draws, and what
      stops the widget owning two different text boxes depending on where the
-     visitor happens to be standing. -->
+     visitor happens to be standing.
+
+     2026-09-27 (paw-bar states, section D live bug): the line under the thread
+     printed store.error verbatim, which was transport text ("paw-bar chat
+     failed (429)", the browser's "Failed to fetch", an executor's error). It now
+     shows only FAILURE_COPY text: the store's notice, or the "wasn't sent" copy
+     for an unanswered last turn. Owners get the real reason in console.warn. -->
 <script lang="ts">
   import CartBadge from './CartBadge.svelte';
   import Icon from './Icon.svelte';
   import MessageList from './MessageList.svelte';
   import type { Snippet } from 'svelte';
   import type { ChatStore } from '../store/chat.svelte';
+  import { FAILURE_COPY } from '../lib/chat-errors';
 
   let {
     store,
@@ -60,6 +67,22 @@
     onexpand: () => void;
   } = $props();
 
+  // Never a raw transport string. The store's near-input notice when there is
+  // one (the takeover notice has its own chip below), else a plain "wasn't
+  // sent" for a last user turn that was never answered. That fallback is static
+  // on purpose: a cooldown that has ended, or a bar lock gone after a reload,
+  // must not keep speaking. A broken REPLY already says so inside its own
+  // bubble (MessageRow), so it gets no second line here.
+  const failureLine = $derived.by(() => {
+    const notice = store.notice;
+    if (notice && notice.kind !== 'takeover') return notice.text;
+    for (let i = store.messages.length - 1; i >= 0; i--) {
+      const m = store.messages[i];
+      if (m.role !== 'user') continue;
+      return m.status === 'error' ? FAILURE_COPY.unreachable.sr : null;
+    }
+    return null;
+  });
 </script>
 
 <div class="conversation">
@@ -126,8 +149,8 @@
     {footer}
   />
 
-  {#if store.error}
-    <p class="error" role="status">{store.error}</p>
+  {#if failureLine}
+    <p class="error" role="status">{failureLine}</p>
   {/if}
 
   {#if store.botPaused}

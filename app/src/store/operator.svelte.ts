@@ -24,6 +24,14 @@
 // thread, the bot-paused chip and the chat itself behave exactly as they did
 // before this file existed. A backend with no /paw-bar/messages endpoint just
 // polls into a 404 every few seconds and the visitor never knows.
+//
+// 2026-09-27 (paw-bar states B8, "team" activity on a closed bar): startClosed()
+// adds a SLOW loop for while the bar is closed, so a team message written then
+// can light the pill. Every 30s, and only while the conversation is one a person
+// is in (botPaused, or an owner turn in the last 24h) — otherwise the tick does
+// nothing. Same hidden-tab pause and catch-up. start() switches it back to the
+// 7s loop. Additive: start()/stop() behave exactly as before for the open panel,
+// and nothing calls startClosed() until the new bar wires it.
 
 import { getCustomerRef } from '../lib/customer-ref';
 import type { ConciergeChatConfig } from '../lib/chat-client';
@@ -33,6 +41,10 @@ import type { ChatStore } from './chat.svelte';
 /** Cadence while the panel is open. Support-chat scale: fast enough that an
  *  owner reply feels live, slow enough to be invisible on the backend. */
 export const OPERATOR_POLL_MS = 7000;
+/** Cadence while the bar is closed and a person is in the conversation. */
+export const OPERATOR_CLOSED_POLL_MS = 30_000;
+/** An owner turn this recent keeps the closed-bar loop polling. */
+const RECENT_OWNER_MS = 24 * 60 * 60 * 1000;
 
 export interface OperatorStoreConfig {
   endpoint: string;
@@ -53,6 +65,7 @@ export class OperatorStore {
   #polledConversationId: string;
   #customerRef: string | null = null;
   #onVisibility: (() => void) | null = null;
+  #closed = false;
 
   constructor(chat: ChatStore, config: OperatorStoreConfig) {
     this.#chat = chat;
@@ -74,11 +87,29 @@ export class OperatorStore {
   }
 
   start(): void {
-    if (this.#timer !== null) return; // already running — never double-schedule
-    this.#timer = setInterval(() => void this.poll(), OPERATOR_POLL_MS);
+    if (this.#timer !== null && !this.#closed) return; // already running — never double-schedule
+    this.stop(); // the closed-bar loop, if that is what is running
+    this.#schedule(false, OPERATOR_POLL_MS);
+    void this.poll();
+  }
+
+  /** The bar closed: keep a slow loop that only polls while a person is in the
+   *  conversation. No immediate poll — the open loop has just run. */
+  startClosed(): void {
+    if (this.#timer !== null && this.#closed) return;
+    this.stop();
+    this.#schedule(true, OPERATOR_CLOSED_POLL_MS);
+  }
+
+  #schedule(closed: boolean, ms: number): void {
+    this.#closed = closed;
+    const tick = () => {
+      if (!this.#closed || this.#watched()) void this.poll();
+    };
+    this.#timer = setInterval(tick, ms);
     const onVisibility = () => {
       // Catch up the moment the visitor comes back to the tab.
-      if (!isHidden()) void this.poll();
+      if (!isHidden()) tick();
     };
     this.#onVisibility = onVisibility;
     try {
@@ -86,10 +117,17 @@ export class OperatorStore {
     } catch {
       /* no document (SSR-ish test env) — the interval alone still works */
     }
-    void this.poll();
+  }
+
+  /** Is a person in this conversation? A takeover, or an owner turn in the last 24h. */
+  #watched(): boolean {
+    if (this.#chat.botPaused) return true;
+    const cutoff = Date.now() - RECENT_OWNER_MS;
+    return this.#chat.messages.some((m) => m.role === 'owner' && !!m.at && Date.parse(m.at) >= cutoff);
   }
 
   stop(): void {
+    this.#closed = false;
     if (this.#timer !== null) {
       clearInterval(this.#timer);
       this.#timer = null;

@@ -23,9 +23,19 @@
 //   that hangs up without one, the reader now finalizes with onEnd({}) when
 //   the body ends without a terminal frame, so a paused-bot turn can never
 //   leave the composer stuck in its streaming state.
+// 2026-09-27 (paw-bar states, section D): onError takes a structured
+//   RawFailure (lib/chat-errors) instead of a display string, because the old
+//   strings ("paw-bar chat failed (429)", "Failed to fetch", an executor's
+//   error text) were printed to visitors verbatim. A non-ok response now reads
+//   its JSON `detail` (the refusal code; one 403 means five things) and the
+//   `retry-after` header; a fetch rejection reports navigator.onLine so the
+//   store can tell offline (queue) from unreachable (Retry); a reader.read()
+//   rejection is `afterResponse` (a cut-off reply, never auto-resent). SSE
+//   `error` / `interrupted` become frame failures. dispatchFrame stays pure.
 
 import { createSseParser, type SseFrame } from './sse';
 import { sanitizeSources, type Source } from './sources';
+import type { RawFailure } from './chat-errors';
 
 export interface ConciergeChatConfig {
   endpoint: string;
@@ -45,7 +55,8 @@ export interface ChatCallbacks {
   // The reply finished cleanly (stream_end frame) or was cancelled by stop().
   onEnd: (info: { assistant_message_id?: string; cancelled?: boolean }) => void;
   // A transport/network/HTTP error, or a server `error`/`interrupted` frame.
-  onError: (message: string) => void;
+  // Structured, never display text: lib/chat-errors classifies it.
+  onError: (raw: RawFailure) => void;
   // Optional: the reply's source citations (`sources` frame, before
   // stream_end). Absent frame or absent callback — nothing happens.
   onSources?: (sources: Source[]) => void;
@@ -98,8 +109,9 @@ export function dispatchFrame(frame: SseFrame, cb: ChatCallbacks): boolean {
     }
     case 'error': {
       const data = safeParse(frame.data);
-      const message = data && typeof data.message === 'string' ? data.message : 'stream error';
-      cb.onError(message);
+      // Logged for the owner, never shown: it can be a provider error.
+      const message = data && typeof data.message === 'string' ? data.message : undefined;
+      cb.onError({ source: 'frame', event: 'error', message });
       return false;
     }
     case 'sources': {
@@ -119,7 +131,7 @@ export function dispatchFrame(frame: SseFrame, cb: ChatCallbacks): boolean {
       return true;
     }
     case 'interrupted':
-      cb.onError('The reply was interrupted.');
+      cb.onError({ source: 'frame', event: 'interrupted' });
       return false;
     default:
       // message.persisted, unknown events, ping heartbeats — nothing to render.
@@ -156,12 +168,19 @@ export async function streamConciergeChat(
       callbacks.onEnd({ cancelled: true });
       return;
     }
-    callbacks.onError(err instanceof Error ? err.message : String(err));
+    // No status, no body: offline, DNS, or a response that lost its CORS
+    // headers. Only onLine === false proves offline.
+    callbacks.onError({ source: 'network', online: isOnline(), afterResponse: false });
     return;
   }
 
   if (!res.ok || !res.body) {
-    callbacks.onError(`paw-bar chat failed (${res.status})`);
+    callbacks.onError({
+      source: 'http',
+      status: res.status,
+      detail: await readDetail(res),
+      retryAfter: res.headers?.get?.('retry-after') ?? null,
+    });
     return;
   }
 
@@ -186,6 +205,22 @@ export async function streamConciergeChat(
       callbacks.onEnd({ cancelled: true });
       return;
     }
-    callbacks.onError(err instanceof Error ? err.message : String(err));
+    // The response had started: whatever streamed stays, and this turn is
+    // never resent automatically (the model may already have answered).
+    callbacks.onError({ source: 'network', online: isOnline(), afterResponse: true });
+  }
+}
+
+function isOnline(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+/** The refusal code from FastAPI's `{"detail": "<code>"}` body, or null. */
+async function readDetail(res: Response): Promise<string | null> {
+  try {
+    const data = (await res.json()) as { detail?: unknown } | null;
+    return data && typeof data.detail === 'string' ? data.detail : null;
+  } catch {
+    return null;
   }
 }

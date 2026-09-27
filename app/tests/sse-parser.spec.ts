@@ -5,9 +5,12 @@
 // ee/paw_bar/router.py::_sse writes (id/event/data lines, `: ping` heartbeats,
 // frames split across chunk boundaries) and the chat-client dispatchFrame
 // routing (chunk → onChunk, stream_end/error/interrupted terminal).
+// 2026-09-27: onError now receives a structured RawFailure (lib/chat-errors),
+// not a display string, so the error/interrupted case asserts frame failures.
 import { describe, it, expect, vi } from 'vitest';
 import { createSseParser } from '../src/lib/sse';
 import { dispatchFrame, type ChatCallbacks } from '../src/lib/chat-client';
+import type { RawFailure } from '../src/lib/chat-errors';
 
 const CHUNK = 'id: e1\nevent: chunk\ndata: {"content":"We open at 8am!","type":"text"}\n\n';
 const END = 'id: e2\nevent: stream_end\ndata: {"assistant_message_id":"m1","cancelled":false}\n\n';
@@ -45,10 +48,10 @@ describe('createSseParser', () => {
   });
 });
 
-function callbacks(): ChatCallbacks & { chunks: string[]; ended: unknown[]; errors: string[] } {
+function callbacks(): ChatCallbacks & { chunks: string[]; ended: unknown[]; errors: RawFailure[] } {
   const chunks: string[] = [];
   const ended: unknown[] = [];
-  const errors: string[] = [];
+  const errors: RawFailure[] = [];
   return {
     chunks,
     ended,
@@ -90,7 +93,10 @@ describe('dispatchFrame', () => {
     const cb = callbacks();
     expect(dispatchFrame({ event: 'error', data: '{"message":"boom"}' }, cb)).toBe(false);
     expect(dispatchFrame({ event: 'interrupted', data: '' }, cb)).toBe(false);
-    expect(cb.errors).toEqual(['boom', 'The reply was interrupted.']);
+    expect(cb.errors).toEqual([
+      { source: 'frame', event: 'error', message: 'boom' },
+      { source: 'frame', event: 'interrupted' },
+    ]);
   });
 
   it('ignores unknown/persisted events without touching callbacks', () => {

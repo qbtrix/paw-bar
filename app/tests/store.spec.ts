@@ -4,6 +4,8 @@
 // delta appended → stream_end finalizes the turn as 'done'; and stop() aborts an
 // in-flight stream, keeping the partial text and clearing isStreaming. Runs
 // under jsdom so getCustomerRef's window.crypto/localStorage exist.
+// 2026-09-27: the raw `error` string is gone (it leaked transport text to
+// visitors); failures are asserted on the turn (`failure`) and on `notice`.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { ChatStore } from '../src/store/chat.svelte';
 
@@ -46,7 +48,7 @@ describe('ChatStore.send', () => {
     expect(store.messages[0]).toMatchObject({ role: 'user', content: 'When do you open?', status: 'done' });
     expect(store.messages[1]).toMatchObject({ role: 'assistant', content: 'We open at 8am!', status: 'done' });
     expect(store.isStreaming).toBe(false);
-    expect(store.error).toBeNull();
+    expect(store.notice).toBeNull();
   });
 
   it('POSTs the concierge contract body to /paw-bar/chat', async () => {
@@ -72,8 +74,8 @@ describe('ChatStore.send', () => {
     const store = new ChatStore(config);
     await store.send('hi');
 
-    expect(store.error).toBe('rate limited');
-    expect(store.messages[1].status).toBe('error');
+    expect(store.messages[1]).toMatchObject({ status: 'error', failure: 'server' });
+    expect(JSON.stringify(store.messages)).not.toContain('rate limited');
     expect(store.isStreaming).toBe(false);
   });
 
@@ -145,7 +147,7 @@ describe('ChatStore.stop', () => {
 
     expect(store.messages).toHaveLength(1); // empty assistant bubble removed
     expect(store.messages[0].role).toBe('user');
-    expect(store.error).toBeNull();
+    expect(store.messages[0].status).toBe('done');
     expect(store.isStreaming).toBe(false);
   });
 });
