@@ -69,6 +69,20 @@ describe('normalizeHostPage', () => {
     expect(page?.title).toBe('x'.repeat(120));
   });
 
+  it('clips by code point, never splitting an emoji into a lone surrogate', () => {
+    const page = normalizeHostPage({ url: 'https://shop.example.com/', title: 'x'.repeat(119) + '\u{1F97E}tail' });
+    expect(page?.title).toBe('x'.repeat(119) + '\u{1F97E}');
+    // No lone surrogate anywhere in the clipped title.
+    expect(page?.title).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  it('drops a lone surrogate left by the loader cutting an emoji at 120', () => {
+    // The loader clips by UTF-16 unit (bytes are scarce there), so its title
+    // can end in half an emoji.
+    const page = normalizeHostPage({ url: 'https://shop.example.com/', title: 'x'.repeat(119) + '\uD83E' });
+    expect(page?.title).toBe('x'.repeat(119));
+  });
+
   it('keeps a page with no title as an empty string, never null', () => {
     expect(normalizeHostPage({ url: 'https://shop.example.com/a' })).toEqual({
       url: 'https://shop.example.com/a',

@@ -9,7 +9,7 @@
 // them again: the message is still input from another document, and a token or
 // email in a query string must never reach our API even from an older or
 // tampered loader. Only http(s) URLs survive. The title is trimmed and clipped
-// to HOST_TITLE_MAX. Nothing received means null, and chat-client then leaves
+// to HOST_TITLE_MAX code points (never half an emoji). Nothing received means null, and chat-client then leaves
 // the field off the request entirely (no nulls on the wire).
 
 export interface HostPage {
@@ -18,6 +18,8 @@ export interface HostPage {
 }
 
 export const HOST_TITLE_MAX = 120;
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
 let current: HostPage | null = null;
 
@@ -35,7 +37,13 @@ export function normalizeHostPage(value: unknown): HostPage | null {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
   return {
     url: parsed.origin + parsed.pathname,
-    title: typeof title === 'string' ? title.trim().slice(0, HOST_TITLE_MAX) : '',
+    // By code point, so an emoji at the boundary is dropped whole rather than
+    // leaving a lone surrogate the server's UTF-8 encoder would reject. The
+    // loader clips by UTF-16 unit, so any lone surrogate it left goes too.
+    title:
+      typeof title === 'string'
+        ? Array.from(title.replace(LONE_SURROGATE, '').trim()).slice(0, HOST_TITLE_MAX).join('')
+        : '',
   };
 }
 
