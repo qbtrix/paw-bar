@@ -1,4 +1,7 @@
 // loader/test/loader.test.mjs — jsdom unit tests for the glass-bar loader (A2).
+// Updated 2026-09-27: the new bar's two additions: a chip resize with `side`
+// docks the box in that corner (and anything else stays centred), and the
+// frame is told the host viewport on load and on resize, origin pinned.
 // Updated 2026-09-26: frame sandbox tests (end of file) — the exact flag string,
 // no top-navigation token, and the attribute already present at the moment
 // `src` is assigned (sandbox flags apply on navigation, so a setAttribute after
@@ -305,6 +308,42 @@ test('pawbar:view chip docks a content-sized chip box', () => {
   assert.equal(iframe.style.height, '64px');
   window.dispatchEvent(fromFrame({ type: 'pawbar:view', view: 'bar' }));
   assert.equal(iframe.style.width, '384px'); // back to bar policy width
+});
+
+test('a chip resize with a side docks the box in that corner, for the new bar icon launcher', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const fromFrame = (data) =>
+    messageEvent(window, { data, origin: FRAME_ORIGIN, source: iframe.contentWindow });
+  const vw = window.innerWidth;
+  window.dispatchEvent(fromFrame({ type: 'pawbar:view', view: 'chip' }));
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 90, w: 90, side: 'left' }));
+  assert.equal(iframe.style.left, '12px');
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 90, w: 90, side: 'right' }));
+  assert.equal(iframe.style.left, `${vw - 90 - 12}px`);
+  // No side (every older app): centred, exactly as before.
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 90, w: 90 }));
+  assert.equal(iframe.style.left, `${Math.round(vw / 2 - 45)}px`);
+  // Anything else is not a side.
+  window.dispatchEvent(fromFrame({ type: 'pawbar:resize', h: 90, w: 90, side: 'top' }));
+  assert.equal(iframe.style.left, `${Math.round(vw / 2 - 45)}px`);
+});
+
+test('the frame is told the host viewport on load and on every host resize, pinned to its origin', () => {
+  const window = mount();
+  const iframe = onlyIframe(window);
+  const posts = [];
+  Object.defineProperty(iframe.contentWindow, 'postMessage', {
+    value: (data, targetOrigin) => posts.push({ data, targetOrigin }),
+    configurable: true,
+  });
+  iframe.dispatchEvent(new window.Event('load'));
+  window.dispatchEvent(new window.Event('resize'));
+  const vps = posts.filter((p) => p.data.type === 'pawbar:viewport');
+  assert.equal(vps.length, 2);
+  assert.equal(vps[0].data.w, window.innerWidth);
+  assert.equal(vps[0].data.h, window.innerHeight);
+  assert.ok(vps.every((p) => p.targetOrigin === FRAME_ORIGIN)); // never "*"
 });
 
 test('drag: start goes full-viewport and replies with the box; end docks at the new anchor', () => {
