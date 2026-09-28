@@ -11,12 +11,24 @@
 // renderer draws only the types in components/spec-widgets/registry.ts and a
 // fallback for anything else. Only `ui` and `state` are kept: a spec's
 // `theme` is dropped, because the bar follows the site owner's styling.
+// 2026-09-28: + SPEC_HOST_EVENTS, the emit targets SpecCard.svelte acts on,
+// and the pointer below to the card-parity fixtures.
+//
+// pocketpaw validates the same fences on the server with the same bounds
+// (pocketpaw_ee/paw_bar/card_spec.py). Both repos carry the shared fixtures
+// cases.json / expected.json / catalog.json (here: tests/fixtures/card_parity/,
+// in pocketpaw: tests/fixtures/card_parity/). tests/card-parity.spec.ts checks
+// parseSpecCard and these constants against them; pocketpaw's
+// tests/cloud/test_paw_bar_concierge_v2_output.py checks the server side.
+// Change a bound or a host event here and the fixtures and pocketpaw follow.
 
 import type { UINode, UISpec } from '@ripple-ui/core/headless/slim';
 
 export const MAX_SPEC_CHARS = 32_000;
 export const MAX_SPEC_NODES = 80;
 export const MAX_SPEC_DEPTH = 8;
+/** The only emit targets a spec can send that the bar acts on (SpecCard.svelte). */
+export const SPEC_HOST_EVENTS = ['add_to_cart', 'checkout'] as const;
 
 export type SpecCardResult =
   | { kind: 'spec'; spec: UISpec }

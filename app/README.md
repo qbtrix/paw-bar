@@ -19,7 +19,9 @@
      no budget change is needed; the tarball is packed from ripple-iui main.
      2026-09-27 (spec cards): "Generated UI in the thread" documents spec
      cards, the widgets and pawbar-manifest.json; @ripple-ui/core is now the
-     v0.8.0 release asset (core 0.6.0). -->
+     v0.8.0 release asset (core 0.6.0).
+     2026-09-28 (card parity): "Card parity with pocketpaw" documents the
+     shared tests/fixtures/card_parity/ fixtures and how to refresh them. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -225,6 +227,24 @@ part stream exists.
   `buildSlimManifest` by `bun run manifest`, and committed;
   `tests/spec-widgets.spec.svelte.ts` fails if it is stale or if the manifest
   and the registry list different widgets.
+
+### Card parity with pocketpaw
+
+pocketpaw validates the same `pawbar-card` fences on the server
+(`pocketpaw_ee/paw_bar/card_spec.py`) before they reach the bar. The two sides
+share three fixtures, `tests/fixtures/card_parity/{cases,expected,catalog}.json`,
+kept byte-identical with pocketpaw's `tests/fixtures/card_parity/`.
+`expected.json` holds each case's `client` verdict (what `parseSpecCard`
+returns) and `server` verdict, plus the bounds and host events both sides use.
+`tests/card-parity.spec.ts` asserts the client column and that the bounds equal
+`MAX_SPEC_*` and `SPEC_HOST_EVENTS`; pocketpaw's
+`tests/cloud/test_paw_bar_concierge_v2_output.py` asserts the server column.
+
+To refresh them: edit the fixtures in one repo, copy all three files
+byte-for-byte to the other (`cp`, no reformatting), and run both tests. When a
+bound or host event changes, change `lib/spec-card.ts`, pocketpaw's
+`card_spec.py` and `expected.json` together. A failing verdict means the two
+validators disagree: fix the validator, not `expected.json`.
 
 ## Security note
 
