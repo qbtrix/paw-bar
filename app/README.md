@@ -16,7 +16,12 @@
      2026-09-27 (slim runtime): the renderer runs on
      @ripple-ui/core/headless/slim; sizes updated.
      2026-09-27 (after the native markdown renderer merged): sizes re-measured;
-     no budget change is needed; the tarball is packed from ripple-iui main. -->
+     no budget change is needed; the tarball is packed from ripple-iui main.
+     2026-09-27 (spec cards): "Generated UI in the thread" documents spec
+     cards, the widgets and pawbar-manifest.json; @ripple-ui/core is now the
+     v0.8.0 release asset (core 0.6.0).
+     2026-09-28 (card parity): "Card parity with pocketpaw" documents the
+     shared tests/fixtures/card_parity/ fixtures and how to refresh them. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -167,22 +172,79 @@ is bundled, and `tests/spec-renderer-imports.spec.ts` fails if anything beyond
   `style` on the root are applied last and win.
 - **Failures:** a type with no component, or a component that throws, draws
   `fallback` for that node only.
-- **Size:** importing it takes `pawbar.js` from 59.5 KB to 67.6 KB gzipped
-  (measured 2026-09-27, after the native markdown renderer), inside the 80 KB
-  budget. It is not imported by `main.ts` yet, so `pawbar.js` is unchanged
-  until it is wired in.
+- **Size:** with the renderer and the widgets below wired in, `pawbar.js` is
+  70.6 KB gzipped (measured 2026-09-27), inside the 80 KB budget.
 
 `@ripple-ui/core` is not on npm, so it is vendored as
-`vendor/ripple-ui-core-0.5.0.tgz`, packed from ripple-iui `main` (d8f3998),
-which has the fix for handlers inside `each` (#142), the slim runtime and the
-slim manifest (#143). A clean install may reuse a cached copy of a tarball with
-the same name; `bun pm cache rm` before reinstalling if the contents look stale.
-To update
-it, run `bun run build` and `npm pack` in ripple's `packages/core` and replace
-the tarball. bun keeps the tarball's hash in `bun.lock` and does not refresh it
+`vendor/ripple-ui-core-0.6.0.tgz`, the asset attached to the ripple-iui
+[v0.8.0 release](https://github.com/qbtrix/ripple-iui/releases/tag/v0.8.0)
+(re-released 2026-09-27 with `SLIM_WIDGETS`): the slim runtime, the slim
+manifest and its standard atoms, and loop variables in headless handlers.
+To update it, download the new release's `ripple-ui-core-<v>.tgz` into
+`vendor/` (`gh release download <tag> --repo qbtrix/ripple-iui --pattern
+'ripple-ui-core-*.tgz' --dir vendor`), point `package.json` at it, and change
+that entry's path and `sha512-` in `bun.lock` by hand. A clean install may reuse
+a cached copy of a tarball; `bun pm cache rm` before reinstalling if the
+contents look stale. bun keeps the tarball's hash in `bun.lock` and does not refresh it
 for a file with the same name, so update that one `sha512-` value by hand
 (`openssl dgst -sha512 -binary <tgz> | base64 -w0`) rather than deleting the
 entry: a fresh resolve also upgrades unrelated packages.
+
+## Generated UI in the thread
+
+A reply can carry a generated block as a ```` ```pawbar-card ```` fence whose
+JSON has a `ui` object: a Ripple spec (`{ ui, state? }`). `CardBlock` sends
+those to `components/spec-widgets/SpecCard.svelte`; a fence without `ui` is a
+legacy card and is unchanged. This is the interim transport until the typed
+part stream exists.
+
+- **Bounds:** `lib/spec-card.ts` refuses a fence over 32,000 characters, a
+  tree over 80 nodes or nested deeper than 8, and a malformed tree or state.
+  Refused specs show "Card unavailable". The spec's `theme` is dropped: the bar
+  keeps the site owner's styling.
+- **Widgets** (`components/spec-widgets/registry.ts`): Ripple's standard slim
+  atoms `text`, `heading`, `badge`, `button` and `flex` (`SLIM_WIDGETS` from
+  `@ripple-ui/core/manifest`, same props as the full Ripple widgets), plus the
+  bar's own `product-card` and `form`. `product-card` and
+  `form` are the existing `BarCatalog` and `FormCard`, with props validated by
+  `lib/cards.parseCard` exactly as for a legacy card. There is no image widget
+  on purpose: a model-chosen image is a request fired on render. A type outside
+  the registry renders nothing and the rest of the block still draws.
+- **Actions:** local actions run inside the spec. Of host events, only two do
+  anything: `emit` `add_to_cart` with `{ product_id, qty? }` and `emit`
+  `checkout`. Navigate, toast, pin and any other emit are ignored.
+- **`product-card` takes catalog ids** in the manifest; the server is meant to
+  fill in `items` (name, price, image) from the catalog. Until that backend
+  step exists, a `product-card` with ids only shows "Card unavailable" rather
+  than trusting model-written prices.
+- **Manifest:** `pawbar-manifest.json` is what the agent is told the bar can
+  draw: the spec envelope, the six actions the bar honours (`set`, `toggle`,
+  `push`, `remove`, `open`, `emit`) and the seven widgets. Ripple's own slim
+  manifest (atoms only) is always at
+  `https://github.com/qbtrix/ripple-iui/releases/latest/download/manifest.slim.json`;
+  this file adds the bar's two widgets and narrows the actions. It is generated from
+  `src/lib/spec-manifest.ts` with `@ripple-ui/core/manifest`'s
+  `buildSlimManifest` by `bun run manifest`, and committed;
+  `tests/spec-widgets.spec.svelte.ts` fails if it is stale or if the manifest
+  and the registry list different widgets.
+
+### Card parity with pocketpaw
+
+pocketpaw validates the same `pawbar-card` fences on the server
+(`pocketpaw_ee/paw_bar/card_spec.py`) before they reach the bar. The two sides
+share three fixtures, `tests/fixtures/card_parity/{cases,expected,catalog}.json`,
+kept byte-identical with pocketpaw's `tests/fixtures/card_parity/`.
+`expected.json` holds each case's `client` verdict (what `parseSpecCard`
+returns) and `server` verdict, plus the bounds and host events both sides use.
+`tests/card-parity.spec.ts` asserts the client column and that the bounds equal
+`MAX_SPEC_*` and `SPEC_HOST_EVENTS`; pocketpaw's
+`tests/cloud/test_paw_bar_concierge_v2_output.py` asserts the server column.
+
+To refresh them: edit the fixtures in one repo, copy all three files
+byte-for-byte to the other (`cp`, no reformatting), and run both tests. When a
+bound or host event changes, change `lib/spec-card.ts`, pocketpaw's
+`card_spec.py` and `expected.json` together. A failing verdict means the two
+validators disagree: fix the validator, not `expected.json`.
 
 ## Security note
 
