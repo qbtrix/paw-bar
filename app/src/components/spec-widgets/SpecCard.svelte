@@ -14,12 +14,17 @@
 
   The spec's own `theme` is dropped when the card is parsed: the bar follows the
   site owner's styling, and an agent-written spec doesn't get to recolour it.
+
+  2026-09-28: emits outside SPEC_HOST_EVENTS (lib/spec-card.ts) return early;
+  that list is pinned against pocketpaw's server list by the card-parity
+  fixtures (tests/card-parity.spec.ts).
 -->
 <script lang="ts">
   import type { OnEventCallback, UISpec } from '@ripple-ui/core/headless/slim';
   import SpecRenderer from '../spec/SpecRenderer.svelte';
   import SpecUnavailable from './SpecUnavailable.svelte';
   import { SPEC_WIDGETS } from './registry';
+  import { SPEC_HOST_EVENTS } from '../../lib/spec-card';
   import { useCart } from '../../store/cart.svelte';
 
   let { spec }: { spec: UISpec } = $props();
@@ -27,6 +32,7 @@
 
   const onEvent: OnEventCallback = (event) => {
     if (event.type !== 'emit' || !cart) return;
+    if (!(SPEC_HOST_EVENTS as readonly string[]).includes(event.name ?? '')) return;
     const payload = (event.payload ?? {}) as Record<string, unknown>;
     if (event.name === 'add_to_cart') {
       const id = typeof payload.product_id === 'string' ? payload.product_id : '';
