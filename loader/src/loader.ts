@@ -54,6 +54,11 @@
 //     The app sizes against it rather than its own window, which is the box
 //     this loader sizes from the app's own content (a feedback loop).
 //
+// 2026-09-27 (CR-7, page context). On frame load the loader also posts
+// {pawbar:page, url, title}: the host page's origin + pathname (query string
+// and hash stripped here, so they never cross into the frame) and its title
+// clipped to 120 chars. The app sends it as `page` on every chat request.
+//
 // SECURITY: inbound messages are honoured ONLY when event.origin === the frame
 // origin AND event.source === the iframe's own contentWindow. Every outbound
 // post pins targetOrigin to the frame origin — never "*". Idempotent; exposes
@@ -719,7 +724,15 @@ function suppressed(win: LoaderWindow): boolean {
   function postViewport(): void {
     postToFrame({ type: 'pawbar:viewport', w: win.innerWidth, h: win.innerHeight });
   }
-  iframe.addEventListener('load', postViewport);
+  iframe.addEventListener('load', (): void => {
+    postViewport();
+    // The page the visitor is on, for the concierge to answer about. Origin +
+    // pathname ONLY: a query string or hash can carry session tokens, emails or
+    // order ids, and none of that should leave this document. Sent once, at
+    // load; nothing here watches SPA navigation (pushState has no event).
+    const l = win.location;
+    postToFrame({ type: 'pawbar:page', url: l.origin + l.pathname, title: doc.title.slice(0, 120) });
+  });
   win.addEventListener('resize', (): void => {
     if (!overlay) applyDock();
     postViewport();
