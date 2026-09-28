@@ -29,6 +29,9 @@ interface PawBarBootConfig {
   preview?: boolean;
   /** Optional white-label overrides for the --pawbar-* token scale. */
   tokens?: Record<string, string>;
+  /** Overrides applied over `tokens` while the bar resolves dark (auto on a
+   *  dark host, or pinned dark). Absent on older backends. */
+  tokensDark?: Record<string, string>;
   /** Optional 'light' | 'dark'; defaults to 'dark' (quiet-authority glass). */
   /** Owner's light/dark/auto choice. Absent → 'auto', i.e. follow the site. */
   scheme?: 'light' | 'dark' | 'auto';

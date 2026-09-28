@@ -386,6 +386,35 @@ describe('host scheme and narrow screens (F)', () => {
     expect(wrap.style.getPropertyValue('--pawbar-frame-bg')).toBe('');
   });
 
+  it("the owner's dark set applies on dark and is removed on light", () => {
+    const { target, props } = frame({
+      scheme: 'light',
+      tokens: { '--pawbar-accent': '#111111' },
+      tokensDark: { '--pawbar-accent': '#eeeeee', '--pawbar-bubble-bg': '#222222' },
+    });
+    const wrap = target.querySelector<HTMLElement>('.frame-wrap')!;
+    expect(wrap.style.getPropertyValue('--pawbar-accent')).toBe('#111111');
+    expect(wrap.style.getPropertyValue('--pawbar-bubble-bg')).toBe('#1c1c21');
+
+    (props as { scheme?: string }).scheme = 'dark';
+    flushSync();
+    expect(wrap.style.getPropertyValue('--pawbar-accent')).toBe('#eeeeee');
+    expect(wrap.style.getPropertyValue('--pawbar-bubble-bg')).toBe('#222222');
+
+    (props as { scheme?: string }).scheme = 'light';
+    flushSync();
+    expect(wrap.style.getPropertyValue('--pawbar-accent')).toBe('#111111');
+    // Back to the Default theme's light overlay, not the stale dark value.
+    expect(wrap.style.getPropertyValue('--pawbar-bubble-bg')).toBe('#1c1c21');
+  });
+
+  it('resolveTheme layers the dark set only on dark, over any theme', () => {
+    const dark = { '--pawbar-fg': '#abcdef' };
+    expect(resolveTheme('paper', {}, 'dark', dark)['--pawbar-fg']).toBe('#abcdef');
+    expect(resolveTheme('paper', {}, 'light', dark)['--pawbar-fg']).toBe(resolveTheme('paper')['--pawbar-fg']);
+    expect(resolveTheme('default', {}, undefined, dark)).toEqual({});
+  });
+
   it('on a narrow screen, pinning a bar with a conversation opens it full screen', () => {
     const w = window.innerWidth;
     Object.defineProperty(window, 'innerWidth', { value: 400, configurable: true });

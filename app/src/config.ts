@@ -24,6 +24,11 @@
 // `?s=l|d` to the frame URL; readConfig picks that up here. See lib/scheme.ts
 // for the precedence and loader/src/loader.ts for how the page is read.
 //
+// `tokens` is the owner's --pawbar-* map for light (or a pinned scheme);
+// `tokensDark` is the map that goes over it whenever the bar resolves dark
+// (PawBarFrame layers them via lib/bar-themes). Both must be a plain object;
+// anything else reads as {}, and only string values are kept.
+//
 // 2026-08-19 (one theme): the old `theme` field is gone. The backend never emitted it, so the
 // `?? 'dark'` fallback won on every site that has ever run this and the light
 // palette was unreachable by construction. An owner who wants a different
@@ -43,6 +48,8 @@ export interface PawBarConfig {
    *  live-restyle listener: see main.ts. Absent/false on anything older. */
   preview: boolean;
   tokens: Record<string, string>;
+  /** Applied over `tokens` while the resolved scheme is dark. {} when absent. */
+  tokensDark: Record<string, string>;
   /** Owner's choice; 'auto' (the default) follows the host page. */
   scheme: SchemeSetting;
   /** What the loader read off the host page — 'l' | 'd', or '' standalone. */
@@ -103,6 +110,15 @@ function readStrings(value: unknown, cap: number): string[] {
   return out;
 }
 
+/** A --pawbar-* map off the boot config: a plain object with string values.
+ *  An array, a string or null is not a map and reads as {}. */
+function readTokens(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) if (typeof v === 'string') out[k] = v;
+  return out;
+}
+
 /** Only an http(s) or data URL may become an <img src>. A javascript: or
  *  vbscript: value in a boot config must never reach the DOM. */
 function readImageUrl(value: unknown): string {
@@ -146,7 +162,8 @@ export function readConfig(): PawBarConfig {
     parentOrigin: boot?.parentOrigin ?? devParentOrigin(),
     mode: 'concierge',
     preview: boot?.preview === true,
-    tokens: boot?.tokens ?? {},
+    tokens: readTokens(boot?.tokens),
+    tokensDark: readTokens(boot?.tokensDark),
     scheme: readSetting(boot?.scheme),
     hostScheme: hostSchemeFromUrl(window.location.search) ?? '',
     // Defensive: only a real string survives; a number/null/malformed value → ''.

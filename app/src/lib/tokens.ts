@@ -15,6 +15,10 @@
 // beats a value inherited from its parent. Setting them on the parent is what
 // made every owner override silently vanish for months under the old shell.
 // tests/tokens-apply.spec.ts covers the apply/retract cycle below.
+//
+// A dark set rides with the light one: on 'dark' it goes over `tokens`, on
+// 'light' it is left out, and the retraction then removes any key only the dark
+// set carried, so the light value (or the stylesheet default) comes back.
 
 /** Keys set by the LAST call, so the next one can retract them. */
 let appliedTokenKeys: string[] = [];
@@ -33,14 +37,20 @@ let appliedTokenKeys: string[] = [];
  * Only our own keys are removed, never the whole inline style: the root may
  * carry properties this function did not put there.
  */
-export function applyTokens(root: HTMLElement, tokens: Record<string, string>): void {
+export function applyTokens(
+  root: HTMLElement,
+  tokens: Record<string, string>,
+  tokensDark: Record<string, string> = {},
+  scheme: 'light' | 'dark' = 'light',
+): void {
   for (const key of appliedTokenKeys) root.style.removeProperty(key);
   appliedTokenKeys = [];
-  for (const [rawKey, rawValue] of Object.entries(tokens ?? {})) {
+  const merged = scheme === 'dark' ? { ...(tokens ?? {}), ...(tokensDark ?? {}) } : (tokens ?? {});
+  for (const [rawKey, rawValue] of Object.entries(merged)) {
     const key = rawKey.startsWith('--') ? rawKey : `--pawbar-${rawKey.replace(/^pawbar-/, '')}`;
     if (typeof rawValue === 'string') {
       root.style.setProperty(key, rawValue);
-      appliedTokenKeys.push(key);
+      if (!appliedTokenKeys.includes(key)) appliedTokenKeys.push(key);
     }
   }
 }

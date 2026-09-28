@@ -16,6 +16,10 @@
 // The property under test is therefore "did not install", not "installed and
 // ignored it" — which is why the function returns null rather than a no-op
 // teardown, and why these assert on the return value as well as on the effect.
+//
+// The last block covers the dark set: `tokensDark` in the message goes over
+// `tokens` while the root is marked data-pawbar-scheme="dark", and a flip of
+// that attribute repaints without a new message.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { installPreviewTokenListener } from '../src/lib/preview-tokens';
@@ -136,5 +140,71 @@ describe('the preview token channel', () => {
     post(PARENT, null);
 
     expect(read(root)).toBe('DEFAULT');
+  });
+});
+
+describe('the preview token channel, light and dark', () => {
+  const DARK = { '--pawbar-accent': '#00ccaa' };
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('applies tokensDark over tokens while the root reads dark', () => {
+    const root = build();
+    root.setAttribute('data-pawbar-scheme', 'dark');
+    teardown = installPreviewTokenListener({ preview: true, parentOrigin: PARENT, getRoot: () => root });
+
+    post(PARENT, { type: 'pawbar:preview-tokens', tokens: TOKENS, tokensDark: DARK });
+
+    expect(read(root)).toBe('#00ccaa');
+  });
+
+  it('follows a scheme flip without a new message, and drops the dark values on light', async () => {
+    const root = build();
+    root.setAttribute('data-pawbar-scheme', 'light');
+    teardown = installPreviewTokenListener({ preview: true, parentOrigin: PARENT, getRoot: () => root });
+    post(PARENT, { type: 'pawbar:preview-tokens', tokens: TOKENS, tokensDark: DARK });
+    expect(read(root)).toBe('#ff5a36');
+
+    root.setAttribute('data-pawbar-scheme', 'dark');
+    await flush();
+    expect(read(root)).toBe('#00ccaa');
+
+    root.setAttribute('data-pawbar-scheme', 'light');
+    await flush();
+    expect(read(root)).toBe('#ff5a36');
+  });
+
+  it('a dark-only key is removed on light, so the stylesheet default returns', async () => {
+    const root = build();
+    root.setAttribute('data-pawbar-scheme', 'dark');
+    teardown = installPreviewTokenListener({ preview: true, parentOrigin: PARENT, getRoot: () => root });
+    post(PARENT, { type: 'pawbar:preview-tokens', tokens: {}, tokensDark: DARK });
+    expect(read(root)).toBe('#00ccaa');
+
+    root.setAttribute('data-pawbar-scheme', 'light');
+    await flush();
+    expect(read(root)).toBe('DEFAULT');
+  });
+
+  it('an editor that sends no usable tokensDark still paints tokens on dark', () => {
+    const root = build();
+    root.setAttribute('data-pawbar-scheme', 'dark');
+    teardown = installPreviewTokenListener({ preview: true, parentOrigin: PARENT, getRoot: () => root });
+
+    post(PARENT, { type: 'pawbar:preview-tokens', tokens: TOKENS, tokensDark: ['x'] });
+
+    expect(read(root)).toBe('#ff5a36');
+  });
+
+  it('stops following the scheme after teardown', async () => {
+    const root = build();
+    root.setAttribute('data-pawbar-scheme', 'light');
+    teardown = installPreviewTokenListener({ preview: true, parentOrigin: PARENT, getRoot: () => root });
+    post(PARENT, { type: 'pawbar:preview-tokens', tokens: TOKENS, tokensDark: DARK });
+    teardown?.();
+    teardown = null;
+
+    root.setAttribute('data-pawbar-scheme', 'dark');
+    await flush();
+    expect(read(root)).toBe('#ff5a36');
   });
 });

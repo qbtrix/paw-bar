@@ -15,6 +15,9 @@
 // colour the owner just deleted. Every subsequent edit still works, so the
 // preview looks alive — it is simply wrong about one value, permanently, until
 // a reload.
+//
+// The dark set follows the same rule: applied over the light map on 'dark',
+// and every key only it carried is removed again on the way back to 'light'.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { applyTokens, resetAppliedTokens } from '../src/lib/tokens';
@@ -81,6 +84,32 @@ describe('applyTokens', () => {
     applyTokens(root, { '--pawbar-accent': '#ff5a36', '--pawbar-radius': '4px' });
     applyTokens(root, {});
     expect(read(root, '--pawbar-accent')).toBe('DEFAULT');
+    expect(read(root, '--pawbar-radius')).toBe('20px');
+  });
+
+  it('puts the dark set over the light map when the scheme is dark', () => {
+    const root = build();
+    applyTokens(root, { '--pawbar-accent': '#111111' }, { '--pawbar-accent': '#eeeeee' }, 'dark');
+    expect(read(root, '--pawbar-accent')).toBe('#eeeeee');
+  });
+
+  it('ignores the dark set on light', () => {
+    const root = build();
+    applyTokens(root, { '--pawbar-accent': '#111111' }, { '--pawbar-accent': '#eeeeee' }, 'light');
+    expect(read(root, '--pawbar-accent')).toBe('#111111');
+  });
+
+  it('back on light, a dark-only key goes and the light value returns', () => {
+    const root = build();
+    const light = { '--pawbar-accent': '#111111' };
+    const dark = { '--pawbar-accent': '#eeeeee', '--pawbar-radius': '4px' };
+    applyTokens(root, light, dark, 'dark');
+    expect(read(root, '--pawbar-radius')).toBe('4px');
+
+    applyTokens(root, light, dark, 'light');
+
+    expect(read(root, '--pawbar-accent')).toBe('#111111');
+    // Only the dark set had it: the stylesheet default is back, not a stale 4px.
     expect(read(root, '--pawbar-radius')).toBe('20px');
   });
 });
