@@ -20,7 +20,7 @@
 //      after stop().
 //   6. (2026-09-27) The closed-bar slow loop — 30s, and only while a person is
 //      in the conversation (a takeover, or an owner turn in the last 24h);
-//      start() switches it back to the 7s loop.
+//      start() switches it back to the 15s loop.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 import {
@@ -574,7 +574,7 @@ describe('OperatorStore.startClosed', () => {
     expect(operator.running).toBe(true);
   });
 
-  it('polls every 30s after a takeover, not every 7s', async () => {
+  it('polls every 30s after a takeover, not every 15s', async () => {
     vi.useFakeTimers();
     const fetchMock = pollMock();
     const chat = new ChatStore(config);
@@ -602,7 +602,7 @@ describe('OperatorStore.startClosed', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('start() switches back to the 7s loop with an immediate poll', async () => {
+  it('start() switches back to the 15s loop with an immediate poll', async () => {
     vi.useFakeTimers();
     const fetchMock = pollMock();
     const operator = new OperatorStore(new ChatStore(config), config);

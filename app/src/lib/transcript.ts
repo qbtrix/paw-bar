@@ -237,6 +237,19 @@ export function saveTranscript(widgetId: string, messages: Message[], conversati
   }
 }
 
+/** When the stored thread was last written (epoch ms), or null when there is
+ *  no readable row. Lets the store skip a server re-hydrate for a fresh cache. */
+export function transcriptSavedAt(widgetId: string, conversationId = ''): number | null {
+  if (!widgetId) return null;
+  try {
+    const raw = window.localStorage.getItem(key(widgetId, conversationId));
+    const savedAt = raw ? (JSON.parse(raw) as StoredTranscript).saved_at : null;
+    return typeof savedAt === 'number' ? savedAt : null;
+  } catch {
+    return null;
+  }
+}
+
 export function clearTranscript(widgetId: string, conversationId = ''): void {
   try {
     window.localStorage.removeItem(key(widgetId, conversationId));

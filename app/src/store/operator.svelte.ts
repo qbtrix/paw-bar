@@ -7,7 +7,7 @@
 //
 // Lifecycle (the shell drives it from ONE $effect on the view):
 //   * start() while the PANEL is open — the visitor is actually watching.
-//     Polls immediately, then every OPERATOR_POLL_MS.
+//     Polls immediately, then every OPERATOR_POLL_MS (15s).
 //   * paused while document.hidden — a backgrounded tab burns no requests;
 //     returning to the tab fires an immediate catch-up poll.
 //   * stop() when the panel closes (✕, Escape, minimize, outside click).
@@ -30,7 +30,7 @@
 // can light the pill. Every 30s, and only while the conversation is one a person
 // is in (botPaused, or an owner turn in the last 24h) — otherwise the tick does
 // nothing. Same hidden-tab pause and catch-up. start() switches it back to the
-// 7s loop. Additive: start()/stop() behave exactly as before for the open panel,
+// 15s loop. Additive: start()/stop() behave exactly as before for the open panel,
 // and nothing calls startClosed() until the new bar wires it.
 
 import { getCustomerRef } from '../lib/customer-ref';
@@ -40,7 +40,7 @@ import type { ChatStore } from './chat.svelte';
 
 /** Cadence while the panel is open. Support-chat scale: fast enough that an
  *  owner reply feels live, slow enough to be invisible on the backend. */
-export const OPERATOR_POLL_MS = 7000;
+export const OPERATOR_POLL_MS = 15_000;
 /** Cadence while the bar is closed and a person is in the conversation. */
 export const OPERATOR_CLOSED_POLL_MS = 30_000;
 /** An owner turn this recent keeps the closed-bar loop polling. */
