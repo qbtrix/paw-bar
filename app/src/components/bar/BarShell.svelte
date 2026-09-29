@@ -293,6 +293,7 @@
     size={config.barSize}
     theme={config.barTheme}
     tokens={config.tokens}
+    tokensDark={config.tokensDark}
     radius={config.radius}
     disclosure={config.disclosure}
     privacyHref={config.privacyHref}

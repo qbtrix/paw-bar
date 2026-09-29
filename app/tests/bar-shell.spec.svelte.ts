@@ -8,6 +8,9 @@
 // closed one slow.
 // 2026-09-27 (old shell removed): the config fixture drops `ui`, which
 // PawBarConfig no longer has.
+// The owner's look reaches the frame: `tokensDark` over `tokens` only when the
+// scheme resolves dark, and `launcher`/`side`/`logo` land on the stage, the
+// loader's resize report and the pill.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 
@@ -53,6 +56,7 @@ function config(extra: Partial<PawBarConfig> = {}): PawBarConfig {
     mode: 'concierge',
     preview: false,
     tokens: {},
+    tokensDark: {},
     scheme: 'auto',
     hostScheme: '',
     greeting: '',
@@ -241,5 +245,38 @@ describe('sending', () => {
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     await tick();
     expect(chat.send).toHaveBeenCalledWith('hello');
+  });
+});
+
+describe("the owner's look reaches the frame", () => {
+  const tokens = { '--pawbar-accent': '#111111' };
+  const tokensDark = { '--pawbar-accent': '#eeeeee' };
+
+  it('applies tokensDark over tokens when the scheme is dark', () => {
+    const { target } = shell({ scheme: 'dark', tokens, tokensDark });
+    expect(q(target, '.frame-wrap')!.style.getPropertyValue('--pawbar-accent')).toBe('#eeeeee');
+  });
+
+  it('leaves tokensDark out when the scheme is light', () => {
+    const { target } = shell({ scheme: 'light', tokens, tokensDark });
+    expect(q(target, '.frame-wrap')!.style.getPropertyValue('--pawbar-accent')).toBe('#111111');
+  });
+
+  it('auto follows the host page the loader read', () => {
+    const { target } = shell({ scheme: 'auto', hostScheme: 'd', tokens, tokensDark });
+    expect(q(target, '.frame-wrap')!.style.getPropertyValue('--pawbar-accent')).toBe('#eeeeee');
+  });
+
+  it('an icon launcher docks in its side and tells the loader which', () => {
+    const { target, poster } = shell({ launcher: 'icon', side: 'left' });
+    expect(q(target, '.stage')!.dataset.anchor).toBe('left');
+    expect(q(target, '.frame-wrap')!.dataset.launcher).toBe('icon');
+    expect(poster.resize).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 'left');
+  });
+
+  it("the bar launcher sits in the centre, and the logo is the pill's", () => {
+    const { target } = shell({ logo: 'https://cdn.test/logo.png' });
+    expect(q(target, '.stage')!.dataset.anchor).toBe('center');
+    expect(q<HTMLImageElement>(target, 'img.brand')?.getAttribute('src')).toBe('https://cdn.test/logo.png');
   });
 });

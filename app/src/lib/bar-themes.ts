@@ -21,6 +21,8 @@
 // scheme the host resolved and layers: vars, then the scheme overlay, then
 // the owner's tokens. Branded themes declare no overlay and ignore the
 // scheme: an owner who picked Paper for a dark storefront wants Paper.
+// The owner's own dark set (`tokensDark` in the boot config) is different: it
+// is theirs, so it applies over any theme whenever the bar resolves dark.
 //
 // Fonts name the site's face first and fall back to system faces. The widget
 // does not load web fonts, so the named face only applies where the host page
@@ -175,17 +177,22 @@ export const BAR_THEME_IDS = Object.keys(BAR_THEMES) as BarThemeId[];
 /** The properties a theme plus owner overrides resolve to. Only --pawbar-*
  *  keys survive, so an override map cannot reach anything but the widget's own
  *  tokens. Unknown theme ids fall back to the default (no properties). The
- *  scheme overlay sits between the theme and the owner's tokens. */
+ *  scheme overlay sits between the theme and the owner's tokens, and the
+ *  owner's dark set (`overridesDark`) goes on top of those only when the scheme
+ *  is dark. On light it is absent from the result, so a caller that removes
+ *  whatever the result no longer carries drops the dark values with it. */
 export function resolveTheme(
   id: string,
   overrides: Record<string, string> = {},
   scheme?: BarScheme,
+  overridesDark: Record<string, string> = {},
 ): Record<string, string> {
   const theme = BAR_THEMES[id as BarThemeId];
   const base = theme?.vars ?? {};
   const overlay = (scheme && theme?.[scheme]) || {};
+  const dark = scheme === 'dark' ? overridesDark : {};
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries({ ...base, ...overlay, ...overrides })) {
+  for (const [k, v] of Object.entries({ ...base, ...overlay, ...overrides, ...dark })) {
     if (k.startsWith('--pawbar-') && typeof v === 'string') out[k] = v;
   }
   return out;

@@ -6,6 +6,8 @@
 // into the shell's empty-state welcome. Runs under jsdom (real `window`).
 // 2026-09-27 (old shell removed): a boot config that still sends the retired
 // `ui` field ('glass' or anything else) reads cleanly and is ignored.
+// `tokens` and `tokensDark` read as plain string maps, {} when absent or not a
+// map; `launcher`, `side` and `logo` read with their defaults.
 import { describe, it, expect, afterEach } from 'vitest';
 import { readConfig } from '../src/config';
 
@@ -66,5 +68,46 @@ describe('readConfig — retired ui field', () => {
   it('ignores a ui value it has never heard of', () => {
     setBoot({ ...base, ui: 42 });
     expect('ui' in readConfig()).toBe(false);
+  });
+});
+
+describe('readConfig — token maps', () => {
+  it('reads tokens and tokensDark as given', () => {
+    setBoot({ ...base, tokens: { '--pawbar-accent': '#111' }, tokensDark: { '--pawbar-accent': '#eee' } });
+    const config = readConfig();
+    expect(config.tokens).toEqual({ '--pawbar-accent': '#111' });
+    expect(config.tokensDark).toEqual({ '--pawbar-accent': '#eee' });
+  });
+
+  it('an older backend with no tokensDark reads as {}', () => {
+    setBoot({ ...base, tokens: { '--pawbar-accent': '#111' } });
+    expect(readConfig().tokensDark).toEqual({});
+  });
+
+  it('a value that is not a map reads as {}, and non-string values are dropped', () => {
+    setBoot({ ...base, tokens: ['--pawbar-accent', '#111'], tokensDark: { '--pawbar-accent': 3, '--pawbar-fg': '#fff' } });
+    const config = readConfig();
+    expect(config.tokens).toEqual({});
+    expect(config.tokensDark).toEqual({ '--pawbar-fg': '#fff' });
+    setBoot({ ...base, tokensDark: 'dark' });
+    expect(readConfig().tokensDark).toEqual({});
+  });
+});
+
+describe('readConfig — launcher, side, logo', () => {
+  it('reads the owner placement and logo', () => {
+    setBoot({ ...base, launcher: 'icon', side: 'left', logo: 'https://cdn.test/logo.png' });
+    const config = readConfig();
+    expect(config.launcher).toBe('icon');
+    expect(config.side).toBe('left');
+    expect(config.logo).toBe('https://cdn.test/logo.png');
+  });
+
+  it('defaults to the bar on the right, and refuses a script logo', () => {
+    setBoot({ ...base, launcher: 'bubble', side: 'top', logo: 'javascript:alert(1)' });
+    const config = readConfig();
+    expect(config.launcher).toBe('bar');
+    expect(config.side).toBe('right');
+    expect(config.logo).toBe('');
   });
 });

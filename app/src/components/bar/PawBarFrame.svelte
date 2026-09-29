@@ -45,7 +45,8 @@
 
   2026-09-27 (themes): `theme` picks a preset from lib/bar-themes (Default,
   Midnight, Geist, Indigo, Paper, Glass) and `tokens` overrides any --pawbar-*
-  value on top of it. Both land on the wrapper through the typed CSSOM
+  value on top of it; `tokensDark` goes over `tokens` while `scheme` is dark
+  and is removed again when it turns light. Both land on the wrapper through the typed CSSOM
   (setProperty), never a concatenated style string, and a theme switch clears
   the keys the previous one set so nothing leaks between them.
 
@@ -244,6 +245,7 @@
     fullscreen = $bindable(false),
     theme = 'default',
     tokens = {},
+    tokensDark = {},
     radius,
     scheme,
     greeting = '',
@@ -297,6 +299,8 @@
     theme?: string;
     /** --pawbar-* overrides applied on top of the theme. */
     tokens?: Record<string, string>;
+    /** --pawbar-* overrides applied over `tokens` while `scheme` is dark. */
+    tokensDark?: Record<string, string>;
     /** Owner's corner radius in px (0–40). Overrides the theme's radius. */
     radius?: number;
     /** The host page's scheme; themes with light/dark overlays follow it. */
@@ -419,7 +423,7 @@
   $effect(() => {
     const el = frameEl;
     if (!el) return;
-    const vars = resolveTheme(theme, tokens, scheme);
+    const vars = resolveTheme(theme, tokens, scheme, tokensDark);
     if (typeof radius === 'number' && Number.isFinite(radius)) {
       vars['--pawbar-radius'] = `${Math.min(40, Math.max(0, Math.round(radius)))}px`;
     }

@@ -25,6 +25,13 @@
 // So: no parentOrigin, no listener. Refusing to install is the honest failure —
 // the preview simply does not repaint, which is visible, rather than quietly
 // accepting instructions from anyone.
+//
+// LIGHT AND DARK. A message carries `tokens` and, optionally, `tokensDark`.
+// The dark set goes on top while the bar reads dark, which the frame marks on
+// the root as data-pawbar-scheme. The last pair received is kept and re-applied
+// whenever that attribute changes, so the preview follows a scheme flip without
+// the editor re-posting, and the frame's own theme pass (which re-runs on the
+// same flip) cannot leave the saved values showing over the draft.
 
 import { applyTokens } from './tokens';
 
@@ -48,19 +55,41 @@ export function installPreviewTokenListener(ch: PreviewTokenChannel): (() => voi
   if (!ch.preview) return null;
   if (!ch.parentOrigin) return null;
 
+  let last: { tokens: Record<string, string>; tokensDark: Record<string, string> } | null = null;
+  let observed: HTMLElement | null = null;
+  const observer = typeof MutationObserver === 'function' ? new MutationObserver(() => paint()) : null;
+
+  function paint(): void {
+    const root = ch.getRoot();
+    if (!root || !last) return;
+    const scheme = root.getAttribute('data-pawbar-scheme') === 'dark' ? 'dark' : 'light';
+    applyTokens(root, last.tokens, last.tokensDark, scheme);
+    if (observer && observed !== root) {
+      observer.disconnect();
+      observer.observe(root, { attributes: true, attributeFilter: ['data-pawbar-scheme'] });
+      observed = root;
+    }
+  }
+
   const onMessage = (event: MessageEvent): void => {
     // Exact match, no prefix or suffix comparison: "https://app.example.com" and
     // "https://app.example.com.evil.test" share a prefix.
     if (event.origin !== ch.parentOrigin) return;
-    const data = event.data as { type?: unknown; tokens?: unknown } | null;
+    const data = event.data as { type?: unknown; tokens?: unknown; tokensDark?: unknown } | null;
     if (!data || data.type !== 'pawbar:preview-tokens') return;
     const tokens = data.tokens;
     // Arrays are objects; a map is what applyTokens iterates.
     if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens)) return;
-    const root = ch.getRoot();
-    if (root) applyTokens(root, tokens as Record<string, string>);
+    // Optional: an editor that predates the dark set sends none.
+    const dark = data.tokensDark;
+    const tokensDark = dark && typeof dark === 'object' && !Array.isArray(dark) ? (dark as Record<string, string>) : {};
+    last = { tokens: tokens as Record<string, string>, tokensDark };
+    paint();
   };
 
   window.addEventListener('message', onMessage);
-  return () => window.removeEventListener('message', onMessage);
+  return () => {
+    window.removeEventListener('message', onMessage);
+    observer?.disconnect();
+  };
 }
