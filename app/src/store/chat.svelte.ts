@@ -103,7 +103,12 @@ import {
   saveActiveConversationId,
   saveHandoff,
   saveTranscript,
+  transcriptSavedAt,
 } from '../lib/transcript';
+
+/** A cached thread saved this recently is trusted on a host-page navigation
+ *  (every navigation reloads the frame) instead of re-fetching the record. */
+export const HYDRATE_FRESH_MS = 60_000;
 
 /** 'queued' = sent while offline; the server has not seen it yet. */
 export type MessageStatus = 'queued' | 'streaming' | 'done' | 'error';
@@ -273,7 +278,13 @@ export class ChatStore {
     }
     // Then the record. See #hydrate. Queued turns from a previous page flush
     // only after it settles: #hydrate stands down while anything streams.
-    void this.#hydrate().finally(() => {
+    // Skipped when the cache was written under HYDRATE_FRESH_MS ago: that is a
+    // visitor walking between pages mid-conversation, and the server has
+    // nothing the cache lacks (owner turns still arrive via the operator poll).
+    const savedAt = transcriptSavedAt(config.widgetId, this.conversationId);
+    const fresh =
+      this.messages.length > 0 && savedAt !== null && Date.now() - savedAt < HYDRATE_FRESH_MS;
+    void (fresh ? Promise.resolve() : this.#hydrate()).finally(() => {
       if (this.online) void this.flushQueue();
     });
   }

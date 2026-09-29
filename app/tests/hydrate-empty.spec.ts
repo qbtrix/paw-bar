@@ -26,8 +26,20 @@
 // answer can leave the panel as it is; it must never be the reason history is
 // deleted.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ChatStore } from '../src/store/chat.svelte';
+import { ChatStore, HYDRATE_FRESH_MS } from '../src/store/chat.svelte';
 import { loadTranscript, saveTranscript, saveActiveConversationId } from '../src/lib/transcript';
+
+/** A cache from an EARLIER visit. A row saved under HYDRATE_FRESH_MS ago is a
+ *  page-to-page walk and deliberately skips the server read. */
+function saveTranscriptFromEarlierVisit(...args: Parameters<typeof saveTranscript>) {
+  const now = Date.now();
+  const spy = vi.spyOn(Date, 'now').mockReturnValue(now - 2 * HYDRATE_FRESH_MS);
+  try {
+    saveTranscript(...args);
+  } finally {
+    spy.mockRestore();
+  }
+}
 
 const config = { endpoint: 'http://test.local/api/v1', widgetId: 'w1', siteKey: 'k1' };
 const CONV = 'ppc-1a02105f807-cmpc';
@@ -41,7 +53,7 @@ const TURNS = [
  *  server answering 200 with the given messages. */
 function reload(serverMessages: unknown[]) {
   window.localStorage.clear();
-  saveTranscript('w1', TURNS, CONV);
+  saveTranscriptFromEarlierVisit('w1', TURNS, CONV);
   saveActiveConversationId('w1', CONV);
   vi.stubGlobal(
     'fetch',

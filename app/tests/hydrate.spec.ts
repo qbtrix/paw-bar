@@ -18,8 +18,20 @@
 // more importantly, the cases where the server's answer must NOT be adopted.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ChatStore } from '../src/store/chat.svelte';
+import { ChatStore, HYDRATE_FRESH_MS } from '../src/store/chat.svelte';
 import { saveActiveConversationId, saveTranscript } from '../src/lib/transcript';
+
+/** A cache from an EARLIER visit. A row saved under HYDRATE_FRESH_MS ago is a
+ *  page-to-page walk and deliberately skips the server read. */
+function saveTranscriptFromEarlierVisit(...args: Parameters<typeof saveTranscript>) {
+  const now = Date.now();
+  const spy = vi.spyOn(Date, 'now').mockReturnValue(now - 2 * HYDRATE_FRESH_MS);
+  try {
+    saveTranscript(...args);
+  } finally {
+    spy.mockRestore();
+  }
+}
 
 const config = { endpoint: 'http://test.local/api/v1', widgetId: 'w1', siteKey: 'k1' };
 const CONV = 'ppc-1';
@@ -47,7 +59,7 @@ afterEach(() => {
 
 describe('hydrating a conversation from the server', () => {
   it('replaces the cached thread with the server copy', async () => {
-    saveTranscript(config.widgetId, [
+    saveTranscriptFromEarlierVisit(config.widgetId, [
       { id: 'a', role: 'user', content: 'stale question', status: 'done' },
     ], CONV);
     serverTurns({
@@ -80,7 +92,7 @@ describe('hydrating a conversation from the server', () => {
   });
 
   it('keeps the cache when the server cannot be asked', async () => {
-    saveTranscript(config.widgetId, [
+    saveTranscriptFromEarlierVisit(config.widgetId, [
       { id: 'a', role: 'user', content: 'offline but mine', status: 'done' },
     ], CONV);
     serverTurns(null, false); // 404 / offline → fetchConversationMessages returns null
@@ -113,7 +125,7 @@ describe('hydrating a conversation from the server', () => {
   // reversal: a thread genuinely cleared server-side lingers until its 7-day TTL
   // expires. That is cosmetic; the thing it replaces was data loss.
   it('leaves the cache alone when the server answers empty', async () => {
-    saveTranscript(config.widgetId, [
+    saveTranscriptFromEarlierVisit(config.widgetId, [
       { id: 'a', role: 'user', content: 'cleared server-side', status: 'done' },
     ], CONV);
     serverTurns({ messages: [] });
@@ -154,5 +166,20 @@ describe('hydrating a conversation from the server', () => {
     // having no history.
     await vi.waitFor(() => expect(store.messages).toHaveLength(2));
     expect(store.messages.every((m) => m.role === 'assistant')).toBe(true);
+  });
+
+  it('skips the server read when the cache was written under a minute ago', async () => {
+    // A host-page navigation reloads the frame mid-conversation. The cache was
+    // just written, so a round-trip per page would fetch what is already there.
+    saveTranscript(config.widgetId, [
+      { id: 'a', role: 'user', content: 'Just asked this', status: 'done' },
+    ], CONV);
+    serverTurns({ messages: [{ role: 'user', content: 'server copy', created_at: '' }] });
+
+    const store = new ChatStore(config);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(store.messages.map((m) => m.content)).toEqual(['Just asked this']);
   });
 });
