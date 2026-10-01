@@ -85,7 +85,9 @@ export function parseCard(json: string): PawBarCard | null {
     items.push({
       id: typeof r.id === 'string' ? r.id : '',
       name,
-      price_cents: typeof r.price_cents === 'number' && Number.isFinite(r.price_cents) ? r.price_cents : undefined,
+      // Minor units are whole numbers; a fraction (19.99 sent as "cents") is a
+      // malformed price, so it shows no price rather than a wrong one.
+      price_cents: Number.isInteger(r.price_cents) ? (r.price_cents as number) : undefined,
       currency: typeof r.currency === 'string' ? r.currency : undefined,
       image_url: typeof r.image_url === 'string' ? r.image_url : undefined,
       url: safeCardUrl(typeof r.url === 'string' ? r.url : undefined) || undefined,

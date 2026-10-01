@@ -108,7 +108,7 @@
     expanded = true;
     await tick();
     // Hand focus to the first tile that just appeared, not back to the top.
-    listEl?.querySelectorAll('li')[PREVIEW]?.querySelector<HTMLElement>('button')?.focus();
+    listEl?.querySelectorAll('li')[PREVIEW]?.querySelector<HTMLElement>('a, button')?.focus();
   }
 </script>
 

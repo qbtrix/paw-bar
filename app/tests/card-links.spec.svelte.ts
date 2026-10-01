@@ -3,11 +3,25 @@
 // thread) and ProductCard (outside it). A site path resolves against the host
 // page origin; links open a new tab because the frame is sandboxed without top
 // navigation, so a link must never load inside the widget frame.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, beforeAll } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import CardHarness from './fixtures/spec/CardHarness.svelte';
 import { CartStore } from '../src/store/cart.svelte';
 import { setLinkBase } from '../src/lib/markdown';
+
+// formatMinor uses the visitor's locale; pin en-US here so the digit and
+// separator assertions hold on any machine.
+const RealNumberFormat = Intl.NumberFormat;
+beforeAll(() => {
+  Intl.NumberFormat = class extends RealNumberFormat {
+    constructor(locales?: string | string[], options?: Intl.NumberFormatOptions) {
+      super(locales ?? 'en-US', options);
+    }
+  } as typeof Intl.NumberFormat;
+});
+afterAll(() => {
+  Intl.NumberFormat = RealNumberFormat;
+});
 
 let live: ReturnType<typeof mount> | null = null;
 afterEach(() => {
@@ -58,6 +72,20 @@ describe.each([
   it('keeps an absolute http(s) url as is', () => {
     const t = render([item({ url: 'https://other.example/p/1' })], thread);
     expect(t.querySelector('a.name')!.getAttribute('href')).toBe('https://other.example/p/1');
+  });
+
+  it.each([
+    'javascript:alert(1)',
+    ' javascript:alert(1)',
+    'data:text/html,x',
+    '//evil.example/x',
+    '/\\evil.example',
+    'products/x',
+  ])('draws no link for %s even with the host origin set', (url) => {
+    setLinkBase('https://shop.example');
+    const t = render([item({ url })], thread);
+    expect(t.querySelector('a')).toBeNull();
+    expect(t.querySelector('.name')!.textContent).toBe('Kimono');
   });
 
   it.each(['javascript:alert(1)', '//evil.example/x', '/\\evil.example', 'products/x', '/products/x'])(

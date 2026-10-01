@@ -3,9 +3,23 @@
 // the canonical table from the concierge catalog/money design and the same one
 // pocketpaw (money.py) and paw-enterprise (core/shared/money.ts) carry. Never
 // edit the fixture to make this pass; change all three copies together.
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import tableRaw from './fixtures/currency_exponents.json?raw';
 import { CURRENCY_EXPONENTS, exponent, formatMinor, fromMinor } from '../src/lib/money';
+
+// formatMinor uses the visitor's locale; pin en-US here so the digit and
+// separator assertions hold on any machine.
+const RealNumberFormat = Intl.NumberFormat;
+beforeAll(() => {
+  Intl.NumberFormat = class extends RealNumberFormat {
+    constructor(locales?: string | string[], options?: Intl.NumberFormatOptions) {
+      super(locales ?? 'en-US', options);
+    }
+  } as typeof Intl.NumberFormat;
+});
+afterAll(() => {
+  Intl.NumberFormat = RealNumberFormat;
+});
 
 describe('currency exponent table', () => {
   it('matches the canonical table exactly', () => {
