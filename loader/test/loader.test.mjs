@@ -1,7 +1,8 @@
 // loader/test/loader.test.mjs — jsdom unit tests for the glass-bar loader (A2).
-// Updated 2026-09-27 (CR-7): on load the frame gets {pawbar:page} with the
-// host URL as origin + pathname (no query, no hash), the title clipped to 120,
-// and targetOrigin pinned to the frame origin.
+// Page context (CR-7): on load the frame gets {pawbar:page} with the host URL
+// as origin + pathname (no query, no hash), the title clipped to 120, and
+// targetOrigin pinned to the frame origin; after load, an SPA navigation
+// (pushState/popstate/title change) re-sends it, and an unchanged page does not.
 // Updated 2026-09-27: the new bar's two additions: a chip resize with `side`
 // docks the box in that corner (and anything else stays centred), and the
 // frame is told the host viewport on load and on resize, origin pinned.
@@ -31,6 +32,12 @@ const HOST_ORIGIN = 'https://shop.example.com';
 const API_ENDPOINT = 'https://api.pawbar.dev/api/v1';
 const FRAME_ORIGIN = 'https://api.pawbar.dev';
 
+// Every window a test mounts. Once a frame has loaded, the loader keeps a page
+// poll running (SPA navigation), and a live jsdom timer keeps this process up
+// after the last test; closing the windows clears them.
+const mounted = [];
+test.after(() => mounted.forEach((w) => w.close()));
+
 // Boot a jsdom host page and run the loader IIFE off a <script> carrying config.
 function mount({
   endpoint = API_ENDPOINT,
@@ -53,6 +60,7 @@ function mount({
     },
   );
   const { window } = dom;
+  mounted.push(window);
   // jsdom has no real matchMedia; the detector's last resort needs one.
   // Drivable, so the OS-change path below is reachable: a stub with a no-op
   // addEventListener would let the loader mount and quietly make that test
@@ -980,4 +988,95 @@ test('the sandbox is on the element BEFORE its src is assigned', () => {
   onlyIframe(window);
   assert.ok(seen.length >= 1, 'src was assigned');
   for (const s of seen) assert.equal(s, FRAME_SANDBOX, 'sandbox present when src is set');
+});
+
+// SPA navigation: a client-routed store never reloads the frame, so the loader
+// has to notice the visitor moving and tell the frame again. pushState fires no
+// event, so the loader polls (on a timer it starts at frame load) and listens to
+// popstate/hashchange. The timer is captured here so a "tick" is deterministic.
+function mountWithTimer(opts = {}) {
+  const ticks = [];
+  const window = mount({
+    ...opts,
+    beforeLoad(w) {
+      w.setInterval = (fn, ms) => {
+        ticks.push({ fn, ms });
+        return ticks.length;
+      };
+    },
+  });
+  const iframe = onlyIframe(window);
+  const posts = [];
+  Object.defineProperty(iframe.contentWindow, 'postMessage', {
+    value: (data, targetOrigin) => posts.push({ data, targetOrigin }),
+    configurable: true,
+  });
+  const tick = () => ticks.forEach((t) => t.fn());
+  const pages = () => posts.filter((p) => p.data.type === 'pawbar:page');
+  return { window, iframe, ticks, tick, pages };
+}
+
+test('nothing watches the page before the frame has loaded', () => {
+  const { window, ticks, tick, pages } = mountWithTimer({ path: '/products' });
+  assert.equal(ticks.length, 0, 'no timer before load');
+  window.history.pushState({}, '', '/products/x');
+  window.dispatchEvent(new window.PopStateEvent('popstate'));
+  tick();
+  assert.equal(pages().length, 0);
+});
+
+test('an SPA navigation re-sends the page to the frame, stripped and origin pinned', () => {
+  const { window, iframe, ticks, tick, pages } = mountWithTimer({ path: '/products' });
+  window.document.title = 'All products';
+  iframe.dispatchEvent(new window.Event('load'));
+  assert.equal(pages().length, 1);
+  assert.ok(ticks.length >= 1 && ticks.every((t) => t.ms <= 1000), 'a cheap poll is armed at load');
+
+  // Nothing changed: no re-post, however often the poll runs.
+  tick();
+  tick();
+  assert.equal(pages().length, 1);
+
+  // Client-side route change (pushState fires no event), title a tick later.
+  window.history.pushState({}, '', '/products/x?ref=s3cr3t#reviews');
+  tick();
+  assert.equal(pages().length, 2);
+  assert.equal(pages()[1].data.url, HOST_ORIGIN + '/products/x');
+
+  // Title-only change still re-posts.
+  window.document.title = 'Product X';
+  tick();
+  assert.equal(pages().length, 3);
+  assert.equal(pages()[2].data.url, HOST_ORIGIN + '/products/x');
+  assert.equal(pages()[2].data.title, 'Product X');
+
+  // A query or hash change alone is not a new page.
+  window.history.replaceState({}, '', '/products/x?other=1#specs');
+  window.dispatchEvent(new window.HashChangeEvent('hashchange'));
+  tick();
+  assert.equal(pages().length, 3);
+
+  // Back button: popstate re-sends without waiting for the poll.
+  // (jsdom's history.back() is async; set the URL the way the browser has by
+  // the time popstate fires, then fire it.)
+  window.history.replaceState({}, '', '/products');
+  window.document.title = 'All products';
+  window.dispatchEvent(new window.PopStateEvent('popstate'));
+  assert.equal(pages().length, 4);
+  assert.equal(pages()[3].data.url, HOST_ORIGIN + '/products');
+  assert.equal(pages()[3].data.title, 'All products');
+
+  assert.ok(pages().every((p) => p.targetOrigin === FRAME_ORIGIN)); // never "*"
+  const wire = JSON.stringify(pages());
+  assert.ok(!wire.includes('s3cr3t') && !wire.includes('reviews') && !wire.includes('specs'));
+});
+
+test('a frame reload re-arms nothing twice and still gets the page', () => {
+  const { window, iframe, ticks, tick, pages } = mountWithTimer({ path: '/a' });
+  iframe.dispatchEvent(new window.Event('load'));
+  iframe.dispatchEvent(new window.Event('load'));
+  assert.equal(ticks.length, 1, 'one timer, not one per load');
+  assert.equal(pages().length, 2, 'a reloaded frame is told the page again');
+  tick();
+  assert.equal(pages().length, 2);
 });

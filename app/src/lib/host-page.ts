@@ -1,9 +1,10 @@
 // host-page.ts — The page the bar is embedded on, as the concierge should see it.
 // Created 2026-09-27 (CR-7, "the loader sends the page"): the frame is a
 // cross-origin document and cannot read the host page, so the LOADER posts
-// {pawbar:page, url, title} into it on load (loader/src/loader.ts). BarShell
-// hands that message here; chat-client reads getHostPage() and sends it as
-// `page` on every POST /paw-bar/chat.
+// {pawbar:page, url, title} into it on load and again whenever the host's path
+// or title changes, SPA navigation included (loader/src/loader.ts). BarShell
+// hands each message here and the latest good one wins; chat-client reads
+// getHostPage() and sends it as `page` on every POST /paw-bar/chat.
 //
 // The loader already strips the query string and hash, and this module strips
 // them again: the message is still input from another document, and a token or
