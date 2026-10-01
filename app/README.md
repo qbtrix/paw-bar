@@ -82,15 +82,6 @@ value, `--pawbar-gap`.
 Setting `--pawbar-space` rescales every spacing step at once; setting
 `--pawbar-gap` changes only the shared gap.
 
-Full screen is a full-page chat: one surface over the whole viewport, a header
-with the site's logo and `agentName`, and the thread and composer in one
-centred column. Two tokens tune it:
-
-| Token | Default | What it sets |
-|---|---|---|
-| `--pawbar-full-width` | 720px | the reading column (messages and the composer) |
-| `--pawbar-full-bg` | `--pawbar-frame-bg` | the page colour, layered over `--pawbar-scrim` and a 40px blur; set an opaque colour for a fully solid page |
-
 ### Voice dictation
 
 The open card has a mic button left of Send. A press listens for one utterance
