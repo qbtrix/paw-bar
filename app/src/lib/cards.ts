@@ -16,10 +16,15 @@
 //
 // Form contract (mirrors the concierge preamble):
 //   {"kind":"form","verb":"book_visit","title"?, "submit_label"?,
-//    "fields":[{"name","label","type": text|tel|email|number|textarea}]}
+//    "fields":[{"name","label","type": text|tel|email|number|textarea,
+//               "value"?: prefill, plain text, ≤ FORM_PREFILL_MAX}]}
 // verb + every field name must match the widget's declared action args
 // (server-validated at execution time); fields are capped at MAX_FORM_FIELDS,
-// and any shape violation routes to the same quiet fallback.
+// and any shape violation routes to the same quiet fallback. The built-in verb
+// LEAD_VERB ("send_to_team") needs an `email` or `phone` field, since the
+// server refuses a lead nobody can reply to.
+
+import { cleanCardText } from './visitor-input';
 
 import { safeHref } from './md/links';
 
@@ -45,10 +50,16 @@ export interface FormField {
   name: string;
   label: string;
   type: FormFieldType;
+  /** Prefill from the conversation; the visitor can edit it. */
+  value?: string;
 }
 
 /** Hard cap on form inputs — an agent-authored card past this is malformed. */
 export const MAX_FORM_FIELDS = 8;
+/** A field's prefill `value` is clipped to this many characters. */
+export const FORM_PREFILL_MAX = 500;
+/** The built-in verb that sends the visitor's details to the team as a lead. */
+export const LEAD_VERB = 'send_to_team';
 
 export interface PawBarCard {
   kind: string;
@@ -128,9 +139,13 @@ function parseFormCard(obj: Record<string, unknown>): PawBarCard | null {
     // two fields sharing one means one of the visitor's answers silently
     // overwrites the other. There is no reading of that card safe to render.
     if (fields.some((f) => f.name === name)) return null;
-    fields.push({ name, label, type: type as FormFieldType });
+    const value = cleanCardText(r.value, FORM_PREFILL_MAX);
+    fields.push({ name, label, type: type as FormFieldType, ...(value ? { value } : {}) });
   }
   if (fields.length === 0) return null;
+  if (verb === LEAD_VERB && !fields.slice(0, MAX_FORM_FIELDS).some((f) => f.name === 'email' || f.name === 'phone')) {
+    return null;
+  }
   return {
     kind: 'form',
     items: [],

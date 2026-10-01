@@ -1,45 +1,30 @@
 // chat-client.ts — Streaming HTTP client for the Paw Bar concierge chat. One
 // fetch, credentials omitted, CORS mode, no retry. POSTs the visitor message to
 // POST {endpoint}/paw-bar/chat and reads the text/event-stream response
-// incrementally via a ReadableStream reader, handing decoded chunks to the pure
-// sse.ts parser and routing frames to onChunk / onEnd / onError.
-// Ported 2026-07-15 (A3 glass bar) from the frozen widget's
-//   feat/paw-bar-chat-ui:src/chat-client.ts (T4). dispatchFrame is copied
-//   VERBATIM (pure + unit-tested). ADDED here (T4 lacked it): an optional
-//   AbortSignal on streamConciergeChat so the runes store can cancel a stream
-//   via stop(); an aborted fetch/read is finalized as onEnd({cancelled:true})
-//   rather than surfacing as an error. Request body + SSE frames match the
-//   source of truth ee/pocketpaw_ee/paw_bar/router.py::concierge_chat.
-// 2026-07-30 (sources on replies): dispatchFrame routes the OPTIONAL
-//   `event: sources` frame ({"sources":[{title,url}…]}, sent before
-//   stream_end) to the new optional onSources callback, sanitized through
-//   lib/sources. Backends that never emit it change nothing — the frame is
-//   optional, the callback is optional, and unknown events still fall through
-//   to the ignore branch, so old backends stream exactly as before.
-// 2026-07-30 (human takeover): same treatment for `event: human_replying`
-//   ({"message":"…"}) — emitted INSTEAD of assistant content when the site
-//   owner has taken the conversation over. It is NOT terminal: stream_end
-//   still follows and still finalizes the turn. Belt and braces for a backend
-//   that hangs up without one, the reader now finalizes with onEnd({}) when
-//   the body ends without a terminal frame, so a paused-bot turn can never
-//   leave the composer stuck in its streaming state.
-// 2026-09-27 (paw-bar states, section D): onError takes a structured
-//   RawFailure (lib/chat-errors) instead of a display string, because the old
-//   strings ("paw-bar chat failed (429)", "Failed to fetch", an executor's
-//   error text) were printed to visitors verbatim. A non-ok response now reads
-//   its JSON `detail` (the refusal code; one 403 means five things) and the
-//   `retry-after` header; a fetch rejection reports navigator.onLine so the
-//   store can tell offline (queue) from unreachable (Retry); a reader.read()
-//   rejection is `afterResponse` (a cut-off reply, never auto-resent). SSE
-//   `error` / `interrupted` become frame failures. dispatchFrame stays pure.
-// 2026-09-27 (CR-7, page context): the request body carries
-//   `page: {url, title}`, the host page the bar is embedded on, read from
-//   lib/host-page (the loader posts it at frame load; origin + pathname only,
-//   title clipped to 120). When no page is known the key is left off, never
-//   sent as null. Older servers ignore the field (pydantic extra='ignore').
-//   The `sources` frame also accepts the concierge v2 shape
-//   {"items":[{id,title,url}]} alongside the original {"sources":[...]}; both
-//   go through the same sanitizer to the existing onSources slot.
+// incrementally, handing decoded chunks to the pure sse.ts parser and routing
+// frames to the callbacks (dispatchFrame, pure + unit-tested). Request body and
+// frames match ee/pocketpaw_ee/paw_bar/router.py::concierge_chat.
+//
+// Request body: {widget_id, signed_key, customer_ref, message,
+// conversation_id?, page?, tz?}. Optional keys are left off, never sent as
+// null; older servers ignore unknown keys (pydantic extra='ignore').
+//   * page — the host page the bar is embedded on (lib/host-page: origin +
+//     pathname, title clipped to 120).
+//   * tz — the visitor's IANA timezone (visitorTimeZone), so the concierge can
+//     talk about times, and booking slots, in the visitor's own clock. Sent
+//     only when it looks like a real zone name.
+//
+// Frames: `chunk` (text deltas only; typed non-text chunks never reach a
+// public reply), `stream_end`, optional `sources` ({sources:[…]} or the v2
+// {items:[…]}, both through lib/sources), `human_replying` (owner took over;
+// not terminal), and `error` / `interrupted`. A body that ends without a
+// terminal frame still finalizes with onEnd({}).
+//
+// Failures reach onError as a structured RawFailure (lib/chat-errors), never
+// display text: a non-ok response carries its status, JSON `detail` and
+// `retry-after`; a fetch rejection reports navigator.onLine (offline vs
+// unreachable); a read rejection is `afterResponse` (a cut-off reply, never
+// auto-resent). An AbortSignal (stop()) finalizes as onEnd({cancelled:true}).
 
 import { createSseParser, type SseFrame } from './sse';
 import { sanitizeSources, type Source } from './sources';
@@ -73,6 +58,28 @@ export interface ChatCallbacks {
   // (`human_replying` frame). The line is customer-facing copy; '' when the
   // frame omits it.
   onHumanReplying?: (message: string) => void;
+}
+
+const IANA_ZONE = /^(?:UTC|[A-Za-z]+(?:\/[A-Za-z0-9_+-]+){1,2})$/;
+
+/** The visitor's IANA timezone (e.g. "Europe/Amsterdam"), or null when the
+ *  runtime reports none or something that isn't a plausible zone name. */
+export function visitorTimeZone(zone?: unknown): string | null {
+  let tz = zone;
+  if (tz === undefined) {
+    try {
+      tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof tz !== 'string' || tz.length > 64 || !IANA_ZONE.test(tz)) return null;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: tz });
+    return tz;
+  } catch {
+    return null;
+  }
 }
 
 function chatUrl(endpoint: string): string {
@@ -156,6 +163,7 @@ export async function streamConciergeChat(
   signal?: AbortSignal,
 ): Promise<void> {
   const page = getHostPage();
+  const tz = visitorTimeZone();
   let res: Response;
   try {
     res = await fetch(chatUrl(config.endpoint), {
@@ -172,6 +180,7 @@ export async function streamConciergeChat(
         message,
         ...(config.conversationId ? { conversation_id: config.conversationId } : {}),
         ...(page ? { page } : {}),
+        ...(tz ? { tz } : {}),
       }),
     });
   } catch (err) {

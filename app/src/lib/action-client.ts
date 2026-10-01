@@ -1,12 +1,16 @@
-// action-client.ts — Transport for the visitor action loop. Created 2026-07-15
-// (C2 action loop). Sibling of chat-client: one fetch, credentials omitted, CORS
-// mode, no retry. Carries STRUCTURED action events (never free text) to the
-// dedicated endpoints; the server validates every arg against the widget's
-// allowlisted declaration + catalog, mutates the visitor-scoped cart, and
-// hands back a checkout link (the agent never executes payment). Bodies match
-// the frozen C1 contract EXACTLY:
+// action-client.ts — Transport for the visitor action loop. Sibling of
+// chat-client: one fetch, credentials omitted, CORS mode, no retry. Carries
+// STRUCTURED action events (never free text) to the dedicated endpoints; the
+// server validates every arg against the widget's allowlisted declaration +
+// catalog, mutates the visitor-scoped cart, and hands back a checkout link (the
+// agent never executes payment). Bodies match the C1 contract exactly:
 //   POST {endpoint}/paw-bar/action  {key, w, customer_ref, verb, args} → {ok, result, cart?}
 //   GET  {endpoint}/paw-bar/cart    ?key&w&customer_ref               → {items, total_cents, currency, checkout_url}
+// A refused action comes back as {ok: false, status, detail}: the HTTP status
+// and FastAPI's `detail` (a code string, or an object such as
+// {code, field, message} or {code: "slot_taken", alternatives}), so a card can
+// tell a rate limit from a field error from a taken slot
+// (lib/visitor-input.actionFailure). A network failure has no status.
 
 export interface ActionConfig {
   endpoint: string;
@@ -37,6 +41,10 @@ export interface ActionResult {
   result?: Record<string, unknown>;
   cart?: Cart | null;
   error?: string;
+  /** HTTP status of a refused action; absent on success and network failure. */
+  status?: number;
+  /** FastAPI's `detail` from a refused action's body, when it sent one. */
+  detail?: unknown;
 }
 
 function base(endpoint: string): string {
@@ -69,12 +77,21 @@ export async function postAction(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-  if (!res.ok) return { ok: false, error: `action failed (${res.status})` };
+  if (!res.ok) return { ok: false, error: `action failed (${res.status})`, status: res.status, detail: await readDetail(res) };
   try {
     const data = (await res.json()) as ActionResult;
     return data && typeof data === 'object' ? data : { ok: false, error: 'bad action response' };
   } catch {
     return { ok: false, error: 'bad action response' };
+  }
+}
+
+async function readDetail(res: Response): Promise<unknown> {
+  try {
+    const body = (await res.json()) as { detail?: unknown } | null;
+    return body && typeof body === 'object' ? body.detail : undefined;
+  } catch {
+    return undefined;
   }
 }
 
