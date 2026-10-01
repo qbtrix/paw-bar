@@ -1,6 +1,6 @@
 <!--
-  BarShell.svelte — the new Paw Bar as the widget: the stores, consent, and the
-  loader protocol around one PawBarFrame. Created 2026-09-27.
+  BarShell.svelte — the Paw Bar as the widget: the stores, consent, and the
+  loader protocol around one PawBarFrame.
 
   The frame is data in, events out. This file is the "in" and the "out":
 
@@ -17,6 +17,8 @@
     closed (only while a person is in the conversation; see OperatorStore).
     The conversation list refreshes on pin and after a reply settles, and the
     store adopts the server's active id when its own is missing.
+  • Every message from the loader passes lib/from-loader: the real parent
+    window at the exact boot parentOrigin. No pinned origin, no messages.
   • The loader speaks the protocol the deployed loader already knows
     (lib/postmessage), so this runs under an old loader too:
       – view 'chip' once at boot. The chip is the loader's one view that
@@ -31,32 +33,21 @@
         bar like any outside click; nothing is posted per host click at rest.
       – host-open pins (and re-asserts the chip: an old loader's
         PawBar.open() switches itself to its column); host-close is ✕.
-      – `side` rides on resize for the icon launcher. An old loader ignores it
-        and centres the launcher; a new one docks it in its corner.
+      – `side` rides on resize to dock the icon launcher (old loaders centre).
       – pawbar:viewport (new loader) is the host page's viewport. Until it
         arrives, or forever under an old loader, the screen's available size
         stands in. Never this window's: this window is the iframe, sized from
         the content, and sizing content against it is a feedback loop.
+      – pawbar:page (new loader) is the host page's {url, title}; lib/host-page
+        re-strips query and hash, and chat-client sends it as `page`.
   • Owner settings from the boot config (launcher, side, size, theme, tokens,
-    radius, disclosure, privacy link, `voice` for the dictation mic) go
-    straight through to the frame.
-  • The agent's conversation starters (config.starters) are not shown
-    (captain, 2026-09-27); the bar has no chips for them.
-  • The stage sets a system font for the bar to inherit: in the iframe there
-    is no site font, so every word would fall to Times.
-  • It owns the iframe document's reset (no margin, transparent background).
-    The old shell's glass.css did that before; it was removed 2026-09-27.
-  • Layout: a fixed, bottom-anchored stage in the transparent iframe, aligned
-    to the launcher's corner. The wrapper never shrinks to the stage (flex:
-    none), so a box that lags the content for a frame clips it rather than
-    reflowing it into a smaller measurement.
+    radius, disclosure, privacy link, voice) go straight to the frame.
+  • config.starters is not shown; the bar has no starter chips.
+  • It owns the iframe document's reset (no margin, transparent background)
+    and sets a system font, since the iframe has no site font to inherit.
+  • Layout: a fixed, bottom-anchored stage aligned to the launcher's corner.
+    The wrapper never shrinks (flex: none): a lagging box clips, not reflows.
 
-  2026-09-27 (old shell removed): comments no longer describe glass.css as
-  sharing this bundle; it and the old shell are deleted.
-  2026-09-27 (CR-7, page context): pawbar:page (new loader, posted at frame
-  load) is the host page's {url, title}. It goes to lib/host-page, which
-  re-strips the query and hash, and chat-client sends it as `page` on every
-  chat request. An old loader never posts it, and the field is then omitted.
 -->
 <script lang="ts" module>
   import type { ChatStore } from '../../store/chat.svelte';
@@ -84,6 +75,7 @@
   import { resolveScheme } from '../../lib/scheme';
   import { dockSize } from '../../lib/dock-size';
   import { setHostPage } from '../../lib/host-page';
+  import { isFromLoader } from '../../lib/from-loader';
 
   let {
     config,
@@ -195,8 +187,7 @@
   $effect(() => {
     const parentOrigin = untrack(() => config.parentOrigin);
     function onMessage(ev: MessageEvent) {
-      if (window.parent === window || ev.source !== window.parent) return;
-      if (parentOrigin && ev.origin !== parentOrigin) return;
+      if (!isFromLoader(ev, { self: window, parent: window.parent, parentOrigin })) return;
       const data = ev.data as { type?: string; s?: unknown; w?: unknown; h?: unknown } | null;
       if (!data || typeof data !== 'object') return;
       switch (data.type) {
