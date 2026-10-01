@@ -54,10 +54,13 @@
 //     The app sizes against it rather than its own window, which is the box
 //     this loader sizes from the app's own content (a feedback loop).
 //
-// 2026-09-27 (CR-7, page context). On frame load the loader also posts
-// {pawbar:page, url, title}: the host page's origin + pathname (query string
-// and hash stripped here, so they never cross into the frame) and its title
-// clipped to 120 chars. The app sends it as `page` on every chat request.
+// PAGE CONTEXT (CR-7). The loader posts {pawbar:page, url, title} to the frame:
+// the host page's origin + pathname (query string and hash stripped here, so
+// they never cross into the frame) and its title clipped to 120 chars. It goes
+// on every frame load and again whenever the path or title changes, so SPA
+// navigation is seen (popstate/hashchange plus a 1s poll, armed at the first
+// frame load; history is never patched). The app sends it as `page` on every
+// chat request.
 //
 // SECURITY: inbound messages are honoured ONLY when event.origin === the frame
 // origin AND event.source === the iframe's own contentWindow. Every outbound
@@ -724,14 +727,39 @@ function suppressed(win: LoaderWindow): boolean {
   function postViewport(): void {
     postToFrame({ type: 'pawbar:viewport', w: win.innerWidth, h: win.innerHeight });
   }
+  // The page the visitor is on, for the concierge to answer about. Origin +
+  // pathname ONLY: a query string or hash can carry session tokens, emails or
+  // order ids, and none of that should leave this document. Posted on every
+  // frame load, then again whenever the path or the title changes: a
+  // client-routed site navigates without reloading the frame, and pushState
+  // fires no event. We never patch history on someone else's page; popstate and
+  // hashchange cover back/forward, and a 1s poll catches pushState and the
+  // title that usually lands a tick after it. Nothing is armed before the
+  // first frame load.
+  let lastPage = '';
+  let watching = false;
+  function postPage(force?: boolean): void {
+    try {
+      const l = win.location;
+      const url = l.origin + l.pathname;
+      const title = doc.title.slice(0, 120);
+      const key = url + ' ' + title; // a URL has no raw space, so this is unambiguous
+      if (!force && key === lastPage) return;
+      lastPage = key;
+      postToFrame({ type: 'pawbar:page', url, title });
+    } catch (_) {
+      // A torn-down document has no page to report; a timer must never throw.
+    }
+  }
+  const pageChanged = (): void => postPage();
   iframe.addEventListener('load', (): void => {
     postViewport();
-    // The page the visitor is on, for the concierge to answer about. Origin +
-    // pathname ONLY: a query string or hash can carry session tokens, emails or
-    // order ids, and none of that should leave this document. Sent once, at
-    // load; nothing here watches SPA navigation (pushState has no event).
-    const l = win.location;
-    postToFrame({ type: 'pawbar:page', url: l.origin + l.pathname, title: doc.title.slice(0, 120) });
+    postPage(true);
+    if (watching) return;
+    watching = true;
+    win.addEventListener('popstate', pageChanged);
+    win.addEventListener('hashchange', pageChanged);
+    win.setInterval(pageChanged, 1000);
   });
   win.addEventListener('resize', (): void => {
     if (!overlay) applyDock();
