@@ -2,7 +2,8 @@
   BarCatalog.svelte — a kind:"product" pawbar-card, drawn inside the new bar's
   thread (CardBlock routes here in the bar; SpecProducts reuses it for the
   `product-card` spec widget). A catalog can hand the agent many products, so:
-  • One item: a compact row — thumbnail, name, price, description, CTAs.
+  • One item: a row — a square image that scales with the card, name and
+    price, a description clamped to two lines, CTAs.
   • Two or more: a horizontal strip of tiles (image on top, name clamped to two
     lines, price, CTAs) with scroll-snap. The scrollbar is hidden rather than
     reserved; swipe on touch, and on hover-capable devices "Previous products" /
@@ -187,7 +188,7 @@
         {@render nameLink(item, false)}
         {#if price}<span class="price">{price}</span>{/if}
       </div>
-      {#if item.description}<p class="desc">{item.description}</p>{/if}
+      {#if item.description}<p class="desc clamp">{item.description}</p>{/if}
       {@render ctas(item, 0)}
     </div>
   </article>
@@ -292,27 +293,42 @@
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
 
-  /* ── One item: a row ──────────────────────────────────────────────────── */
+  /* ── One item: a row ──────────────────────────────────────────────────────
+     Thread width (capped for full screen); the image a square that scales with
+     the card so it carries the row instead of floating in it; the price at the
+     name's size, since it is the fact the visitor came for. */
   .one {
     display: flex;
-    max-width: 460px;
-    gap: 12px;
+    align-items: flex-start;
+    max-width: 560px;
+    gap: 14px;
     margin: 6px 0;
-    padding: 10px;
+    padding: 12px;
   }
   .one .img {
     flex: none;
-    width: 64px;
-    height: 64px;
+    width: clamp(84px, 24%, 112px);
+    aspect-ratio: 1;
   }
   .one .body {
     flex: 1;
+    align-self: stretch;
+    gap: 6px;
+  }
+  .one .price {
+    font-size: calc(var(--pbf-msg, 15px) - 1px);
+  }
+  .one .ctas {
+    padding-top: 4px;
+  }
+  .one .cta {
+    min-height: 32px;
   }
   .title-row {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 10px;
+    gap: 12px;
   }
 
   /* ── Two or more: a strip ────────────────────────────────────────────────
