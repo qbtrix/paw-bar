@@ -7,8 +7,8 @@
 // empty-state welcome (blank/absent falls back to the default copy).
 // 2026-09-27 (new bar): the optional owner settings the new Paw Bar reads
 // (`ui`, `barTheme`, `radius`, `launcher`, `side`, `barSize`, `logo`,
-// `disclosure`, `privacyHref`, `consentRequired`). The backend sends none of
-// them yet; config.ts defaults every one.
+// `disclosure`, `privacyHref`, `consentRequired`, `voice`). The backend sends
+// none of them yet; config.ts defaults every one.
 // 2026-09-27 (old shell removed): dropped the __PAWBAR_GLASS__ build-time
 // declaration. `ui` stays on the boot shape so frame HTML that still sends it
 // type-checks, but nothing reads it: the new bar is always mounted.
@@ -72,6 +72,8 @@ interface PawBarBootConfig {
   privacyHref?: string;
   /** The site's consent manager says chatting needs consent first. */
   consentRequired?: boolean;
+  /** The dictation mic. Absent or anything but `false` → on. */
+  voice?: boolean;
 }
 
 interface Window {

@@ -1,7 +1,8 @@
 <!--
 loader/README.md — Created 2026-07-15 (A2). Embed + contract reference for the
 Paw Bar glass-bar loader: the tiny script a foreign site pastes in to mount the
-glass concierge iframe.
+glass concierge iframe, the permissions it grants that iframe, and the
+postMessage contract.
 -->
 
 # Paw Bar loader
@@ -31,6 +32,11 @@ concierge. It creates and sizes the launcher iframe; the glass app renders
 The loader mounts a fixed, bottom-right iframe pointing at
 `{endpoint}/paw-bar/frame?key=…&w=…&po=…`, where `po` is the host page origin the
 iframe must post back to.
+
+The iframe carries `allow="clipboard-write; microphone"`: copy for replies, and
+the mic for the bar's dictation button (a cross-origin frame gets neither
+otherwise). The visitor's browser still asks before the mic turns on, and a
+host page whose `Permissions-Policy` denies `microphone` overrides it.
 
 ## postMessage contract
 

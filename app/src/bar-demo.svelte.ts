@@ -27,10 +27,13 @@
 // own state is persisted by the frame under `persistKey`). "Seed history"
 // adds three older conversations; "Ask consent" puts the bar behind the
 // consent step until Accept. The disclosure links a fake privacy policy.
+// The Background control paints the stand-in host page (gradient or any
+// colour, kept in localStorage) and sets the bar's scheme from its brightness,
+// the way lib/scheme.ts resolves it from a real host.
 import { mount, untrack } from 'svelte';
 import PawBarFrame, { type BarMessage } from './components/bar/PawBarFrame.svelte';
 import { SIZE_KEY, type BarLauncher, type BarSide, type BarSize } from './components/bar/PawBar.svelte';
-import { BAR_THEMES, BAR_THEME_IDS } from './lib/bar-themes';
+import { BAR_THEMES, BAR_THEME_IDS, type BarScheme } from './lib/bar-themes';
 import { CONTACT_OFFER, FAILURE_COPY } from './lib/chat-errors';
 import type { Notice } from './store/chat.svelte';
 import { CartStore } from './store/cart.svelte';
@@ -224,10 +227,12 @@ const props = $state({
     syncList();
   },
   logoSrc: DEMO_LOGO,
+  agentName: 'Concierge',
   launcher: 'bar' as BarLauncher,
   side: 'right' as BarSide,
-  size: 'md' as BarSize,
+  size: 'sm' as BarSize,
   theme: 'midnight',
+  scheme: 'dark' as BarScheme,
   radius: undefined as number | undefined,
   restoring: false,
   notice: null as Notice | null,
@@ -347,6 +352,30 @@ for (const tid of BAR_THEME_IDS) {
   themeSelect.add(new Option(t.inspiredBy ? `${t.label} (${t.inspiredBy}-style)` : t.label, tid, false, tid === props.theme));
 }
 
+// ── Host background ─────────────────────────────────────────────────────────
+const BG_KEY = 'pawbar-demo-bg';
+const bgSelect = document.getElementById('bg') as HTMLSelectElement;
+const bgColor = document.getElementById('bg-color') as HTMLInputElement;
+// Relative luminance of a #rrggbb colour, 0 (black) to 1 (white).
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function setBackground(value: string) {
+  const color = /^#[0-9a-f]{6}$/i.test(value) ? value : null;
+  if (color) document.body.style.setProperty('--demo-bg', color);
+  else document.body.style.removeProperty('--demo-bg');
+  // The gradient is dark; a colour is light past mid-grey.
+  props.scheme = color && luminance(color) > 0.4 ? 'light' : 'dark';
+  bgSelect.value = !color ? 'gradient' : [...bgSelect.options].some((o) => o.value === color) ? color : 'custom';
+  if (color) bgColor.value = color;
+  localStorage.setItem(BG_KEY, color ?? 'gradient');
+}
+setBackground(localStorage.getItem(BG_KEY) ?? 'gradient');
+
 let live = mount(PawBarFrame, { target: stage, props });
 
 form.addEventListener('change', (e) => {
@@ -366,10 +395,13 @@ form.addEventListener('change', (e) => {
     });
   } else if (input.name === 'theme') {
     props.theme = input.value;
+  } else if (input.name === 'bg') {
+    setBackground(input.value === 'custom' ? bgColor.value : input.value);
   }
 });
 form.addEventListener('input', (e) => {
   const input = e.target as HTMLInputElement;
+  if (input.name === 'bgcolor') return setBackground(input.value);
   if (input.name !== 'radius') return;
   props.radius = Number(input.value);
   document.getElementById('radius-out')!.textContent = `${input.value}px`;

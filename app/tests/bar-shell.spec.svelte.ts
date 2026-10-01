@@ -76,6 +76,7 @@ function config(extra: Partial<PawBarConfig> = {}): PawBarConfig {
     disclosure: '',
     privacyHref: '',
     consentRequired: false,
+    voice: true,
     ...extra,
   };
 }

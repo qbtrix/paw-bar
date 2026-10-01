@@ -3,6 +3,7 @@
 // as origin + pathname (no query, no hash), the title clipped to 120, and
 // targetOrigin pinned to the frame origin; after load, an SPA navigation
 // (pushState/popstate/title change) re-sends it, and an unchanged page does not.
+// The frame's `allow` grants exactly clipboard-write and microphone (dictation).
 // Updated 2026-09-27: the new bar's two additions: a chip resize with `side`
 // docks the box in that corner (and anything else stays centred), and the
 // frame is told the host viewport on load and on resize, origin pinned.
@@ -940,6 +941,11 @@ test('a frame that declines to render takes the scrim with it', () => {
 
 const FRAME_SANDBOX =
   'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
+
+test('the frame may ask for the clipboard and the mic, nothing else', () => {
+  const window = mount();
+  assert.equal(onlyIframe(window).getAttribute('allow'), 'clipboard-write; microphone');
+});
 
 test('the frame is sandboxed with exactly the agreed flag set', () => {
   const window = mount();

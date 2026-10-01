@@ -12,7 +12,8 @@
 // so any value a backend sends (including 'glass') is ignored.
 // 2026-09-27 (new bar): reads the new bar's owner settings. `barTheme`,
 // `radius`, `launcher`, `side`, `barSize`, `logo`, `disclosure`,
-// `privacyHref` and `consentRequired` style and gate it. The backend sends
+// `privacyHref`, `consentRequired` and `voice` (the dictation mic, on unless
+// the owner sends `false`) style and gate it. The backend sends
 // none of them yet, so each one has a default and an unknown value falls back
 // to it; `logo` and `privacyHref` only accept http(s) or data URLs.
 // 2026-07-16 (D4): added `greeting` — the owner's concierge greeting the frame
@@ -93,6 +94,9 @@ export interface PawBarConfig {
   disclosure: string;
   privacyHref: string;
   consentRequired: boolean;
+  /** The dictation mic in the open card. On unless the owner sends `false`
+   *  (browsers transcribe on their vendor's servers). */
+  voice: boolean;
 }
 
 /** Read a string array off the boot config, dropping anything that isn't a
@@ -188,10 +192,11 @@ export function readConfig(): PawBarConfig {
     radius: typeof boot?.radius === 'number' && Number.isFinite(boot.radius) ? boot.radius : undefined,
     launcher: boot?.launcher === 'icon' ? 'icon' : 'bar',
     side: boot?.side === 'left' ? 'left' : 'right',
-    barSize: boot?.barSize === 'sm' || boot?.barSize === 'lg' ? boot.barSize : 'md',
+    barSize: boot?.barSize === 'md' || boot?.barSize === 'lg' ? boot.barSize : 'sm',
     logo: readImageUrl(boot?.logo) || readImageUrl(boot?.agentAvatar),
     disclosure: typeof boot?.disclosure === 'string' ? boot.disclosure.trim().slice(0, 140) : '',
     privacyHref: readLinkUrl(boot?.privacyHref),
     consentRequired: boot?.consentRequired === true,
+    voice: boot?.voice !== false,
   };
 }

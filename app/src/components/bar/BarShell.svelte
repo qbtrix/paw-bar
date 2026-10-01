@@ -37,6 +37,9 @@
         arrives, or forever under an old loader, the screen's available size
         stands in. Never this window's: this window is the iframe, sized from
         the content, and sizing content against it is a feedback loop.
+  • Owner settings from the boot config (launcher, side, size, theme, tokens,
+    radius, disclosure, privacy link, `voice` for the dictation mic) go
+    straight through to the frame.
   • The agent's conversation starters (config.starters) are not shown
     (captain, 2026-09-27); the bar has no chips for them.
   • The stage sets a system font for the bar to inherit: in the iframe there
@@ -288,6 +291,7 @@
     placeholder={config.launcherLabel || undefined}
     greeting={config.greeting}
     logoSrc={config.logo}
+    agentName={config.agentName}
     launcher={config.launcher}
     side={config.side}
     size={config.barSize}
@@ -297,6 +301,7 @@
     radius={config.radius}
     disclosure={config.disclosure}
     privacyHref={config.privacyHref}
+    voice={config.voice}
   />
 </div>
 

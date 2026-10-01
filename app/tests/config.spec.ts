@@ -7,7 +7,8 @@
 // 2026-09-27 (old shell removed): a boot config that still sends the retired
 // `ui` field ('glass' or anything else) reads cleanly and is ignored.
 // `tokens` and `tokensDark` read as plain string maps, {} when absent or not a
-// map; `launcher`, `side` and `logo` read with their defaults.
+// map; `launcher`, `side` and `logo` read with their defaults. `voice` (the
+// dictation mic) is on unless the boot config sends exactly `false`.
 import { describe, it, expect, afterEach } from 'vitest';
 import { readConfig } from '../src/config';
 
@@ -109,5 +110,21 @@ describe('readConfig — launcher, side, logo', () => {
     expect(config.launcher).toBe('bar');
     expect(config.side).toBe('right');
     expect(config.logo).toBe('');
+  });
+});
+
+describe('readConfig — voice', () => {
+  it('is on by default, including with no boot config at all', () => {
+    setBoot({ ...base });
+    expect(readConfig().voice).toBe(true);
+    delete (window as unknown as { __PAWBAR__?: unknown }).__PAWBAR__;
+    expect(readConfig().voice).toBe(true);
+  });
+
+  it('is off only when the owner sends false', () => {
+    setBoot({ ...base, voice: false });
+    expect(readConfig().voice).toBe(false);
+    setBoot({ ...base, voice: 'no' });
+    expect(readConfig().voice).toBe(true);
   });
 });

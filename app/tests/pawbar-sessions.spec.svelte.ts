@@ -102,6 +102,39 @@ const hover = (target: HTMLElement) => {
 };
 
 describe('conversations (V8)', () => {
+  it('the header + starts a new chat, only once there is a conversation to leave', async () => {
+    const onnewconversation = vi.fn();
+    const { target, props } = frame({ expanded: true, onnewconversation });
+    const plus = () => target.querySelector<HTMLButtonElement>('button[aria-label="New chat"]');
+    expect(plus()).toBeNull();
+    props.messages = [say('u1', 'user', 'hi')];
+    flushSync();
+    plus()!.click();
+    await tick();
+    expect(onnewconversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('the header sits outside the scroller and marks itself once the thread scrolls', () => {
+    const { target, props } = frame({ expanded: true });
+    props.messages = [say('u1', 'user', 'hi')];
+    flushSync();
+    const head = target.querySelector('.frame-head')!;
+    const thread = target.querySelector<HTMLElement>('.thread')!;
+    expect(thread.contains(head)).toBe(false);
+    expect(head.classList.contains('scrolled')).toBe(false);
+    thread.scrollTop = 120;
+    thread.dispatchEvent(new Event('scroll'));
+    flushSync();
+    expect(head.classList.contains('scrolled')).toBe(true);
+  });
+
+  it('no + when the host cannot start a new conversation', () => {
+    const { target, props } = frame({ expanded: true, onopenconversation: vi.fn() });
+    props.messages = [say('u1', 'user', 'hi')];
+    flushSync();
+    expect(target.querySelector('button[aria-label="New chat"]')).toBeNull();
+  });
+
   it('there is no menu; the list icon shows once there is something to list', () => {
     const { target, props } = frame({ expanded: true, onopenconversation: vi.fn(), onnewconversation: vi.fn() });
     expect(target.querySelector('button[aria-label="Chat options"]')).toBeNull();
