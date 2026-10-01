@@ -1,39 +1,16 @@
 // main.ts — Entry point for the Paw Bar iframe app.
-// Created 2026-07-15 (A3 glass bar): reads the window.__PAWBAR__ boot config
-// (dev fallback in config.ts), injects any white-label token overrides as inline
-// CSS vars on the mount root, builds the ChatStore + lifecycle poster, and mounts
-// the GlassShell. Styles are imported here so Vite emits the single pawbar.css.
-// 2026-07-15 (C2): also builds the CartStore for the visitor action loop and
-// passes it to the shell, which provides it to descendant card CTAs via context.
-// 2026-07-16 (D4): threads config.greeting to the shell as a prop so the panel's
-// empty state renders the owner's concierge greeting when set.
-// 2026-07-30 (email capture + articles): builds the ContactStore (pending-
-// decision email prompt) and threads the store config to the shell so the
-// articles view fetches against the same endpoint/widget/key.
-// 2026-08-19 (Messenger): builds the ConversationsStore — the visitor's own
-// conversation list, which the Messages tab reads. It could not exist before
-// the backend gave conversations real identities; until then a visitor had
-// exactly one per widget, forever, and there was nothing to list.
-// 2026-07-30 (human takeover): builds the OperatorStore over the ChatStore —
-// the poll that delivers the site owner's own replies into the thread. It is
-// constructed AFTER the chat store so it seeds its `after` cursor from the
-// restored transcript; the shell starts/stops the loop with the panel.
-// 2026-09-27 (new bar): mounts BarShell, the new Paw Bar, which builds the chat
-// and operator stores itself once chatting is allowed (consent); owner-preview
-// restyling targets its wrapper. The old GlassShell and its global CSS moved
-// to mount-glass.ts and are chosen at BUILD time (`VITE_PAWBAR_UI=glass`), not
-// per site: carrying both shells put the bundle 7KB over its budget, and the
-// old shell's global CSS (box-sizing, a body font from its own tokens, the
-// markdown rules) leaked onto the new bar. In `vite dev` the old dev pages
-// still get it at runtime with `ui: 'glass'`. Cart, contact and conversations
-// touch nothing until used.
-// 2026-09-27 (old shell removed): mounts BarShell unconditionally. The
-// __PAWBAR_GLASS__ build flag, the `ui: 'glass'` dev switch and mount-glass.ts
-// are gone with the old GlassShell; a boot config that still sends `ui` is
-// ignored (config.ts no longer reads it).
-// 2026-09-26 (reply links): calls setLinkBase(config.parentOrigin) before
-// mount, so site-relative links in agent replies (`/returns`) resolve to the
-// host page instead of rendering as dead text (lib/markdown.ts validates it).
+//
+// Reads the window.__PAWBAR__ boot config (dev fallback in config.ts), builds
+// the stores that touch nothing until used (cart, contact, the visitor's
+// conversation list) and the lifecycle poster, and mounts BarShell, which
+// builds the chat and operator stores itself once chatting is allowed. The
+// operator store is built after the chat store so it seeds its cursor from
+// the restored transcript. Styles imported here become the single pawbar.css.
+//
+// Before mount it pins site-relative reply links (`/returns`) to the host page
+// via setLinkBase(config.parentOrigin), and warns once when there is no pinned
+// parent origin, because every loader message is then ignored
+// (lib/from-loader). The owner-preview token listener targets the wrapper.
 import { mount } from 'svelte';
 import { readConfig } from './config';
 import { ChatStore } from './store/chat.svelte';
@@ -44,9 +21,16 @@ import { OperatorStore } from './store/operator.svelte';
 import { createPoster } from './lib/postmessage';
 import { installPreviewTokenListener } from './lib/preview-tokens';
 import { setLinkBase } from './lib/markdown';
+import { isPinnedOrigin } from './lib/from-loader';
 import BarShell from './components/bar/BarShell.svelte';
 
 const config = readConfig();
+
+// No pinned parent origin means the bar ignores every loader message (see
+// lib/from-loader). Say so once, so a missing allowed origin is not silent.
+if (window.parent !== window && !isPinnedOrigin(config.parentOrigin)) {
+  console.warn('[paw-bar] no allowed parent origin; host messages are ignored');
+}
 
 // Site-relative links in agent replies (`/returns`) resolve against the host
 // page. setLinkBase validates it and ignores anything that is not an exact
