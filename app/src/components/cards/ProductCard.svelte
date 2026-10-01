@@ -1,17 +1,24 @@
 <!--
-  ProductCard.svelte — Native glass product cards for a `pawbar-card` block.
-  Created 2026-07-15 (C2 action loop). Renders each item (image / name / price /
-  description) with its allowlisted action CTAs. Every field is a Svelte
-  text/attribute binding — NO HTML injection. CTA clicks post STRUCTURED action events through the cart store
-  (never free text); the server validates + mutates the visitor cart. `checkout`
-  is a handoff to the site's real checkout, opened in the click gesture.
-  2026-08-19: a thumbnail that fails to load removes itself instead of leaving a
-  broken-image box on the customer's own storefront, and decodes off the main
-  thread so a heavy image cannot stall a streaming reply.
+  ProductCard.svelte — Native product cards for a `pawbar-card` block outside the
+  bar's thread (inside it, CardBlock routes to bar/BarCatalog). Renders each
+  item (image / name / price / description) with its allowlisted action CTAs.
+  Every field is a Svelte text/attribute binding: no HTML injection. Prices are
+  ISO 4217 minor units, formatted by lib/money.formatMinor.
+
+  An item with a `url` links its name and image to that page (lib/cards.cardHref:
+  http(s) only, site paths resolve against the host page origin). The link opens
+  a new tab: the frame is sandboxed without top navigation, the same reason
+  checkout and reply links open new tabs.
+
+  CTA clicks post STRUCTURED action events through the cart store (never free
+  text); the server validates + mutates the visitor cart. `checkout` is a
+  handoff to the site's real checkout, opened in the click gesture. A thumbnail
+  that fails to load removes itself, and decodes off the main thread.
 -->
 <script lang="ts">
   import type { CardItem } from '../../lib/cards';
-  import { verbLabel, formatPrice, safeImageUrl } from '../../lib/cards';
+  import { verbLabel, safeImageUrl, cardHref } from '../../lib/cards';
+  import { formatMinor } from '../../lib/money';
   import { useCart } from '../../store/cart.svelte';
 
   let { items }: { items: CardItem[] } = $props();
@@ -70,22 +77,35 @@
   {#each items as item (item.id || item.name)}
     {@const rawImg = item.image_url ?? ''}
     {@const img = brokenImages.has(rawImg) ? '' : safeImageUrl(rawImg)}
+    {@const href = cardHref(item)}
+    {@const price = formatMinor(item.price_cents, item.currency)}
     <article class="card">
-      {#if img}
+      {#snippet thumb()}
         <img
           class="thumb"
           src={img}
-          alt={item.name}
+          alt={href ? '' : item.name}
           loading="lazy"
           decoding="async"
           onerror={() => (brokenImages = new Set(brokenImages).add(rawImg))}
         />
+      {/snippet}
+      {#if img && href}
+        <!-- The name link carries the accessible name; this one is a pointer
+             convenience, out of the tab order and hidden from AT. -->
+        <a class="thumb-link" {href} target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true">{@render thumb()}</a>
+      {:else if img}
+        {@render thumb()}
       {/if}
       <div class="body">
         <div class="titleRow">
-          <span class="name">{item.name}</span>
-          {#if formatPrice(item.price_cents, item.currency)}
-            <span class="price">{formatPrice(item.price_cents, item.currency)}</span>
+          {#if href}
+            <a class="name" {href} target="_blank" rel="noopener noreferrer">{item.name}</a>
+          {:else}
+            <span class="name">{item.name}</span>
+          {/if}
+          {#if price}
+            <span class="price">{price}</span>
           {/if}
         </div>
         {#if item.description}
@@ -153,6 +173,17 @@
     font-size: 14px;
     font-weight: 600;
     line-height: 1.3;
+  }
+  a.name {
+    color: inherit;
+    text-decoration: none;
+  }
+  a.name:hover {
+    text-decoration: underline;
+  }
+  .thumb-link {
+    flex: none;
+    display: block;
   }
   .price {
     flex: none;

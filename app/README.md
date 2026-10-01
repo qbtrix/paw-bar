@@ -124,9 +124,19 @@ markdown parsing and renders as native glass components (Svelte props only):
 ````
 ```pawbar-card
 {"kind":"product","items":[{"id":"espresso","name":"Espresso",
- "price_cents":350,"currency":"USD","image_url":"","actions":["add_to_cart"]}]}
+ "price_cents":350,"currency":"USD","image_url":"","url":"/menu/espresso",
+ "actions":["add_to_cart"]}]}
 ```
 ````
+
+Every amount (`price_cents`, `total_cents`, `line_total_cents`) is in ISO 4217
+**minor units** of its currency; the `_cents` names are historical. `350` USD is
+$3.50, `1500` JPY is ¥1,500, `1250` KWD is 1.250 KWD. `src/lib/money.ts` holds the
+exponent table (shared with pocketpaw and paw-enterprise, pinned by
+`tests/money.spec.ts`) and `formatMinor`. An item's optional `url` (absolute
+http(s), or a site path resolved against the host page origin) links its name
+and image; links open a new tab, since the sandboxed frame can't navigate the
+host page.
 
 A CTA click posts a **structured action event** (never free text) to the action
 endpoints and adopts the server's cart; checkout is a **handoff** to the site's

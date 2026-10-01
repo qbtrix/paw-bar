@@ -1,13 +1,14 @@
-<!-- Test harness: renders a pawbar-card fence body the way the bar's thread does, with a cart store and the thread context provided. Created 2026-09-27 for the spec card tests. -->
+<!-- Test harness: renders a pawbar-card fence body with a cart store, the way the bar's thread does (thread context provided) or, with thread={false}, the way a card outside the thread does (ProductCard). -->
 <script lang="ts">
   import CardBlock from '../../../src/components/cards/CardBlock.svelte';
   import { provideCart, type CartStore } from '../../../src/store/cart.svelte';
   import { provideBarThread } from '../../../src/components/cards/thread';
 
-  let { json, cart }: { json: string; cart?: CartStore } = $props();
+  let { json, cart, thread = true }: { json: string; cart?: CartStore; thread?: boolean } = $props();
   // svelte-ignore state_referenced_locally
   if (cart) provideCart(cart);
-  provideBarThread();
+  // svelte-ignore state_referenced_locally
+  if (thread) provideBarThread();
 </script>
 
 <CardBlock {json} />

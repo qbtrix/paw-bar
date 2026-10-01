@@ -1,23 +1,27 @@
-// cards.ts — Types + safe parse/format helpers for `pawbar-card` fence blocks.
-// Created 2026-07-15 (C2 action loop). Cards are AGENT-AUTHORED JSON on a PUBLIC
-// origin, so this module NEVER trusts a field for HTML: the app renders cards
-// through Svelte text/attribute bindings only. parseCard validates + coerces the JSON and returns null on any
-// shape violation — a malformed or stream-truncated card is routed to a quiet
-// "card unavailable" fallback rather than throwing or leaking raw JSON into the
-// bubble. isRenderable gates the card KIND: only kinds with a native renderer
-// (RENDERABLE_KINDS) draw; an unknown kind (e.g. a future "booking") takes the
-// same fallback instead of being mis-rendered as a product. Contract (frozen,
-// C1/C2):
+// cards.ts — Types + safe parse helpers for `pawbar-card` fence blocks.
+// Cards are AGENT-AUTHORED JSON on a PUBLIC origin, so nothing here is trusted
+// as HTML: the app renders cards through Svelte text/attribute bindings only.
+// parseCard validates + coerces the JSON and returns null on any shape
+// violation, so a malformed or stream-truncated card draws a quiet "card
+// unavailable" fallback instead of throwing or leaking raw JSON. isRenderable
+// gates the KIND: only RENDERABLE_KINDS draw; an unknown kind takes the same
+// fallback rather than being mis-rendered as a product.
+//
+// Product contract (mirrors the server's card hydration):
 //   {"kind":"product","items":[{"id","name","price_cents","currency",
-//    "image_url","actions":["add_to_cart"]}]}
-// 2026-07-30 (form cards): + kind "form" — the agent collects gated-action
-// details through a structured form instead of prose. Contract (frozen, mirrors
-// the concierge preamble):
+//    "image_url","url","description","actions":["add_to_cart"]}]}
+// price_cents is ISO 4217 minor units of `currency` (format with
+// lib/money.formatMinor). `url` survives only as an absolute http(s) URL or a
+// single-slash site path (safeCardUrl); cardHref turns it into a link href.
+//
+// Form contract (mirrors the concierge preamble):
 //   {"kind":"form","verb":"book_visit","title"?, "submit_label"?,
 //    "fields":[{"name","label","type": text|tel|email|number|textarea}]}
 // verb + every field name must match the widget's declared action args
 // (server-validated at execution time); fields are capped at MAX_FORM_FIELDS,
 // and any shape violation routes to the same quiet fallback.
+
+import { safeHref } from './md/links';
 
 export interface CardItem {
   id: string;
@@ -25,6 +29,8 @@ export interface CardItem {
   price_cents?: number;
   currency?: string;
   image_url?: string;
+  /** Product page: absolute http(s) or a site path like `/products/x` (safeCardUrl). */
+  url?: string;
   description?: string;
   /** Allowlisted verbs the card exposes as CTAs; validated server-side per widget. */
   actions: string[];
@@ -82,6 +88,7 @@ export function parseCard(json: string): PawBarCard | null {
       price_cents: typeof r.price_cents === 'number' && Number.isFinite(r.price_cents) ? r.price_cents : undefined,
       currency: typeof r.currency === 'string' ? r.currency : undefined,
       image_url: typeof r.image_url === 'string' ? r.image_url : undefined,
+      url: safeCardUrl(typeof r.url === 'string' ? r.url : undefined) || undefined,
       description: typeof r.description === 'string' ? r.description : undefined,
       // Deduped: ProductCard keys its CTA row on the verb, and a keyed each
       // block with a repeated key is a render-time throw. A card is
@@ -161,16 +168,6 @@ export function verbLabel(verb: string): string {
   return VERB_LABELS[verb] ?? verb.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Format minor currency units to a display price; '' when there's no price. */
-export function formatPrice(cents: number | undefined, currency = 'USD'): string {
-  if (typeof cents !== 'number' || !Number.isFinite(cents)) return '';
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(cents / 100);
-  } catch {
-    return `${(cents / 100).toFixed(2)} ${currency}`;
-  }
-}
-
 /** Only http(s) or a RASTER data-image URL is safe as an untrusted <img src>.
  *  Anything else (javascript:, blob:, data:image/svg+xml, other schemes) → ''
  *  so the card shows a placeholder instead. <img> never executes script, but
@@ -181,4 +178,33 @@ export function safeImageUrl(url: string | undefined): string {
   if (/^https?:\/\//i.test(u)) return u;
   if (/^data:image\/(png|jpe?g|gif|webp|avif);/i.test(u)) return u;
   return '';
+}
+
+/** A product link survives only as an absolute http(s) URL or a site path with
+ *  exactly one leading slash (`/products/x`). Everything else (javascript:,
+ *  data:, mailto:, protocol-relative `//evil`, `/\evil`, bare `products/x`)
+ *  → '' so the card renders without a link. */
+export function safeCardUrl(url: string | undefined): string {
+  if (!url) return '';
+  const u = url.trim();
+  if (/^https?:\/\//i.test(u)) {
+    try {
+      const parsed = new URL(u);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? u : '';
+    } catch {
+      return '';
+    }
+  }
+  // A backslash or control character anywhere is refused: browsers read `\` as
+  // `/`, so `/\evil.example` would otherwise become protocol-relative.
+  if (/^\/(?![/\\])/.test(u) && !/[\x00-\x1f\\]/.test(u)) return u;
+  return '';
+}
+
+/** The href a card item links to, or null for no link. A site path resolves
+ *  against the host page's origin (md/links setLinkBase, set from
+ *  config.parentOrigin at boot) and is dropped when that origin is unknown. */
+export function cardHref(item: CardItem): string | null {
+  const u = safeCardUrl(item.url);
+  return u ? safeHref(u) : null;
 }
