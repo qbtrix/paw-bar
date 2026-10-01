@@ -1,20 +1,20 @@
-// tests/cards.spec.ts — Fence interceptor + card parse/format coverage. Created
-// 2026-07-15 (C2 action loop). Pins that a ```pawbar-card fence is diverted from
-// the markdown path into a `card` segment, that parseCard validates +
-// coerces agent-authored JSON safely (malformed → null, never throws), and that
-// the untrusted-field guards hold (safeImageUrl rejects javascript:/svg).
-// 2026-09-27: prose segments are `md` (a parsed tree), no longer `html`.
-// 2026-07-30 (form cards): + kind:"form" parse coverage — verb/fields required,
-// strict field shape + type allowlist (violation → null → quiet fallback),
-// fields capped at MAX_FORM_FIELDS, optional title/submit_label, renderable.
+// tests/cards.spec.ts — Fence interceptor + card parse coverage. Pins that a
+// ```pawbar-card fence is diverted from the markdown path into an `md`/`card`
+// segment, that parseCard validates + coerces agent-authored JSON safely
+// (malformed → null, never throws), that kind:"form" cards are strict (verb and
+// fields required, field type allowlist, capped at MAX_FORM_FIELDS), and that
+// the untrusted-field guards hold: safeImageUrl rejects javascript:/svg, and
+// safeCardUrl / cardHref keep only http(s) or single-slash site paths.
+// Price formatting lives in lib/money (tests/money.spec.ts).
 import { describe, it, expect } from 'vitest';
-import { parseSegments } from '../src/lib/markdown';
+import { parseSegments, setLinkBase } from '../src/lib/markdown';
 import {
   parseCard,
   isRenderable,
   verbLabel,
-  formatPrice,
   safeImageUrl,
+  safeCardUrl,
+  cardHref,
   MAX_FORM_FIELDS,
 } from '../src/lib/cards';
 
@@ -163,9 +163,50 @@ describe('card helpers', () => {
     expect(verbLabel('join_waitlist')).toBe('Join Waitlist');
   });
 
-  it('formats prices from minor units', () => {
-    expect(formatPrice(350, 'USD')).toContain('3.50');
-    expect(formatPrice(undefined)).toBe('');
+  it('safeCardUrl keeps http(s) and single-slash site paths only', () => {
+    expect(safeCardUrl('https://shop.example/p/1')).toBe('https://shop.example/p/1');
+    expect(safeCardUrl('HTTP://shop.example/p')).toBe('HTTP://shop.example/p');
+    expect(safeCardUrl(' /products/x ')).toBe('/products/x');
+    for (const bad of [
+      'javascript:alert(1)',
+      'data:text/html,<b>x</b>',
+      'mailto:a@b.example',
+      '//evil.example/x',
+      '/\\evil.example',
+      '/a\\b',
+      '/a\tb',
+      'products/x',
+      '#top',
+      'https://',
+      '',
+      undefined,
+    ]) {
+      expect(safeCardUrl(bad), String(bad)).toBe('');
+    }
+  });
+
+  it('parseCard keeps a safe url and drops an unsafe one', () => {
+    const first = (url: unknown) =>
+      parseCard(JSON.stringify({ kind: 'product', items: [{ id: 'a', name: 'A', url }] }))!.items[0];
+    expect(first('/products/a').url).toBe('/products/a');
+    expect(first('https://shop.example/a').url).toBe('https://shop.example/a');
+    expect(first('javascript:alert(1)').url).toBeUndefined();
+    expect(first('//evil.example').url).toBeUndefined();
+    expect(first(42).url).toBeUndefined();
+  });
+
+  it('cardHref resolves a site path against the host page origin, or drops it', () => {
+    const item = { id: 'a', name: 'A', url: '/products/a', actions: [] };
+    try {
+      setLinkBase(null);
+      expect(cardHref(item)).toBeNull();
+      setLinkBase('https://shop.example');
+      expect(cardHref(item)).toBe('https://shop.example/products/a');
+      expect(cardHref({ ...item, url: 'https://other.example/x' })).toBe('https://other.example/x');
+      expect(cardHref({ ...item, url: undefined })).toBeNull();
+    } finally {
+      setLinkBase(null);
+    }
   });
 
   it('safeImageUrl allows http(s)/raster-data and rejects script/svg', () => {

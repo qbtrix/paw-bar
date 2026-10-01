@@ -1,41 +1,34 @@
 <!--
   BarCatalog.svelte — a kind:"product" pawbar-card, drawn inside the new bar's
-  thread. Created 2026-09-27 (Paw Bar states, E3 + catalogs).
-
-  The old shell's ProductCard stacks every item in one column; a site's catalog
-  can hand the agent up to 50 products, and in a small bar that column is a
-  wall. So the bar draws products its own way (CardBlock routes here whenever
-  the card sits in the bar's thread) and ProductCard stays exactly as it was:
+  thread (CardBlock routes here in the bar; SpecProducts reuses it for the
+  `product-card` spec widget). A catalog can hand the agent many products, so:
   • One item: a compact row — thumbnail, name, price, description, CTAs.
   • Two or more: a horizontal strip of tiles (image on top, name clamped to two
     lines, price, CTAs) with scroll-snap. The scrollbar is hidden rather than
-    reserved, so it never flickers; swipe on touch, and on hover-capable
-    devices "Previous products" / "Next products" buttons at the edges, hidden
-    at the ends. Keyboard focus scrolls a tile into view (native).
-  • More than six: the first six plus a "Show all N" tile that expands the card
-    into a wrapping grid, inline. Full screen (.frame-wrap[data-full]) always
-    lays them out as the full grid.
-  • Tiles: a quiet placeholder block while an image loads; a missing or broken
-    image becomes the product's initial, never a broken-image icon; no price,
-    no price line. A CTA's pending state is that button's alone (spinner over
-    the hidden label, so its width is locked), then "Added ✓", or one error
-    line under that tile.
-  • Checkout opens a new tab (the frame is sandboxed: no top navigation), via
-    CartStore.openCheckout, the one path every checkout button shares.
+    reserved; swipe on touch, and on hover-capable devices "Previous products" /
+    "Next products" buttons at the edges, hidden at the ends.
+  • More than six: the first six plus a "Show all N" tile that expands into a
+    wrapping grid, inline. Full screen (.frame-wrap[data-full]) always shows
+    the full grid.
+  • Tiles: a quiet placeholder while an image loads; a missing or broken image
+    becomes the product's initial; no price, no price line. A CTA's pending
+    state is that button's alone, then "Added ✓", or one error line.
+  • Prices are ISO 4217 minor units, formatted by lib/money.formatMinor.
+  • An item with a `url` links its name and image to that page
+    (lib/cards.cardHref: http(s) only, site paths resolve against the host page
+    origin). Links and checkout open a new tab: the frame is sandboxed without
+    top navigation. Checkout goes through CartStore.openCheckout.
 
   Every field is a Svelte text/attribute binding: no HTML injection, and image
   URLs pass lib/cards.safeImageUrl. Nothing in here is a live region; the
-  thread (role=log) already announces the card as an addition. Colours, radii
-  and borders come only from var(--pawbar-*, fallback) in the thread's inks
-  (--pawbar-frame-fg), never declared here.
-
-  2026-09-27 (old shell removed): the matchMedia note in page() no longer
-  cites the old shell as a CardBlock consumer.
+  thread (role=log) already announces the card. Colours, radii and borders come
+  only from var(--pawbar-*, fallback) in the thread's inks.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
   import type { CardItem } from '../../lib/cards';
-  import { verbLabel, formatPrice, safeImageUrl } from '../../lib/cards';
+  import { verbLabel, safeImageUrl, cardHref } from '../../lib/cards';
+  import { formatMinor } from '../../lib/money';
   import { useCart } from '../../store/cart.svelte';
 
   let { items }: { items: CardItem[] } = $props();
@@ -115,14 +108,27 @@
     expanded = true;
     await tick();
     // Hand focus to the first tile that just appeared, not back to the top.
-    listEl?.querySelectorAll('li')[PREVIEW]?.querySelector<HTMLElement>('button')?.focus();
+    listEl?.querySelectorAll('li')[PREVIEW]?.querySelector<HTMLElement>('a, button')?.focus();
   }
 </script>
 
 {#snippet thumb(item: CardItem)}
   {@const raw = item.image_url ?? ''}
   {@const src = broken.has(raw) ? '' : safeImageUrl(raw)}
-  <div class="img" class:empty={!src} class:ready={!!src && loaded.has(src)}>
+  {@const href = cardHref(item)}
+  <!-- As a link it is a pointer convenience: out of the tab order and hidden
+       from AT, because the name link right below carries the same target. -->
+  <svelte:element
+    this={href ? 'a' : 'div'}
+    class="img"
+    class:empty={!src}
+    class:ready={!!src && loaded.has(src)}
+    href={href ?? undefined}
+    target={href ? '_blank' : undefined}
+    rel={href ? 'noopener noreferrer' : undefined}
+    tabindex={href ? -1 : undefined}
+    aria-hidden={href ? 'true' : undefined}
+  >
     {#if src}
       <img
         {src}
@@ -135,7 +141,16 @@
     {:else}
       <span class="initial" aria-hidden="true">{initial(item.name)}</span>
     {/if}
-  </div>
+  </svelte:element>
+{/snippet}
+
+{#snippet nameLink(item: CardItem, clamp: boolean)}
+  {@const href = cardHref(item)}
+  {#if href}
+    <a class="name" class:clamp {href} target="_blank" rel="noopener noreferrer">{item.name}</a>
+  {:else}
+    <span class="name" class:clamp>{item.name}</span>
+  {/if}
 {/snippet}
 
 {#snippet ctas(item: CardItem, i: number)}
@@ -164,12 +179,12 @@
 
 {#if items.length === 1}
   {@const item = items[0]}
-  {@const price = formatPrice(item.price_cents, item.currency)}
+  {@const price = formatMinor(item.price_cents, item.currency)}
   <article class="one">
     {@render thumb(item)}
     <div class="body">
       <div class="title-row">
-        <span class="name">{item.name}</span>
+        {@render nameLink(item, false)}
         {#if price}<span class="price">{price}</span>{/if}
       </div>
       {#if item.description}<p class="desc">{item.description}</p>{/if}
@@ -180,11 +195,11 @@
   <div class="catalog" class:grid={expanded}>
     <ul class="list" role="list" aria-label="Products" bind:this={listEl} onscroll={measure}>
       {#each items as item, i (i)}
-        {@const price = formatPrice(item.price_cents, item.currency)}
+        {@const price = formatMinor(item.price_cents, item.currency)}
         <li class="tile" class:extra={i >= PREVIEW}>
           {@render thumb(item)}
           <div class="body">
-            <span class="name clamp">{item.name}</span>
+            {@render nameLink(item, true)}
             {#if price}<span class="price">{price}</span>{/if}
             {@render ctas(item, i)}
           </div>
@@ -228,6 +243,13 @@
     font-size: calc(var(--pbf-msg, 15px) - 1px);
     font-weight: 600;
     line-height: 1.3;
+  }
+  a.name {
+    color: inherit;
+    text-decoration: none;
+  }
+  a.name:hover {
+    text-decoration: underline;
   }
   .price {
     flex: none;
