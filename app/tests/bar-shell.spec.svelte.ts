@@ -11,6 +11,9 @@
 // The owner's look reaches the frame: `tokensDark` over `tokens` only when the
 // scheme resolves dark, and `launcher`/`side`/`logo` land on the stage, the
 // loader's resize report and the pill.
+// Page actions: pawbar:act-result reaches the runner only from parentOrigin,
+// and never when parentOrigin is empty; a pawbar:page a navigate was heading
+// for opens the bar on "Here's the page".
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 
@@ -33,6 +36,7 @@ import { CartStore } from '../src/store/cart.svelte';
 import { ContactStore } from '../src/store/contact.svelte';
 import { ConversationsStore } from '../src/store/conversations.svelte';
 import type { PawBarConfig } from '../src/config';
+import type { ActionRunner } from '../src/lib/page-actions';
 
 let live: ReturnType<typeof mount> | null = null;
 beforeEach(() => {
@@ -103,11 +107,12 @@ function fakeChat() {
     switchTo: vi.fn(),
     reset: vi.fn(),
     adoptConversation: vi.fn(),
+    arrived: vi.fn((_url: string) => false),
   });
   return chat;
 }
 
-function shell(extra: Partial<PawBarConfig> = {}) {
+function shell(extra: Partial<PawBarConfig> = {}, actions?: ActionRunner) {
   const target = document.createElement('div');
   document.body.append(target);
   const poster = {
@@ -120,6 +125,7 @@ function shell(extra: Partial<PawBarConfig> = {}) {
     dragEnd: vi.fn(),
     overlay: vi.fn(),
     bar: vi.fn(),
+    act: vi.fn(() => true),
   };
   const chat = fakeChat();
   const operator = { start: vi.fn(), startClosed: vi.fn(), stop: vi.fn() };
@@ -133,6 +139,7 @@ function shell(extra: Partial<PawBarConfig> = {}) {
       contact: new ContactStore(storeConfig),
       conversations: new ConversationsStore(storeConfig),
       createChat,
+      actions,
     },
   });
   flushSync();
@@ -279,5 +286,50 @@ describe("the owner's look reaches the frame", () => {
     const { target } = shell({ logo: 'https://cdn.test/logo.png' });
     expect(q(target, '.stage')!.dataset.anchor).toBe('center');
     expect(q<HTMLImageElement>(target, 'img.brand')?.getAttribute('src')).toBe('https://cdn.test/logo.png');
+  });
+});
+
+describe('page actions', () => {
+  const parent = {} as Window;
+  function fromParent(origin: string, data: unknown) {
+    const ev = new MessageEvent('message', { origin, data });
+    Object.defineProperty(ev, 'source', { value: parent });
+    window.dispatchEvent(ev);
+    flushSync();
+  }
+  beforeEach(() => {
+    vi.spyOn(window, 'parent', 'get').mockReturnValue(parent);
+  });
+  afterEach(() => vi.restoreAllMocks());
+  const runner = () => ({ run: vi.fn<ActionRunner['run']>(), receive: vi.fn<ActionRunner['receive']>() });
+  const result = { type: 'pawbar:act-result', id: 'a1', ok: true };
+
+  it('hands act-result to the runner only from parentOrigin', () => {
+    const actions = runner();
+    shell({}, actions);
+    fromParent('http://evil.test', result);
+    expect(actions.receive).not.toHaveBeenCalled();
+    fromParent('http://host.test', result);
+    expect(actions.receive).toHaveBeenCalledWith(result);
+  });
+
+  it('ignores act-result when parentOrigin is empty (fail closed)', () => {
+    const actions = runner();
+    shell({ parentOrigin: '' }, actions);
+    fromParent('http://host.test', result);
+    fromParent('', result);
+    expect(actions.receive).not.toHaveBeenCalled();
+  });
+
+  it('opens on the page a navigate was heading for', () => {
+    // A pinned (open) bar runs the fast operator poll; a closed one the slow.
+    const { chat, operator } = shell();
+    chat.arrived.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    fromParent('http://host.test', { type: 'pawbar:page', url: 'http://host.test/other', title: 'Other' });
+    expect(chat.arrived).toHaveBeenCalledWith('http://host.test/other');
+    expect(operator.start).not.toHaveBeenCalled();
+    fromParent('http://host.test', { type: 'pawbar:page', url: 'http://host.test/boots/', title: 'Boots' });
+    expect(chat.arrived).toHaveBeenLastCalledWith('http://host.test/boots/');
+    expect(operator.start).toHaveBeenCalled();
   });
 });

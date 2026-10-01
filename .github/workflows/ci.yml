@@ -80,6 +80,26 @@ jobs:
       - name: Size
         run: bun run size:loader
 
+  actions:
+    name: Page actions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Same pin as the loader job (root bun.lock only).
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Types
+        run: bun run typecheck:actions
+      - name: Build
+        run: bun run build:actions
+      # Like the loader, the tests run the shipped dist/actions.js.
+      - name: Tests
+        run: bun run test:actions
+      - name: Size
+        run: bun run size:actions
+
   sandbox:
     name: Frame sandbox (3 browsers)
     runs-on: ubuntu-latest

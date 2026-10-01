@@ -16,8 +16,10 @@
 //
 // Frames: `chunk` (text deltas only; typed non-text chunks never reach a
 // public reply), `stream_end`, optional `sources` ({sources:[…]} or the v2
-// {items:[…]}, both through lib/sources), `human_replying` (owner took over;
-// not terminal), and `error` / `interrupted`. A body that ends without a
+// {items:[…]}, both through lib/sources), optional `action` ({action:{do, to?,
+// target?, label}}, at most one, before stream_end, through
+// lib/page-actions.sanitizeAction), `human_replying` (owner took over; not
+// terminal), and `error` / `interrupted`. A body that ends without a
 // terminal frame still finalizes with onEnd({}).
 //
 // Failures reach onError as a structured RawFailure (lib/chat-errors), never
@@ -30,6 +32,7 @@ import { createSseParser, type SseFrame } from './sse';
 import { sanitizeSources, type Source } from './sources';
 import type { RawFailure } from './chat-errors';
 import { getHostPage } from './host-page';
+import { sanitizeAction, type PageAction } from './page-actions';
 
 export interface ConciergeChatConfig {
   endpoint: string;
@@ -54,6 +57,9 @@ export interface ChatCallbacks {
   // Optional: the reply's source citations (`sources` frame, before
   // stream_end). Absent frame or absent callback — nothing happens.
   onSources?: (sources: Source[]) => void;
+  // Optional: the one page action the reply suggests (`action` frame, before
+  // stream_end), already sanitized. Run only after the reply ends.
+  onAction?: (action: PageAction) => void;
   // Optional: a human has taken over, so this turn carries no assistant text
   // (`human_replying` frame). The line is customer-facing copy; '' when the
   // frame omits it.
@@ -137,6 +143,11 @@ export function dispatchFrame(frame: SseFrame, cb: ChatCallbacks): boolean {
       // v2 servers name the list `items` ({id,title,url}); `id` is dropped.
       const sources = sanitizeSources(data?.sources ?? data?.items);
       if (sources.length > 0) cb.onSources?.(sources);
+      return true;
+    }
+    case 'action': {
+      const action = sanitizeAction(safeParse(frame.data)?.action);
+      if (action) cb.onAction?.(action);
       return true;
     }
     case 'human_replying': {

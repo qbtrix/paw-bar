@@ -42,6 +42,11 @@
 //     {type:"pawbar:host-pointerdown"} — no coordinates, no target, nothing
 //     about the host page crosses the boundary, and nothing is sent at all
 //     while it is off.
+//   {type:"pawbar:act", id, do, to?, target?, label}   a concierge page action
+//     for the host page's actions.js (lib/page-actions builds it). Unlike the
+//     lifecycle hints this one reports whether it went: act() returns false
+//     when there is no parent or no parentOrigin, because an empty origin must
+//     never carry a command (postMessage would throw on it anyway).
 
 export interface PawBarPoster {
   /** `side` docks an icon launcher in its corner (a loader that predates it
@@ -63,6 +68,8 @@ export interface PawBarPoster {
    *  width — see the protocol note at the top of this file for why that
    *  distinction is the difference between this working and clipping. */
   bar(compact: boolean, expanded: boolean): void;
+  /** Send a `pawbar:act` page action. False when it could not be sent. */
+  act(message: Record<string, unknown>): boolean;
 }
 
 export function createPoster(parentOrigin: string): PawBarPoster {
@@ -114,6 +121,15 @@ export function createPoster(parentOrigin: string): PawBarPoster {
     },
     bar(compact: boolean, expanded: boolean) {
       post({ type: 'pawbar:bar', compact, expanded });
+    },
+    act(message: Record<string, unknown>) {
+      if (!target || !parentOrigin || message.type !== 'pawbar:act') return false;
+      try {
+        target.postMessage(message, parentOrigin);
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 }

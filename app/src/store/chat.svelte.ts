@@ -1,4 +1,10 @@
 // chat.svelte.ts — Svelte 5 runes store over the concierge SSE contract.
+// Page actions: a reply's one `action` frame (lib/page-actions) is held until
+// stream_end, then attached to the reply as `Message.action` and handed to
+// `config.runAction` (the host page's actions.js, via BarShell). Its state
+// drives the line under the reply; a navigate writes the arrival marker first,
+// and arrived(url) turns it into "Here's the page" after the page loads. No
+// runner, or no host script answering, leaves a navigate as a link to open.
 // Updated 2026-09-27 (paw-bar states: failures, C5, C2, C11; specs
 // docs/design/drafts/2026-09-27-paw-bar-states-ux-failures.md §10 and
 // ...-ux-conversation.md). The raw `error` string is GONE: it carried transport
@@ -89,6 +95,14 @@ import { getCustomerRef } from '../lib/customer-ref';
 import { laterAt, operatorMessageId, type OperatorMessage } from '../lib/operator-poll';
 import type { Source } from '../lib/sources';
 import {
+  clearArrival,
+  saveArrival,
+  takeArrival,
+  type ActResult,
+  type PageAction,
+  type PageActionState,
+} from '../lib/page-actions';
+import {
   fetchConversationMessages,
   openConversation,
   type WireTurn,
@@ -131,6 +145,8 @@ export interface Message {
   failure?: FailureKind;
   // The visitor pressed Stop and the reply kept its partial text (C5).
   stopped?: boolean;
+  // The page action this reply took, and where it stands.
+  action?: PageAction & { state: PageActionState };
 }
 
 /** The one line near the input. `action: 'contact'` = offer "Leave your email". */
@@ -173,6 +189,8 @@ export interface ChatStoreConfig {
   endpoint: string;
   widgetId: string;
   siteKey: string;
+  /** Performs a page action on the host page (lib/page-actions runner). */
+  runAction?: (action: PageAction) => Promise<ActResult>;
 }
 
 function newId(): string {
@@ -598,6 +616,7 @@ export class ChatStore {
     // Set by the human_replying frame: this turn legitimately produces no
     // assistant text because a person is answering instead.
     let humanReplying = false;
+    let action: PageAction | null = null;
     let result: SendResult = { ok: true };
 
     const clientConfig = await this.#clientConfig();
@@ -614,6 +633,10 @@ export class ChatStore {
           // Arrives (at most once) before stream_end; persisted by onEnd.
           const m = this.#assistant(assistantId);
           if (m) m.sources = sources;
+        },
+        onAction: (a) => {
+          // Held until stream_end: the reply is complete and saved first.
+          action ??= a;
         },
         onHumanReplying: (line) => {
           // The owner has taken over: the bot stays silent by design. Drop the
@@ -636,13 +659,18 @@ export class ChatStore {
             if (m.content) {
               m.status = 'done';
               if (info.cancelled) m.stopped = true;
+              else if (action && !humanReplying && this.#controller === controller) {
+                m.action = { ...action, state: 'pending' };
+              }
             } else if (info.cancelled || humanReplying) {
               this.messages = this.messages.filter((x) => x.id !== assistantId);
             } else if (this.#controller === controller) {
               result = this.#fail(userId, assistantId, { source: 'empty' });
             }
           }
+          const started = m?.action?.state === 'pending' ? action : null;
           this.#finish(controller);
+          if (started) this.#perform(assistantId, started);
           this.#persist();
         },
         onError: (raw) => {
@@ -731,6 +759,49 @@ export class ChatStore {
 
   /** Look up the streaming assistant turn by id and return the REACTIVE array
    *  element (a $state proxy), so mutating it fires reactivity for the UI. */
+  /** Run a reply's page action and record how it went. */
+  #perform(id: string, action: PageAction): void {
+    const widgetId = this.#config.widgetId;
+    const navigate = action.do === 'navigate';
+    const set = (state: PageActionState | null) => {
+      const m = this.#assistant(id);
+      if (!m?.action || m.action.state === 'arrived') return;
+      if (state) m.action.state = state;
+      else delete m.action;
+      this.#persist();
+    };
+    const run = this.#config.runAction;
+    if (!run) {
+      set(navigate ? 'fallback' : null);
+      return;
+    }
+    if (navigate && action.to) saveArrival(widgetId, { conversationId: this.conversationId, to: action.to });
+    void run(action).then((res) => {
+      if (res.ok) return set('done');
+      if (navigate) clearArrival(widgetId);
+      // No host script: a page link is still useful, a scroll is not.
+      if (res.error === 'no_host') set(navigate ? 'fallback' : null);
+      else set('failed');
+    });
+  }
+
+  /** The host page is now `url`. When a navigate from this conversation was
+   *  heading there, its line becomes "Here's the page". True when it did. */
+  arrived(url: string): boolean {
+    const marker = takeArrival(this.#config.widgetId, url);
+    if (!marker) return false;
+    if (marker.conversationId && this.conversationId && marker.conversationId !== this.conversationId) return false;
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const a = this.messages[i].action;
+      if (a?.do === 'navigate' && a.to === marker.to) {
+        a.state = 'arrived';
+        this.#persist();
+        return true;
+      }
+    }
+    return false;
+  }
+
   #assistant(id: string): Message | undefined {
     return this.messages.find((m) => m.id === id);
   }

@@ -548,3 +548,31 @@ describe('PawBar input states', () => {
     expect(onready).toHaveBeenCalledOnce();
   });
 });
+
+describe('page action lines under a reply', () => {
+  const reply = (action: BarMessage['action']): BarMessage => ({ ...say('a1', 'assistant', 'Here they are.'), action });
+
+  it('says where it is taking the visitor, then that they arrived', () => {
+    const to = 'https://shop.example.com/products/cairn-boot';
+    const { target, props } = frame({ expanded: true, messages: [say('u1', 'user', 'boots?'), reply({ do: 'navigate', to, label: 'Cairn boot', state: 'pending' })] });
+    expect(target.textContent).toContain('Taking you to Cairn boot');
+    props.messages = [say('u1', 'user', 'boots?'), reply({ do: 'navigate', to, label: 'Cairn boot', state: 'arrived' })];
+    flushSync();
+    expect(target.textContent).toContain("Here's the page");
+    expect(target.textContent).not.toContain('Taking you to');
+  });
+
+  it('offers a new-tab link when the site has no actions script', () => {
+    const to = 'https://shop.example.com/products/cairn-boot';
+    const { target } = frame({ expanded: true, messages: [reply({ do: 'navigate', to, label: 'Cairn boot', state: 'fallback' })] });
+    const link = [...target.querySelectorAll('a')].find((a) => a.textContent?.includes('Open Cairn boot'))!;
+    expect(link.getAttribute('href')).toBe(to);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it("says it couldn't find a section", () => {
+    const { target } = frame({ expanded: true, messages: [reply({ do: 'highlight', target: '#returns', label: 'Returns', state: 'failed' })] });
+    expect(target.textContent).toContain("I couldn't find that on this page");
+  });
+});

@@ -38,10 +38,15 @@
 // reply the visitor stopped with partial text. Plus a per-conversation handoff
 // flag (loadHandoff / saveHandoff) so "Waiting for the team" survives a reload.
 // A row that predates these simply reads as it did before.
+// An assistant turn's page `action` ({do, to?, target?, label, state}) persists
+// too, so "Taking you to …" survives the navigation it causes and can become
+// "Here's the page". Loading re-sanitizes it (lib/page-actions) and settles a
+// 'pending' state to 'done': nothing is in flight after a reload.
 
 import type { Message, MessageRole } from '../store/chat.svelte';
 import type { FailureKind } from './chat-errors';
 import { sanitizeSources } from './sources';
+import { sanitizeAction, type PageActionState } from './page-actions';
 
 // 2026-08-19 (conversation identity): the row is keyed per CONVERSATION, not
 // per widget. A visitor may now hold several, and the Messages tab lets them
@@ -71,10 +76,18 @@ export const TRANSCRIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface StoredTranscript {
   saved_at: number;
-  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status' | 'sources' | 'at' | 'failure' | 'stopped'>>;
+  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status' | 'sources' | 'at' | 'failure' | 'stopped' | 'action'>>;
 }
 
 const ROLES: readonly MessageRole[] = ['user', 'assistant', 'owner', 'system'];
+const ACTION_STATES: readonly PageActionState[] = ['done', 'failed', 'arrived', 'fallback'];
+
+function restoreAction(raw: unknown): Message['action'] | undefined {
+  const action = sanitizeAction(raw);
+  if (!action) return undefined;
+  const state = (raw as { state?: unknown }).state as PageActionState;
+  return { ...action, state: ACTION_STATES.includes(state) ? state : 'done' };
+}
 
 function key(widgetId: string, conversationId = ''): string {
   return `${KEY_PREFIX}${widgetId}.${conversationId || 'active'}`;
@@ -187,6 +200,7 @@ export function loadTranscript(widgetId: string, conversationId = ''): Message[]
       const sources = role === 'assistant' ? sanitizeSources(m.sources) : [];
       // The poll cursor only means anything for the human half of the thread.
       const at = (role === 'owner' || role === 'system') && typeof m.at === 'string' ? m.at : '';
+      const action = role === 'assistant' ? restoreAction(m.action) : undefined;
       out.push({
         id: typeof m.id === 'string' && m.id ? m.id : `m-restored-${out.length}`,
         role,
@@ -198,6 +212,7 @@ export function loadTranscript(widgetId: string, conversationId = ''): Message[]
         ...(at ? { at } : {}),
         ...(m.status === 'error' && FAILURES.includes(m.failure as FailureKind) ? { failure: m.failure } : {}),
         ...(m.stopped === true ? { stopped: true } : {}),
+        ...(action ? { action } : {}),
       });
     }
     return out.slice(-TRANSCRIPT_CAP);
@@ -224,6 +239,7 @@ export function saveTranscript(widgetId: string, messages: Message[], conversati
       ...(m.at ? { at: m.at } : {}),
       ...(m.failure ? { failure: m.failure } : {}),
       ...(m.stopped ? { stopped: true } : {}),
+      ...(m.action ? { action: { ...m.action } } : {}),
     }));
   try {
     if (terminal.length === 0) {
