@@ -227,7 +227,6 @@ const props = $state({
     syncList();
   },
   logoSrc: DEMO_LOGO,
-  agentName: 'Concierge',
   launcher: 'bar' as BarLauncher,
   side: 'right' as BarSide,
   size: 'sm' as BarSize,

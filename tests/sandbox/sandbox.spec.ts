@@ -228,7 +228,7 @@ test('the loader iframe carries the exact sandbox, and the frame response the CS
   const frameResponse = page.waitForResponse((r) => r.url().includes('/paw-bar/frame'));
   await openHost(page, servers);
   await expect(page.locator('iframe')).toHaveAttribute('sandbox', FRAME_SANDBOX);
-  await expect(page.locator('iframe')).toHaveAttribute('allow', 'clipboard-write');
+  await expect(page.locator('iframe')).toHaveAttribute('allow', 'clipboard-write; microphone');
   const res = await frameResponse;
   expect(await res.headerValue('content-security-policy')).toBe(`sandbox ${FRAME_SANDBOX}`);
   // Cross-origin, like production.
