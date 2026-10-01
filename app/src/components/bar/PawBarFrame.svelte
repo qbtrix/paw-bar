@@ -50,12 +50,18 @@
   cap, message type and corner radius with it, and aligns the surface and the
   credit to the icon launcher's corner.
 
-  2026-09-27 (full screen + bigger sizes): binds PawBar's `fullscreen`. On,
-  the wrapper covers the viewport over a blurred scrim (--pawbar-scrim), the
-  frame fills it, the thread takes every row above the input and scrolls, and
-  its text sits in the same reading column as the card. The thread's spring
-  height is dropped while full screen, because the layout, not the content,
-  decides its height there. Thread caps and message type grew with the sizes.
+  FULL SCREEN binds PawBar's `fullscreen` and turns the bar into a full-page
+  chat. The wrapper covers the viewport as ONE opaque surface
+  (--pawbar-full-bg, else the frame's colour, layered over --pawbar-scrim and
+  a heavy blur, so it reads as a page on any host); the frame inside it drops
+  its own box (no radius, border, fill or padding). A header spans the page:
+  the site's logo and `agentName` on the left (full screen only), the actions
+  on the right, a hairline under it. Messages and the composer share one
+  centred column (--pawbar-full-width, 720px) with page-side padding on narrow
+  screens; message type steps up to 16px / 1.6. A short thread sits at the
+  bottom of the scroller, just above the composer, and the credit line sits
+  under the composer on the page. The thread's spring height is dropped here,
+  because the layout, not the content, decides its height.
 
   2026-09-27 (themes): `theme` picks a preset from lib/bar-themes (Default,
   Midnight, Geist, Indigo, Paper, Glass) and `tokens` overrides any --pawbar-*
@@ -261,6 +267,7 @@
     expanded = $bindable(false),
     logo,
     logoSrc = '',
+    agentName = 'Chat',
     poweredBy = true,
     poweredByHref = '',
     launcher = 'bar',
@@ -312,6 +319,8 @@
     logo?: Snippet;
     /** The site's brand logo, shown in the resting pill. */
     logoSrc?: string;
+    /** The assistant's name, the full-screen page's title. */
+    agentName?: string;
     /** The "Powered by Paw Sites" line under the open bar. */
     poweredBy?: boolean;
     poweredByHref?: string;
@@ -622,6 +631,13 @@
   export function closeChat() {
     void bar?.closeChat();
   }
+
+  // The header's logo in full screen: the pill's, with the same fallback.
+  let logoFailed = $state(false);
+  $effect(() => {
+    void logoSrc;
+    logoFailed = false;
+  });
 
   async function toggleFull() {
     fullscreen = !fullscreen;
@@ -957,6 +973,31 @@
 <div class="frame" class:open={showThread} class:surface>
   {#if showThread && !history}
     <div class="frame-head" class:scrolled transition:slide={soft}>
+      {#if fullscreen}
+        <!-- The page's identity: the site's own logo (the pill's), and the
+             assistant's name. Full screen only; the card stays as it was. -->
+        <div class="head-brand">
+          <span class="head-logo" aria-hidden="true">
+            {#if logo}
+              {@render logo()}
+            {:else if logoSrc && !logoFailed}
+              <img src={logoSrc} alt="" decoding="async" onerror={() => (logoFailed = true)} />
+            {:else}
+              <!-- Lucide "paw-print" (ISC licence), as on the pill. -->
+              <span class="head-mark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="4" r="2" />
+                  <circle cx="18" cy="8" r="2" />
+                  <circle cx="20" cy="16" r="2" />
+                  <path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z" />
+                </svg>
+              </span>
+            {/if}
+          </span>
+          <h2 class="head-title">{agentName || 'Chat'}</h2>
+        </div>
+        <span class="head-gap"></span>
+      {/if}
       {#if canList}
         <button type="button" class="head-btn" aria-label="Your conversations" title="Your conversations" onclick={showConversations}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -972,7 +1013,7 @@
           </svg>
         </button>
       {/if}
-      <span class="head-gap"></span>
+      {#if !fullscreen}<span class="head-gap"></span>{/if}
       {#if expandable || fullscreen}
         <button
           type="button"
@@ -1311,6 +1352,8 @@
     --pbf-s4: calc(var(--pbf-u) * 4);
     --pbf-s6: calc(var(--pbf-u) * 6);
     --pbf-gap: var(--pawbar-gap, var(--pbf-s2));
+    /* A reply's action row (Copy, Sources): the buttons' height. */
+    --pbf-foot: 28px;
   }
   .frame-wrap[data-size='sm'] {
     --pbf-space: 3.5px;
@@ -1331,18 +1374,45 @@
     --pbf-radius: calc(var(--pawbar-launcher-size, var(--pbf-launch)) / 2);
   }
 
-  /* ── Full screen ───────────────────────────────────────────────────────── */
+  /* ── Full screen: a full-page chat ─────────────────────────────────────
+     One opaque surface over the whole viewport: the page colour
+     (--pawbar-full-bg, else the frame's own) layered over the scrim and a
+     heavy blur, so even a translucent theme reads as a page on any host. The
+     frame inside drops its box; the header spans the page; the thread and the
+     composer share one centred column (--pbf-col) with page-side padding
+     (--pbf-side) on narrow screens. */
   .frame-wrap[data-full] {
+    --pbf-msg: 16px;
+    --pbf-meta: 13.5px;
+    --pbf-col: var(--pawbar-full-width, 720px);
+    --pbf-side: var(--pbf-s4);
     position: fixed;
     inset: 0;
     z-index: 2147483000;
-    align-items: center;
-    padding: 24px;
+    align-items: stretch;
+    padding: 0;
     box-sizing: border-box;
-    background: var(--pawbar-scrim, rgb(12 12 16 / 0.35));
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
+    background:
+      linear-gradient(
+        var(--pawbar-full-bg, var(--pawbar-frame-bg, rgb(38 38 44 / 0.55))),
+        var(--pawbar-full-bg, var(--pawbar-frame-bg, rgb(38 38 44 / 0.55)))
+      ),
+      var(--pawbar-scrim, rgb(12 12 16 / 0.35));
+    -webkit-backdrop-filter: blur(40px) saturate(1.2);
+    backdrop-filter: blur(40px) saturate(1.2);
     animation: pbf-full-in 200ms ease-out;
+  }
+  /* Where relative colours work: the frame's own colour made opaque (the
+     explicit `/ 1`: relative syntax otherwise keeps the source alpha), so the
+     page is solid on every host, with --pawbar-full-bg (if set) over it. */
+  @supports (color: rgb(from red r g b)) {
+    .frame-wrap[data-full] {
+      background:
+        linear-gradient(var(--pawbar-full-bg, transparent), var(--pawbar-full-bg, transparent)),
+        rgb(from var(--pawbar-frame-bg, rgb(38 38 44)) r g b / 1);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
   }
   @keyframes pbf-full-in {
     from {
@@ -1354,16 +1424,16 @@
       animation: none;
     }
   }
-  @media (max-width: 480px) {
-    .frame-wrap[data-full] {
-      padding: 12px;
-    }
-  }
   .frame-wrap[data-full] .frame {
     flex: 1;
     min-height: 0;
-    width: min(1100px, 100%);
+    width: 100%;
     box-sizing: border-box;
+    padding: 0;
+    border: none;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
   .frame-wrap[data-full] .thread-box {
     flex: 1;
@@ -1371,14 +1441,38 @@
     display: flex;
     flex-direction: column;
   }
+  /* A column flex scroller: the thread's content gets `margin-top: auto`, so
+     a short conversation sits at the bottom, just above the composer, and a
+     long one still scrolls from the top (justify-content: flex-end would cut
+     its top off instead). */
   .frame-wrap[data-full] .thread {
     flex: 1;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
   .frame-wrap[data-full] .thread-inner {
-    max-width: var(--pawbar-full-width, 760px);
+    flex: none;
+    max-width: calc(var(--pbf-col) + var(--pbf-side) * 2);
     margin-inline: auto;
-    padding-top: 20px;
+    padding: var(--pbf-s6) var(--pbf-side) var(--pbf-s4);
+    /* One rhythm between turns, whoever speaks next: 8 units, as tall as a
+       reply's action row, which sits inside this gap (see .foot). */
+    gap: calc(var(--pbf-u) * 8);
+  }
+  .frame-wrap[data-full] .thread-inner:not(.history) {
+    margin-top: auto;
+  }
+  .frame-wrap[data-full] .msg {
+    line-height: 1.6;
+  }
+  .frame-wrap[data-full] .msg.user,
+  .frame-wrap[data-full] .msg.owner {
+    max-width: 100%;
+  }
+  .frame-wrap[data-full] .row.user,
+  .frame-wrap[data-full] .row.owner {
+    max-width: 80%;
   }
   /* The icon launcher lives in a corner, so the surface and the credit hug
      that corner instead of centring on it. */
@@ -1456,10 +1550,54 @@
   .frame-head.scrolled {
     border-bottom-color: var(--pawbar-frame-border, rgb(255 255 255 / 0.14));
   }
+  /* Full screen: the page's top bar, edge to edge, always underlined. */
   .frame-wrap[data-full] .frame-head {
+    box-sizing: border-box;
     width: 100%;
-    max-width: var(--pawbar-full-width, 760px);
-    margin-inline: auto;
+    min-height: 56px;
+    padding: var(--pbf-s2) var(--pbf-s4);
+    gap: var(--pbf-s1);
+    border-bottom-color: var(--pawbar-frame-border, rgb(255 255 255 / 0.14));
+  }
+  .head-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--pbf-s3);
+    min-width: 0;
+  }
+  .head-logo {
+    flex: none;
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+  }
+  /* Brand logos come in every shape: fitted, never cropped (as on the pill). */
+  .head-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .head-mark {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--pawbar-accent, #111114);
+    color: var(--pawbar-accent-fg, #fafafa);
+  }
+  .head-mark svg {
+    width: 62%;
+    height: 62%;
+  }
+  .head-title {
+    margin: 0;
+    overflow: hidden;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .head-gap {
     flex: 1;
@@ -1781,11 +1919,23 @@
   .row:focus-within .foot {
     opacity: 1;
   }
+  /* Even turns: the action row lives in the gap before the visitor's next
+     turn instead of adding its own height to it, so a reply-then-question gap
+     matches a question-then-reply gap. In the card only for older replies
+     (their row shows on hover), since the newest one's is always visible and
+     the gap there is shorter than the row; in full screen the gap is as tall
+     as the row, so the newest one tucks in too. Not with Sources open. */
+  .row.assistant:has(+ :global(.row.user)) > .foot:not(.latest):last-child,
+  .frame-wrap[data-full] .row.assistant:has(+ :global(.row.user)) > .foot:last-child {
+    margin-bottom: calc(-1 * (var(--pbf-foot) + var(--pbf-s1)));
+  }
   @media (hover: none) {
+    .frame-wrap {
+      --pbf-foot: 32px;
+    }
     .foot {
       opacity: 1;
     }
-    .foot-btn,
     .retry {
       min-height: 32px;
     }
@@ -1794,7 +1944,7 @@
     display: inline-flex;
     align-items: center;
     gap: var(--pbf-s1);
-    min-height: 28px;
+    min-height: var(--pbf-foot);
     padding: var(--pbf-xs) var(--pbf-s2);
     border: none;
     border-radius: min(var(--pawbar-radius, 8px), 8px);
@@ -1863,9 +2013,11 @@
     justify-content: flex-end;
   }
   .frame-wrap[data-full] .notice {
+    box-sizing: border-box;
     width: 100%;
-    max-width: var(--pawbar-full-width, 760px);
+    max-width: calc(var(--pbf-col) + var(--pbf-side) * 2);
     margin-inline: auto;
+    padding-inline: calc(var(--pbf-side) + var(--pbf-s2));
   }
   .row.user {
     align-self: flex-end;
@@ -2287,6 +2439,18 @@
     background: var(--pawbar-frame-bg, rgb(38 38 44 / 0.55));
     -webkit-backdrop-filter: blur(var(--pawbar-blur, 18px));
     backdrop-filter: blur(var(--pawbar-blur, 18px));
+  }
+  /* Full screen: the credit is on our own page, so it is a plain line under
+     the composer, not a pill. */
+  .frame-wrap[data-full] .credit {
+    padding: var(--pbf-s2) var(--pbf-side) var(--pbf-s3);
+  }
+  .frame-wrap[data-full] .credit > * {
+    padding: 0;
+    border: none;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
   .credit strong {
     font-weight: 600;
