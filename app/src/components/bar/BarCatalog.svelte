@@ -241,7 +241,7 @@
     min-width: 0;
   }
   .name {
-    font-size: calc(var(--pbf-msg, 15px) - 1px);
+    font-size: calc(var(--pawbar-message-size, var(--pbf-msg, 15px)) - 1px);
     font-weight: 600;
     line-height: 1.3;
   }
@@ -254,13 +254,13 @@
   }
   .price {
     flex: none;
-    font-size: var(--pbf-meta, 12.5px);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta, 12.5px));
     font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
   .desc {
     margin: 0;
-    font-size: var(--pbf-meta, 12.5px);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta, 12.5px));
     line-height: 1.45;
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
@@ -399,7 +399,7 @@
     background: none;
     color: var(--pawbar-frame-fg, #f2f2f5);
     font: inherit;
-    font-size: var(--pbf-meta, 12.5px);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta, 12.5px));
     font-weight: 600;
     cursor: pointer;
   }
@@ -475,7 +475,7 @@
     background: none;
     color: var(--pawbar-frame-fg, #f2f2f5);
     font: inherit;
-    font-size: var(--pbf-meta, 12.5px);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta, 12.5px));
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
@@ -534,7 +534,7 @@
   }
   .err {
     margin: 2px 0 0;
-    font-size: var(--pbf-meta, 12.5px);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta, 12.5px));
     line-height: 1.35;
     color: var(--pawbar-danger, color-mix(in oklab, #d93036 72%, var(--pawbar-frame-fg, #f2f2f5)));
   }

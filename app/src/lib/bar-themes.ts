@@ -50,10 +50,12 @@ export const BAR_THEMES: Record<BarThemeId, BarTheme> = {
     light: {
       '--pawbar-frame-bg': 'rgb(250 250 252 / 0.82)',
       '--pawbar-frame-fg': '#1c1c21',
-      '--pawbar-frame-border': 'rgb(0 0 0 / 0.08)',
+      '--pawbar-frame-border': 'rgb(0 0 0 / 0.12)',
       '--pawbar-bubble-bg': '#1c1c21',
       '--pawbar-bubble-fg': '#fafafa',
-      '--pawbar-border': 'rgb(0 0 0 / 0.08)',
+      // The pill rests with no frame around it, so on a pure white page this
+      // border is its only edge: strong enough to read, still a hairline.
+      '--pawbar-border': 'rgb(0 0 0 / 0.16)',
       '--pawbar-scrim': 'rgb(250 250 252 / 0.5)',
     },
   },

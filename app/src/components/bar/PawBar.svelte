@@ -27,9 +27,21 @@
   SIZES. The site picks a default (`size`: sm | md | lg); the visitor can pick
   another from the ⋯ menu (Compact / Default / Large), which is remembered in
   this browser and wins over the site's default. `resizable={false}` removes
-  the menu. A size is a set of internal --pb-* values (pill height and width,
-  card width, type, logo); a site's own --pawbar-card-width / -pill-width still
-  override them. `onsizechange` reports the effective size to a parent.
+  the menu. A size is a set of internal --pb-* values (spacing unit, pill
+  height and width, card width, type, logo); every one has a public
+  --pawbar-* override that wins. `onsizechange` reports the effective size.
+
+  LAYOUT TOKENS. Spacing is one scale: --pawbar-space is the unit (3.5 / 4 /
+  4.5px for sm / md / lg) and every gap, padding and margin is a step of it
+  (½, 1, 2, 3, 4, 6 units). --pawbar-inset ((height − logo) ÷ 2) is the
+  edge inset: the logo sits that far from every pill edge, and the pill's sides,
+  logo-to-text gap and open card padding all use it. --pawbar-gap (2 units) is the one gap between
+  layout pieces: the card's rows, the chip row, the contact panel. PawBarFrame
+  reads the same tokens, so by default frame pad = section gap = bar gap.
+  Sizes: --pawbar-height (pill and resting height), --pawbar-launcher-size,
+  --pawbar-pill-width, --pawbar-card-width, --pawbar-font-size(-sm),
+  --pawbar-logo-size. The frame adds --pawbar-frame-pad, --pawbar-message-size
+  and --pawbar-meta-size.
 
   THEMING. Every colour, radius, blur and font is a `--pawbar-*` custom
   property read through `var(--x, default)`. Defaults are fallbacks, never
@@ -41,7 +53,7 @@
 
   FULL SCREEN (2026-09-27). A ⋯ menu item, and a visible exit button while
   it is on. `fullscreen` is bindable: PawBarFrame owns the full-viewport
-  layout, PawBar owns the control and widens the card to a reading column.
+  layout, PawBar owns the control and sizes the card to the page's column.
   The layout switches at once and the card springs to its new width like any
   other size change. (It first ran inside a View Transition; the browser holds
   rendering while that callback runs, the spring runs on animation frames, and
@@ -133,6 +145,19 @@
   whose thread and credit sit outside the bar). `logoSrc` is the site's logo,
   fitted not cropped, falling back to a plain mark if it fails to load.
   `onopenchange` reports the card opening and closing.
+
+  VOICE. `voice` (default on) puts a mic left of Send on the open card when the
+  browser has speech recognition (lib/voice.ts; none on Firefox, so no mic).
+  A press listens for one utterance and writes the words after whatever was
+  already typed, live, through the field's own input event so autosize and
+  bind:value see it as typing. It never sends. Listening ends on silence, a
+  second press, Escape, Send, typing, the card closing or going read-only,
+  and on destroy (the recognizer is always released); focus goes back to the
+  field. While listening the mic is recording red (--pawbar-recording, else
+  --pawbar-danger) with a slow ring and the placeholder reads "Listening…". A
+  blocked mic swaps to the mic-off glyph, titles it "Microphone blocked", and
+  a line above the field says how to fix it (also announced in the polite
+  status region). Errors clear on typing or when the card closes.
 -->
 <script lang="ts" module>
   export type BarSize = 'sm' | 'md' | 'lg';
@@ -182,6 +207,7 @@
   import { Spring, prefersReducedMotion } from 'svelte/motion';
   import { autosize } from '../../lib/composer/autosize';
   import { MAX_MESSAGE_CHARS } from '../../lib/composer/limits';
+  import { createDictation, voiceSupported, type Dictation, type DictationError } from '../../lib/voice';
 
   let {
     placeholder = 'Ask anything…',
@@ -190,7 +216,7 @@
     logoSrc = '',
     launcher = 'bar',
     side = 'right',
-    size = 'md',
+    size = 'sm',
     resizable = false,
     expandable = true,
     fullscreen = $bindable(false),
@@ -198,6 +224,7 @@
     streaming = false,
     readonly = false,
     sendBlocked = false,
+    voice = true,
     activity = 'none',
     unreadPreview = '',
     describedby,
@@ -238,6 +265,8 @@
     readonly?: boolean;
     /** Sending is paused for a moment (cooldown, full offline queue). */
     sendBlocked?: boolean;
+    /** The dictation mic, where the browser supports speech recognition. */
+    voice?: boolean;
     /** What happened while the bar was closed. */
     activity?: BarActivity;
     /** The newest unseen turn, as one line of plain text. */
@@ -271,7 +300,7 @@
 
   // ── Size ──────────────────────────────────────────────────────────────────
   let chosen = $state<BarSize | null>(readChosenSize());
-  const effectiveSize = $derived<BarSize>(chosen ?? (SIZES.includes(size) ? size : 'md'));
+  const effectiveSize = $derived<BarSize>(chosen ?? (SIZES.includes(size) ? size : 'sm'));
   $effect(() => {
     onsizechange?.(effectiveSize);
   });
@@ -471,6 +500,8 @@
   function send(text: string) {
     const t = text.trim();
     if (!t || t.length > MAX_MESSAGE_CHARS || streaming || readonly || sendBlocked) return;
+    // A late final result must not refill the field we are about to clear.
+    cancelDictation();
     const result = onsend(t);
     value = '';
     if (fieldEl) fieldEl.style.height = 'auto';
@@ -484,6 +515,104 @@
     onstop?.();
     fieldEl?.focus();
   }
+
+  // ── Voice ─────────────────────────────────────────────────────────────────
+  const supported = voiceSupported();
+  const showMic = $derived(voice && supported);
+  let listening = $state(false);
+  let micBlocked = $state(false);
+  let voiceNote = $state('');
+  // The live recognizer. Its callbacks check they are still the current one,
+  // so a stopped utterance finishing late never writes over a new one.
+  let dictation: Dictation | null = null;
+  // The draft as it stood when listening began; the words go after it.
+  let dictationBase = '';
+  // True while WE write the field, so our own input event is not read as the
+  // visitor typing.
+  let writing = false;
+
+  function writeField(next: string) {
+    const v = next.slice(0, MAX_MESSAGE_CHARS);
+    if (!fieldEl) {
+      value = v;
+      return;
+    }
+    // Through the field's own input event, as typing does: bind:value picks
+    // it up and the autosize action measures the new height.
+    writing = true;
+    fieldEl.value = v;
+    fieldEl.dispatchEvent(new Event('input', { bubbles: true }));
+    writing = false;
+  }
+
+  function startDictation() {
+    if (readonly || !showMic) return;
+    cancelDictation();
+    dictationBase = value.replace(/\s+$/, '');
+    voiceNote = '';
+    const d = createDictation({
+      onText(text) {
+        if (dictation !== d) return;
+        const t = text.trim();
+        if (t) writeField(dictationBase ? `${dictationBase} ${t}` : t);
+      },
+      onError(kind: DictationError) {
+        if (dictation !== d) return;
+        micBlocked = kind === 'denied';
+        voiceNote =
+          kind === 'denied' ? 'Microphone blocked. Allow it in your browser to dictate.'
+          : kind === 'no-speech' ? "Didn't catch that. Try again."
+          : 'Dictation stopped.';
+      },
+      onEnd() {
+        if (dictation !== d) return;
+        dictation = null;
+        listening = false;
+        fieldEl?.focus({ preventScroll: true });
+      },
+    });
+    dictation = d;
+    listening = true;
+    micBlocked = false;
+    d.start();
+  }
+
+  /** Press again / Escape: stop listening, keep what was heard. */
+  function stopDictation() {
+    listening = false;
+    dictation?.stop();
+  }
+
+  /** Send, close, typing, destroy: drop the recognizer and anything in flight. */
+  function cancelDictation() {
+    const d = dictation;
+    dictation = null;
+    listening = false;
+    d?.abort();
+  }
+
+  function toggleDictation() {
+    if (listening) stopDictation();
+    else startDictation();
+  }
+
+  // Typing takes the field back: what was dictated stays, listening stops.
+  function onFieldInput() {
+    if (writing) return;
+    if (dictation) cancelDictation();
+    voiceNote = '';
+  }
+
+  // The card closing (or swapped for a footer) or the chat going read-only
+  // ends dictation; so does the component going away. No leaked mic.
+  $effect(() => {
+    if (listening && (!open || readonly || footer)) cancelDictation();
+  });
+  // A closed card forgets the last dictation note.
+  $effect(() => {
+    if (!open) voiceNote = '';
+  });
+  $effect(() => () => cancelDictation());
 
   // ── Talk to a person ──────────────────────────────────────────────────────
   let email = $state('');
@@ -591,10 +720,11 @@
     }
   }
 
-  // Escape peels one layer at a time: the menu, full screen, then the card.
+  // Escape peels one layer at a time: dictation, the menu, full screen, then the card.
   function onWindowKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape') return;
-    if (menuOpen) void closeMenu();
+    if (listening) stopDictation();
+    else if (menuOpen) void closeMenu();
     else if (contactOpen) closeContact();
     else if (fullscreen) setFullscreen(false);
     else if (open) void close();
@@ -718,7 +848,7 @@
   role="group"
   aria-label="Concierge"
 >
-  <span class="sr-only" role="status" aria-live="polite">{announce}</span>
+  <span class="sr-only" role="status" aria-live="polite">{announce || voiceNote}</span>
   <div
     class="pawbar"
     class:expanded={open}
@@ -740,13 +870,18 @@
         {#if footer}
           {@render footer()}
         {:else}
+        {#if voiceNote && !listening}
+          <!-- Seen here, heard through the host's status line, so hidden from
+               assistive tech to avoid reading it twice. -->
+          <p class="voice-note" class:blocked={micBlocked} aria-hidden="true" transition:fade={swap}>{voiceNote}</p>
+        {/if}
         <div class="row top">
           <textarea
             bind:this={fieldEl}
             bind:value
             use:autosize
             rows="1"
-            {placeholder}
+            placeholder={listening ? 'Listening…' : placeholder}
             {readonly}
             aria-readonly={readonly || undefined}
             maxlength={MAX_MESSAGE_CHARS}
@@ -754,6 +889,7 @@
             aria-keyshortcuts="Enter"
             aria-describedby={describedby}
             onkeydown={onFieldKeydown}
+            oninput={onFieldInput}
           ></textarea>
           {#if chrome && onshowconversations}
             <button type="button" class="icon" aria-label="Your conversations" title="Your conversations" onclick={onshowconversations}>
@@ -841,6 +977,34 @@
               </button>
             {/if}
           </div>
+          {#if showMic}
+            <button
+              type="button"
+              class="icon mic"
+              class:listening
+              class:blocked={micBlocked && !listening}
+              aria-pressed={listening}
+              aria-label={listening ? 'Stop dictation' : 'Dictate'}
+              title={listening ? 'Stop dictation' : micBlocked ? 'Microphone blocked' : 'Dictate'}
+              disabled={readonly}
+              onclick={toggleDictation}
+            >
+              <!-- Lucide "mic" / "mic-off" (ISC licence). -->
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                {#if micBlocked && !listening}
+                  <path d="M2 2l20 20" />
+                  <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />
+                  <path d="M5 10v2a7 7 0 0 0 12 5" />
+                  <path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" />
+                  <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+                {:else}
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                {/if}
+                <path d="M12 19v3" />
+              </svg>
+            </button>
+          {/if}
           {#if streaming}
             <button type="button" class="send stop" bind:this={stopEl} aria-label="Stop reply" onclick={stop} in:fade={swap}>
               <span class="stop-glyph" aria-hidden="true"></span>
@@ -928,23 +1092,44 @@
      below reads the site's --pawbar-* override FIRST, these second. --pb-rest
      is the resting height, shared by the pill and the icon launcher so both
      sit at the same height and radius; --pb-radius is half of it, so the
-     default pill is fully round at every size (a fixed 22px would leave the
-     52px Large pill a rounded rectangle). */
+     default pill is fully round at every size.
+
+     Spacing is ONE scale: --pb-u is the unit (--pawbar-space, else the size's
+     --pb-space), and every gap, padding and margin below is a step of it
+     (xs ½u, s1 1u, s2 2u, s3 3u, s4 4u, s6 6u). --pb-gap (--pawbar-gap, else
+     2u) is the one gap between stacked or side-by-side layout pieces; the
+     frame uses the same token for its padding and section gaps. */
   .pawbar-host {
     position: relative;
     display: inline-block;
+    --pb-space: 4px;
     --pb-rest: 52px;
-    --pb-radius: 26px;
     --pb-launch: 60px;
     --pb-pill-w: 300px;
     --pb-card-w: 540px;
     --pb-font: 16px;
     --pb-font-sm: 15px;
     --pb-logo: 30px;
+    --pb-radius: calc(var(--pawbar-height, var(--pb-rest)) / 2);
+    --pb-u: var(--pawbar-space, var(--pb-space));
+    --pb-xs: calc(var(--pb-u) * 0.5);
+    --pb-s1: var(--pb-u);
+    --pb-s2: calc(var(--pb-u) * 2);
+    --pb-s3: calc(var(--pb-u) * 3);
+    --pb-s4: calc(var(--pb-u) * 4);
+    --pb-s6: calc(var(--pb-u) * 6);
+    --pb-gap: var(--pawbar-gap, var(--pb-s2));
+    /* Edge inset: the logo's own distance from the pill's top and bottom, so
+       it sits equally far from every edge. The card's padding and the pill's
+       side padding use it too, so rest and open share one edge. */
+    --pb-inset: var(
+      --pawbar-inset,
+      calc((var(--pawbar-height, var(--pb-rest)) - var(--pawbar-logo-size, var(--pb-logo))) / 2)
+    );
   }
   .pawbar-host[data-size='sm'] {
+    --pb-space: 3.5px;
     --pb-rest: 46px;
-    --pb-radius: 23px;
     --pb-launch: 52px;
     --pb-pill-w: 250px;
     --pb-card-w: 440px;
@@ -953,8 +1138,8 @@
     --pb-logo: 26px;
   }
   .pawbar-host[data-size='lg'] {
+    --pb-space: 4.5px;
     --pb-rest: 60px;
-    --pb-radius: 30px;
     --pb-launch: 68px;
     --pb-pill-w: 360px;
     --pb-card-w: 680px;
@@ -965,12 +1150,17 @@
   /* The icon launcher is a circle at its own, larger diameter, so its default
      radius is half THAT. */
   .pawbar-host[data-launcher='icon'] {
-    --pb-radius: calc(var(--pb-launch) / 2);
+    --pb-radius: calc(var(--pawbar-launcher-size, var(--pb-launch)) / 2);
   }
-  /* Full screen: the card becomes a reading column. The frame, not this
-     component, lays out the viewport around it. */
+  /* Full screen: the card becomes the page's composer, exactly as wide as
+     the frame's reading column (--pawbar-full-width) less the same page-side
+     padding on narrow screens. The column wins over --pawbar-card-width here.
+     The frame, not this component, lays out the viewport around it. */
   .pawbar-host[data-full] {
-    --pb-card-w: 760px;
+    --pb-card-w: var(--pawbar-full-width, 720px);
+  }
+  .pawbar-host[data-full] .card {
+    width: min(var(--pawbar-full-width, 720px), calc(var(--pb-host-w, 100vw) - var(--pb-s4) * 2));
   }
 
   /* The one surface. Its size comes from the spring; everything visual comes
@@ -991,9 +1181,12 @@
   /* Every face sits on the same anchor, so during a swap the outgoing and
      incoming faces overlap in place and the surface grows out of the resting
      spot: from bottom centre for the bar, from its corner for the icon. */
+  /* The surface is sized to the face INCLUDING its 1px border, so the face
+     anchors to the border's outer edge (-1px), not the padding box. Anchored at
+     0 it sat 1px high: the logo read 9px from the top and 11px from the bottom. */
   .face {
     position: absolute;
-    bottom: 0;
+    bottom: -1px;
     box-sizing: border-box;
   }
   [data-anchor='center'] .face {
@@ -1001,21 +1194,22 @@
     transform: translateX(-50%);
   }
   [data-anchor='left'] .face {
-    left: 0;
+    left: -1px;
   }
   [data-anchor='right'] .face {
-    right: 0;
+    right: -1px;
   }
 
   /* ── Resting faces ────────────────────────────────────────────────────── */
   .pill {
     display: flex;
     align-items: center;
-    gap: 8px;
+    /* Logo to text equals the edge inset (the trigger adds its own s1). */
+    gap: calc(var(--pb-inset) - var(--pb-s1));
     width: max-content;
     min-width: var(--pawbar-pill-width, var(--pb-pill-w));
-    height: var(--pb-rest);
-    padding: 0 7px;
+    height: var(--pawbar-height, var(--pb-rest));
+    padding: 0 var(--pb-inset);
   }
   /* With news on it the pill keeps its resting width and the preview line
      ellipsizes: the pill never grows, so the loader never resizes. */
@@ -1031,12 +1225,12 @@
     width: calc(var(--pb-host-w, 100vw) - 32px);
   }
   .launcher {
-    width: var(--pb-launch);
-    height: var(--pb-launch);
+    width: var(--pawbar-launcher-size, var(--pb-launch));
+    height: var(--pawbar-launcher-size, var(--pb-launch));
   }
   .launcher .logo {
-    width: calc(var(--pb-logo) + 4px);
-    height: calc(var(--pb-logo) + 4px);
+    width: calc(var(--pawbar-logo-size, var(--pb-logo)) + 4px);
+    height: calc(var(--pawbar-logo-size, var(--pb-logo)) + 4px);
   }
   .launch {
     display: flex;
@@ -1053,8 +1247,8 @@
   .logo {
     flex: none;
     display: inline-flex;
-    width: var(--pb-logo);
-    height: var(--pb-logo);
+    width: var(--pawbar-logo-size, var(--pb-logo));
+    height: var(--pawbar-logo-size, var(--pb-logo));
   }
   /* Brand logos come in every shape. Fitted into the slot, never cropped to a
      circle, so a wordmark or a wide monogram still reads as the brand. */
@@ -1079,12 +1273,12 @@
   .trigger {
     flex: 1;
     min-width: 0;
-    padding: 6px 4px;
+    padding: var(--pb-s2) var(--pb-s1);
     border: none;
     background: none;
     color: var(--pawbar-muted, color-mix(in oklab, currentColor 55%, transparent));
     font: inherit;
-    font-size: var(--pb-font-sm);
+    font-size: var(--pawbar-font-size-sm, var(--pb-font-sm));
     text-align: left;
     white-space: nowrap;
     overflow: hidden;
@@ -1116,7 +1310,7 @@
   .activity[data-activity='team'] {
     width: 16px;
     height: 16px;
-    padding: 2px;
+    padding: var(--pb-xs);
   }
   .activity[data-activity='thinking'] {
     opacity: 0.7;
@@ -1125,21 +1319,21 @@
   .launcher .activity {
     position: absolute;
     /* On the circle's edge at 45°: r − r/√2 from the corner, less half the dot. */
-    top: calc(var(--pb-launch) * 0.146 - 5px);
+    top: calc(var(--pawbar-launcher-size, var(--pb-launch)) * 0.146 - 5px);
     width: 12px;
     height: 12px;
     border: 2px solid var(--pawbar-activity-ring, var(--pawbar-bg, rgb(255 255 255 / 0.78)));
   }
   .launcher .activity[data-activity='team'] {
-    top: calc(var(--pb-launch) * 0.146 - 9px);
+    top: calc(var(--pawbar-launcher-size, var(--pb-launch)) * 0.146 - 9px);
     width: 18px;
     height: 18px;
   }
   [data-anchor='right'] .launcher .activity {
-    right: calc(var(--pb-launch) * 0.146 - 5px);
+    right: calc(var(--pawbar-launcher-size, var(--pb-launch)) * 0.146 - 5px);
   }
   [data-anchor='left'] .launcher .activity {
-    left: calc(var(--pb-launch) * 0.146 - 5px);
+    left: calc(var(--pawbar-launcher-size, var(--pb-launch)) * 0.146 - 5px);
   }
   @keyframes pb-dot-in {
     from {
@@ -1166,11 +1360,11 @@
   .contact {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    margin: 4px 0 2px;
-    padding-top: 10px;
+    gap: var(--pb-gap);
+    margin: var(--pb-s1) 0 var(--pb-xs);
+    padding-top: var(--pb-s3);
     border-top: 1px solid color-mix(in oklab, var(--pawbar-fg, #1c1c21) 10%, transparent);
-    font-size: var(--pb-font-sm);
+    font-size: var(--pawbar-font-size-sm, var(--pb-font-sm));
   }
   .contact-head {
     display: flex;
@@ -1185,7 +1379,7 @@
   .contact-email {
     box-sizing: border-box;
     width: 100%;
-    padding: 8px 10px;
+    padding: var(--pb-s2) var(--pb-s3);
     border: 1px solid var(--pawbar-border, color-mix(in oklab, var(--pawbar-fg, #1c1c21) 16%, transparent));
     border-radius: min(var(--pawbar-radius, 10px), 10px);
     background: none;
@@ -1203,7 +1397,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: var(--pb-gap);
   }
   .contact-error {
     margin: 0;
@@ -1212,7 +1406,7 @@
   }
   .ask {
     flex: none;
-    padding: 7px 14px;
+    padding: var(--pb-s2) var(--pb-s4);
     border: none;
     border-radius: var(--pawbar-radius-pill, var(--pawbar-radius, 999px));
     background: var(--pawbar-accent, #111114);
@@ -1253,13 +1447,13 @@
   .card {
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: var(--pb-gap);
     width: min(var(--pawbar-card-width, var(--pb-card-w)), calc(var(--pb-host-w, 100vw) - 48px));
-    padding: 14px 14px 12px 16px;
+    padding: var(--pb-inset);
   }
   .row {
     display: flex;
-    gap: 4px;
+    gap: var(--pb-s1);
   }
   .top {
     align-items: flex-start;
@@ -1267,20 +1461,20 @@
   .bottom {
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--pb-gap);
   }
   textarea {
     flex: 1;
     min-width: 0;
-    margin-right: 4px;
+    margin-right: var(--pb-s1);
     resize: none;
     border: none;
     outline: none;
     background: none;
-    padding: 4px 0;
+    padding: var(--pb-s1) 0;
     color: inherit;
     font: inherit;
-    font-size: var(--pb-font);
+    font-size: var(--pawbar-font-size, var(--pb-font));
     line-height: 1.5;
   }
   textarea::placeholder {
@@ -1289,11 +1483,11 @@
   .chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--pb-gap);
     min-width: 0;
   }
   .chip {
-    padding: 7px 14px;
+    padding: var(--pb-s2) var(--pb-s4);
     border: 1px solid var(--pawbar-chip-border, color-mix(in oklab, currentColor 30%, transparent));
     border-radius: var(--pawbar-radius-pill, var(--pawbar-radius, 999px));
     background: none;
@@ -1369,6 +1563,50 @@
   .send.stop:hover {
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--pawbar-fg, #1c1c21) 16%, transparent);
   }
+  /* Dictation: send-sized, quiet like the other icons until it is listening.
+     Listening is RECORDING red (--pawbar-recording, else --pawbar-danger) on a
+     red tint with a slow ring (none under reduced motion), so it never reads
+     as a second Send. Blocked is the mic-off glyph in the muted ink. It sits
+     beside Send, pushed right by its own auto margin. */
+  .mic {
+    width: 34px;
+    height: 34px;
+    margin-left: auto;
+  }
+  .mic:disabled {
+    color: var(--pawbar-icon-disabled, color-mix(in oklab, var(--pawbar-fg, #1c1c21) 38%, transparent));
+    background: transparent;
+    cursor: not-allowed;
+  }
+  .mic {
+    --pb-rec: var(--pawbar-recording, var(--pawbar-danger, #e5484d));
+  }
+  .mic.listening,
+  .mic.listening:hover {
+    background: color-mix(in oklab, var(--pb-rec) 18%, transparent);
+    color: var(--pb-rec);
+    animation: pb-listen 1.6s ease-in-out infinite;
+  }
+  @keyframes pb-listen {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--pb-rec) 40%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 6px color-mix(in oklab, var(--pb-rec) 0%, transparent);
+    }
+  }
+  .mic.blocked {
+    color: var(--pawbar-muted, color-mix(in oklab, var(--pawbar-fg, #1c1c21) 55%, transparent));
+  }
+  .voice-note {
+    margin: 0;
+    font-size: 0.85em;
+    color: var(--pawbar-muted, color-mix(in oklab, var(--pawbar-fg, #1c1c21) 60%, transparent));
+  }
+  .voice-note.blocked {
+    color: var(--pawbar-danger, color-mix(in oklab, #d93036 72%, var(--pawbar-fg, #1c1c21)));
+  }
   .stop-glyph {
     width: 10px;
     height: 10px;
@@ -1405,13 +1643,13 @@
      same side as the ⋯ that opened it. Outside .pawbar, which clips. */
   .menu {
     position: absolute;
-    bottom: calc(100% + 8px);
+    bottom: calc(100% + var(--pb-s2));
     right: 0;
     z-index: 2;
     display: flex;
     flex-direction: column;
     min-width: 150px;
-    padding: 5px;
+    padding: var(--pb-s1);
     box-sizing: border-box;
     font-family: var(--pawbar-font, inherit);
     color: var(--pawbar-fg, #1c1c21);
@@ -1429,8 +1667,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 8px 10px;
+    gap: var(--pb-s3);
+    padding: var(--pb-s2) var(--pb-s3);
     border: none;
     border-radius: min(var(--pawbar-radius, 22px), 9px);
     background: none;
@@ -1447,7 +1685,7 @@
     font-weight: 600;
   }
   .menu-label {
-    padding: 6px 10px 2px;
+    padding: var(--pb-s2) var(--pb-s3) var(--pb-xs);
     font-size: 11px;
     letter-spacing: 0.02em;
     color: var(--pawbar-muted, color-mix(in oklab, currentColor 55%, transparent));
@@ -1458,6 +1696,9 @@
     .send,
     .chip {
       transition: none;
+    }
+    .mic.listening {
+      animation: none;
     }
     .icon:active,
     .launch:active,

@@ -2,7 +2,10 @@
   PawBarFrame.svelte — the parent surface around the PawBar input.
   Created 2026-09-27.
 
-  At rest it is a thin frame hugging the pill. Once a conversation exists and
+  At rest, and while the bar is only open as its own card, the frame paints
+  nothing: no padding, fill, border or blur, so it is exactly the bar. The
+  glass surface fades in only when something sits above the input (the thread,
+  the history list, the consent line or a notice). Once a conversation exists and
   the bar is open, a thread grows ABOVE the input inside the same frame: the
   visitor's turns as right-aligned bubbles, replies as plain text, a pending
   reply as three dots.
@@ -12,6 +15,17 @@
   frame by frame. The thread's height springs toward the measured height of its
   contents (capped, then it scrolls), so a new turn or a streaming reply grows
   the frame instead of snapping it.
+
+  LAYOUT TOKENS. The frame uses PawBar's spacing scale and reads the same
+  public tokens: --pawbar-space (the unit: 3.5 / 4 / 4.5px for sm / md / lg;
+  every gap, padding and margin is ½, 1, 2, 3, 4 or 6 units) and --pawbar-gap
+  (2 units). The rule: frame pad = section gap = bar gap by default. The
+  frame's padding is --pawbar-frame-pad, falling back to --pawbar-gap, and the
+  same gap separates the header, thread, consent line, notice, bar and the
+  credit below. Size tokens shared with the bar: --pawbar-height (its half is
+  the default radius), --pawbar-launcher-size, --pawbar-pill-width,
+  --pawbar-card-width, --pawbar-font-size(-sm), --pawbar-logo-size. The
+  thread's own type: --pawbar-message-size and --pawbar-meta-size.
 
   2026-09-27 (old shell removed): comments below that mention the old shell,
   glass.css or GlassShell describe where things came from. That code is gone;
@@ -31,7 +45,7 @@
   it a link.
 
   2026-09-27 (sizes + launchers): passes `launcher` ('bar' | 'icon'), `side`,
-  `size` and `resizable` through to PawBar. The frame follows the bar's
+  `size`, `resizable` and `voice` (the dictation mic) through to PawBar. The frame follows the bar's
   EFFECTIVE size (the visitor's pick wins over the site's), scaling the thread
   cap, message type and corner radius with it, and aligns the surface and the
   credit to the icon launcher's corner.
@@ -136,9 +150,11 @@
     field there would type into a conversation the visitor is not looking
     at. `onnewconversation` runs only when the current thread has turns (an
     empty one is already new; the button just goes back to it). Leaving the
-    list brings the field back with focus in it and the draft intact. The
-    header's right side is a ✕ that closes the bar outright (PawBar
-    closeChat).
+    list brings the field back with focus in it and the draft intact. Next
+    to the clock, a "+" (New chat) starts a fresh conversation straight from
+    the thread, shown only while `onnewconversation` is set and the thread
+    has turns. The header's right side is a ✕ that closes the bar outright
+    (PawBar closeChat).
   • `hostViewport` ({w, h} of the HOST page): set by the widget's shell,
     which lives in an iframe sized from this content. The thread cap, the
     narrow-screen check and every width clamp read it instead of the
@@ -239,9 +255,10 @@
     poweredByHref = '',
     launcher = 'bar',
     side = 'right',
-    size = 'md',
+    size = 'sm',
     resizable = false,
     expandable = true,
+    voice = true,
     fullscreen = $bindable(false),
     theme = 'default',
     tokens = {},
@@ -294,6 +311,8 @@
     resizable?: boolean;
     /** The full screen toggle in the header. */
     expandable?: boolean;
+    /** PawBar's dictation mic (shown only where the browser supports it). */
+    voice?: boolean;
     fullscreen?: boolean;
     /** A preset from lib/bar-themes. Unknown ids fall back to the default. */
     theme?: string;
@@ -433,7 +452,7 @@
   });
 
   // What the bar is actually drawn at, reported by the bar itself.
-  let barSize = $state<BarSize>('md');
+  let barSize = $state<BarSize>('sm');
   const anchor = $derived(launcher === 'icon' ? side : 'center');
 
   // The thread shows while the bar is pinned open and there is something to
@@ -509,6 +528,13 @@
   let consentHidden = $state(false);
   const consentId = `pbf-consent-${Math.random().toString(36).slice(2, 8)}`;
   const showConsent = $derived(needsConsent && !unavailable && barOpen && (!consentHidden || !!held));
+  const showLine = $derived(
+    !!line && (showThread || line.kind === 'unavailable' || line.kind === 'rejected'),
+  );
+  // The glass surface only paints when something sits above the input. With
+  // nothing there the frame collapses onto the bar (no padding, fill, border
+  // or blur), so the pill and its hover card read as themselves.
+  const surface = $derived(showThread || showConsent || showLine);
   function acceptConsent() {
     consentHidden = true;
     onconsent?.(true);
@@ -588,6 +614,8 @@
   const canList = $derived(
     !!(onopenconversation || onnewconversation) && (conversations.length > 0 || messages.length > 0),
   );
+  // The header's quick "+": only when there is a conversation to leave.
+  const canNew = $derived(!!onnewconversation && messages.length > 0);
   // The list is a pinned view: folding the bar puts the thread back.
   $effect(() => {
     if (!pinned) view = 'thread';
@@ -824,8 +852,12 @@
     return () => el.removeEventListener('keydown', onKey);
   });
 
+  // The header is fixed above the scrolling thread; once the thread is
+  // scrolled it shows a hairline so text visibly passes under it.
+  let scrolled = $state(false);
   function onScroll() {
     if (!threadEl) return;
+    scrolled = threadEl.scrollTop > 2;
     following = threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 40;
     if (following) missed = false;
   }
@@ -906,14 +938,21 @@
   style:--pb-host-h={hostViewport?.h ? `${hostViewport.h}px` : undefined}
   bind:this={frameEl}
 >
-<div class="frame" class:open={showThread}>
+<div class="frame" class:open={showThread} class:surface>
   {#if showThread && !history}
-    <div class="frame-head" transition:slide={soft}>
+    <div class="frame-head" class:scrolled transition:slide={soft}>
       {#if canList}
         <button type="button" class="head-btn" aria-label="Your conversations" title="Your conversations" onclick={showConversations}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
             <path d="M3.5 4v4h4M12 8v4.5l3 2" />
+          </svg>
+        </button>
+      {/if}
+      {#if canNew}
+        <button type="button" class="head-btn" aria-label="New chat" title="New chat" onclick={newConversation}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
       {/if}
@@ -1134,7 +1173,7 @@
     </p>
   {/if}
 
-  {#if line && (showThread || line.kind === 'unavailable' || line.kind === 'rejected')}
+  {#if line && showLine}
     <!-- Its own polite status, outside the log: it is about the input, not a
          turn. `rejected` is the one alert, because the visitor's words just
          came back into the field and they need to know why. -->
@@ -1179,6 +1218,7 @@
     {side}
     {size}
     {resizable}
+    {voice}
     onsend={send}
     onopenchange={(o) => {
       barOpen = o;
@@ -1218,29 +1258,45 @@
     display: inline-flex;
     flex-direction: column;
     align-items: center;
-    /* Per-size values, internal (see PawBar's size presets for why --pb-* may
-       be declared here when --pawbar-* may not). --pbf-radius matches the bar's
-       default radius so the frame's curve stays concentric with the bar's. */
-    --pbf-radius: 26px;
+    /* Per-size values, internal (see PawBar's size presets for why --pbf-* may
+       be declared here when --pawbar-* may not). They mirror PawBar's --pb-*
+       and read the same public tokens, so the frame's curve stays concentric
+       with the bar's and both use one spacing scale: --pbf-u is the unit
+       (--pawbar-space, else the size's --pbf-space), steps xs 0.5u, s1 1u,
+       s2 2u, s3 3u, s4 4u, s6 6u, and --pbf-gap (--pawbar-gap, else 2u) is the
+       frame's padding and the gap between the thread, notices and the bar. */
+    --pbf-space: 4px;
+    --pbf-rest: 52px;
     --pbf-launch: 60px;
     --pbf-msg: 15px;
     --pbf-meta: 12.5px;
+    --pbf-radius: calc(var(--pawbar-height, var(--pbf-rest)) / 2);
+    --pbf-u: var(--pawbar-space, var(--pbf-space));
+    --pbf-xs: calc(var(--pbf-u) * 0.5);
+    --pbf-s1: var(--pbf-u);
+    --pbf-s2: calc(var(--pbf-u) * 2);
+    --pbf-s3: calc(var(--pbf-u) * 3);
+    --pbf-s4: calc(var(--pbf-u) * 4);
+    --pbf-s6: calc(var(--pbf-u) * 6);
+    --pbf-gap: var(--pawbar-gap, var(--pbf-s2));
   }
   .frame-wrap[data-size='sm'] {
-    --pbf-radius: 23px;
+    --pbf-space: 3.5px;
+    --pbf-rest: 46px;
     --pbf-launch: 52px;
     --pbf-msg: 14px;
     --pbf-meta: 12px;
   }
   .frame-wrap[data-size='lg'] {
-    --pbf-radius: 30px;
+    --pbf-space: 4.5px;
+    --pbf-rest: 60px;
     --pbf-launch: 68px;
     --pbf-msg: 16px;
     --pbf-meta: 13.5px;
   }
   /* Mirrors PawBar: the icon launcher's radius is half its own diameter. */
   .frame-wrap[data-launcher='icon'] {
-    --pbf-radius: calc(var(--pbf-launch) / 2);
+    --pbf-radius: calc(var(--pawbar-launcher-size, var(--pbf-launch)) / 2);
   }
 
   /* ── Full screen ───────────────────────────────────────────────────────── */
@@ -1304,7 +1360,7 @@
   /* The parent surface. Its radius is the input's radius plus the padding, so
      the two curves stay concentric at every size. */
   .frame {
-    --pad: var(--pawbar-frame-pad, 8px);
+    --pad: var(--pawbar-frame-pad, var(--pbf-gap));
     display: inline-flex;
     flex-direction: column;
     align-items: center;
@@ -1316,6 +1372,24 @@
     font-family: var(--pawbar-font, inherit);
     -webkit-backdrop-filter: blur(var(--pawbar-blur, 18px)) saturate(1.3);
     backdrop-filter: blur(var(--pawbar-blur, 18px)) saturate(1.3);
+    transition:
+      padding 200ms ease-out,
+      background-color 200ms ease-out,
+      border-color 200ms ease-out;
+  }
+  /* Nothing above the input: no surface, so the frame is exactly the bar.
+     The border stays (transparent) so the box does not shift by 1px. */
+  .frame:not(.surface) {
+    --pad: 0px;
+    background: transparent;
+    border-color: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .frame {
+      transition: none;
+    }
   }
 
   /* Width 100% of the frame, which is the input's width. `contain:
@@ -1335,12 +1409,20 @@
     scrollbar-color: color-mix(in oklab, currentColor 25%, transparent) transparent;
   }
   /* ── Header ──────────────────────────────────────────────────────────── */
+  /* Never scrolls: it sits OUTSIDE the thread, which is the only scroller.
+     The bottom border is always there (transparent) so the hairline that
+     appears once the thread is scrolled never shifts the layout. */
   .frame-head {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: var(--pbf-gap);
     align-self: stretch;
-    padding: 0 2px 2px;
+    padding: 0 var(--pbf-xs) var(--pbf-xs);
+    border-bottom: 1px solid transparent;
+    transition: border-color 150ms ease-out;
+  }
+  .frame-head.scrolled {
+    border-bottom-color: var(--pawbar-frame-border, rgb(255 255 255 / 0.14));
   }
   .frame-wrap[data-full] .frame-head {
     width: 100%;
@@ -1385,12 +1467,12 @@
   .jump {
     position: absolute;
     left: 50%;
-    bottom: 8px;
+    bottom: var(--pbf-s2);
     transform: translateX(-50%);
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    padding: 5px 11px;
+    gap: var(--pbf-s1);
+    padding: var(--pbf-s1) var(--pbf-s3);
     border: none;
     border-radius: min(var(--pawbar-radius, 999px), 999px);
     /* The visitor bubble's colours: solid enough that the reply scrolling
@@ -1398,7 +1480,7 @@
     background: var(--pawbar-bubble-bg, rgb(255 255 255 / 0.86));
     color: var(--pawbar-bubble-fg, #1c1c21);
     font: inherit;
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     font-weight: 600;
     cursor: pointer;
   }
@@ -1411,7 +1493,7 @@
   .history-head {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--pbf-s2);
   }
   /* As wide as Back, so the title stays in the middle; the glyph sits at
      the far end. */
@@ -1421,7 +1503,7 @@
     justify-content: flex-end;
     width: 64px;
     height: 28px;
-    padding: 0 6px;
+    padding: 0 var(--pbf-s2);
     border: none;
     border-radius: min(var(--pawbar-radius, 8px), 8px);
     background: none;
@@ -1439,7 +1521,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--pbf-s2);
     width: 100%;
     min-height: 44px;
     border: none;
@@ -1460,14 +1542,14 @@
   .history-title {
     flex: 1;
     margin: 0;
-    font-size: var(--pbf-msg);
+    font-size: var(--pawbar-message-size, var(--pbf-msg));
     font-weight: 600;
     text-align: center;
   }
   .history-list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--pbf-xs);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -1475,9 +1557,9 @@
   .history-row {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: var(--pbf-s1);
     width: 100%;
-    padding: 9px 10px;
+    padding: var(--pbf-s3);
     border: none;
     border-radius: min(var(--pawbar-radius, 12px), 12px);
     background: none;
@@ -1496,38 +1578,39 @@
   }
   .history-preview {
     overflow: hidden;
-    font-size: var(--pbf-msg);
+    font-size: var(--pawbar-message-size, var(--pbf-msg));
     white-space: nowrap;
     text-overflow: ellipsis;
   }
   .history-meta {
     display: flex;
-    gap: 8px;
-    font-size: var(--pbf-meta);
+    gap: var(--pbf-s2);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
 
   .thread-inner {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: var(--pbf-s4);
     width: 100%;
     box-sizing: border-box;
-    /* Breathing room at the top of the frame and above the input. Inside the
-       measured box on purpose, so it is part of what the spring grows to. */
-    padding: 10px 4px 14px;
+    /* Breathing room at the top of the frame and above the input (the shared
+       gap). Inside the measured box on purpose, so it is part of what the
+       spring grows to. */
+    padding: var(--pbf-gap) var(--pbf-s1);
   }
 
   .msg {
     max-width: 88%;
-    font-size: var(--pbf-msg);
+    font-size: var(--pawbar-message-size, var(--pbf-msg));
     line-height: 1.5;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
   .msg.user {
     align-self: flex-end;
-    padding: 9px 13px;
+    padding: var(--pbf-s3) var(--pbf-s4);
     border-radius: var(--pawbar-radius-bubble, min(var(--pawbar-radius, 16px), 16px));
     border-bottom-right-radius: min(var(--pawbar-radius, 6px), 6px);
     background: var(--pawbar-bubble-bg, rgb(255 255 255 / 0.86));
@@ -1535,7 +1618,7 @@
   }
   .msg.assistant {
     max-width: 100%;
-    padding: 0 2px;
+    padding: 0 var(--pbf-xs);
   }
   .greeting {
     align-self: flex-start;
@@ -1554,7 +1637,7 @@
   .row {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--pbf-s1);
     min-width: 0;
   }
   .row.assistant {
@@ -1570,7 +1653,7 @@
   }
   .msg.owner {
     max-width: 100%;
-    padding: 9px 13px;
+    padding: var(--pbf-s3) var(--pbf-s4);
     background: var(--pawbar-owner-bubble-bg, var(--pawbar-thread-wash, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 9%, transparent)));
     border: 1px solid var(--pawbar-thread-line, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 16%, transparent));
     border-radius: var(--pawbar-radius-bubble, min(var(--pawbar-radius, 16px), 16px));
@@ -1579,8 +1662,8 @@
   .team-label {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font-size: var(--pbf-meta);
+    gap: var(--pbf-s2);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     font-weight: 600;
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
@@ -1588,8 +1671,8 @@
     align-self: center;
     max-width: min(92%, 420px);
     margin: 0;
-    padding: 4px 12px;
-    font-size: calc(var(--pbf-meta) - 0.5px);
+    padding: var(--pbf-s1) var(--pbf-s3);
+    font-size: calc(var(--pawbar-meta-size, var(--pbf-meta)) - 0.5px);
     line-height: 1.45;
     text-align: center;
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
@@ -1598,8 +1681,8 @@
   }
   .meta {
     margin: 0;
-    padding: 0 2px;
-    font-size: var(--pbf-meta);
+    padding: 0 var(--pbf-xs);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     line-height: 1.4;
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
@@ -1614,7 +1697,7 @@
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: var(--pbf-s2);
     color: var(--pawbar-danger, color-mix(in oklab, #d93036 72%, var(--pawbar-frame-fg, #f2f2f5)));
   }
   .err-dot {
@@ -1624,7 +1707,7 @@
     background: currentColor;
   }
   .retry {
-    padding: 3px 10px;
+    padding: var(--pbf-s1) var(--pbf-s3);
     border: none;
     border-radius: min(var(--pawbar-radius, 8px), 8px);
     background: var(--pawbar-thread-wash, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 9%, transparent));
@@ -1642,12 +1725,12 @@
   .thinking {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--pbf-s2);
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
   .think-word {
     display: none;
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
   }
 
   /* ── C6 footer ────────────────────────────────────────────────────────────
@@ -1656,8 +1739,8 @@
   .foot {
     display: flex;
     align-items: center;
-    gap: 2px;
-    margin-left: -6px;
+    gap: var(--pbf-xs);
+    margin-left: calc(var(--pbf-s2) * -1);
     opacity: 0;
     transition: opacity 150ms ease;
   }
@@ -1678,15 +1761,15 @@
   .foot-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--pbf-s1);
     min-height: 28px;
-    padding: 2px 6px;
+    padding: var(--pbf-xs) var(--pbf-s2);
     border: none;
     border-radius: min(var(--pawbar-radius, 8px), 8px);
     background: none;
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
     font: inherit;
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     cursor: pointer;
   }
   .foot-btn.icon-btn {
@@ -1713,16 +1796,16 @@
   .sources {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--pbf-s2);
     max-width: 100%;
   }
   .source {
     max-width: 100%;
-    padding: 4px 10px;
+    padding: var(--pbf-s1) var(--pbf-s3);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     text-decoration: none;
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
     border: 1px solid var(--pawbar-thread-line, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 16%, transparent));
@@ -1737,11 +1820,11 @@
   .notice {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: var(--pbf-s2);
     align-self: stretch;
     margin: 0;
-    padding: 2px 8px 8px;
-    font-size: var(--pbf-meta);
+    padding: 0 var(--pbf-s2) var(--pbf-gap);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
   [data-anchor='right'] .notice {
@@ -1769,7 +1852,7 @@
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: var(--pbf-s2);
   }
   .turn-note.error {
     color: var(--pawbar-danger, color-mix(in oklab, #d93036 72%, var(--pawbar-frame-fg, #f2f2f5)));
@@ -1781,7 +1864,7 @@
     color: var(--pawbar-warn, color-mix(in oklab, #c98a12 70%, var(--pawbar-frame-fg, #f2f2f5)));
   }
   .notice .retry {
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
   }
   .presence {
     width: 6px;
@@ -1903,7 +1986,7 @@
     background: var(--pawbar-card-bg, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 6%, transparent));
   }
   .frame :global(.pawbar-md .code .bar) {
-    padding: 4px 6px 4px 12px;
+    padding: var(--pbf-s1) var(--pbf-s2) var(--pbf-s1) var(--pbf-s3);
     border-bottom: 1px solid var(--pawbar-thread-line, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 16%, transparent));
   }
   .frame :global(.pawbar-md .code :is(.lang, .copy)) {
@@ -1921,9 +2004,9 @@
   .frame :global(.pawbar-shimmer) {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--pbf-s2);
     margin: 0.6em 0;
-    padding: 12px;
+    padding: var(--pbf-s3);
     border: 1px solid var(--pawbar-card-border, var(--pawbar-frame-border, rgb(255 255 255 / 0.14)));
     border-radius: min(var(--pawbar-radius, 10px), 10px);
     background: var(--pawbar-card-bg, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 6%, transparent));
@@ -1961,28 +2044,28 @@
      old shell's, removed 2026-09-27); inside this thread they are replaced. */
   .frame :global(.pawbar-md .form-card) {
     max-width: 420px;
-    gap: 10px;
-    margin: 6px 0;
-    padding: 12px;
+    gap: var(--pbf-s3);
+    margin: var(--pbf-s2) 0;
+    padding: var(--pbf-s3);
     border: 1px solid var(--pawbar-card-border, var(--pawbar-frame-border, rgb(255 255 255 / 0.14)));
     border-radius: min(var(--pawbar-radius, 12px), 12px);
     background: var(--pawbar-card-bg, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 6%, transparent));
     color: var(--pawbar-frame-fg, #f2f2f5);
   }
   .frame :global(.pawbar-md .form-card .title) {
-    font-size: calc(var(--pbf-msg) - 1px);
+    font-size: calc(var(--pawbar-message-size, var(--pbf-msg)) - 1px);
   }
   .frame :global(.pawbar-md .form-card .label) {
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
   .frame :global(.pawbar-md .form-card :is(input, textarea)) {
-    padding: 8px 10px;
+    padding: var(--pbf-s2) var(--pbf-s3);
     border: 1px solid var(--pawbar-thread-line, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 16%, transparent));
     border-radius: min(var(--pawbar-radius, 8px), 8px);
     background: color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 5%, transparent);
     color: var(--pawbar-frame-fg, #f2f2f5);
-    font-size: calc(var(--pbf-msg) - 1.5px);
+    font-size: calc(var(--pawbar-message-size, var(--pbf-msg)) - 1.5px);
   }
   .frame :global(.pawbar-md .form-card :is(input, textarea):focus) {
     outline: 2px solid var(--pawbar-ring, var(--pawbar-frame-fg, #f2f2f5));
@@ -1993,7 +2076,7 @@
     opacity: 0.7;
   }
   .frame :global(.pawbar-md .form-card .error) {
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     color: var(--pawbar-danger, color-mix(in oklab, #d93036 72%, var(--pawbar-frame-fg, #f2f2f5)));
   }
   /* The site's accent when it has one; otherwise the visitor-bubble pair,
@@ -2001,13 +2084,13 @@
      near-black and vanishes on the default dark frame). */
   .frame :global(.pawbar-md .form-card .submit),
   .contact-send {
-    padding: 7px 14px;
+    padding: var(--pbf-s2) var(--pbf-s4);
     border: none;
     border-radius: min(var(--pawbar-radius, 8px), 8px);
     background: var(--pawbar-accent, var(--pawbar-bubble-bg, rgb(255 255 255 / 0.86)));
     color: var(--pawbar-accent-fg, var(--pawbar-bubble-fg, #1c1c21));
     font: inherit;
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     font-weight: 600;
     cursor: pointer;
   }
@@ -2028,8 +2111,8 @@
   }
   .frame :global(.pawbar-md .sent),
   .frame :global(.pawbar-md .card-fallback) {
-    margin: 6px 0;
-    font-size: var(--pbf-meta);
+    margin: var(--pbf-s2) 0;
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
   }
   .frame :global(.pawbar-md .sent) {
@@ -2041,24 +2124,24 @@
   .cart-row {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--pbf-s3);
     align-self: flex-start;
     margin: 0;
-    padding: 3px 3px 3px 12px;
+    padding: var(--pbf-s1) var(--pbf-s1) var(--pbf-s1) var(--pbf-s3);
     border: 1px solid var(--pawbar-thread-line, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 16%, transparent));
     border-radius: var(--pawbar-radius-pill, var(--pawbar-radius, 999px));
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     font-variant-numeric: tabular-nums;
   }
   .cart-row .retry {
     border-radius: var(--pawbar-radius-pill, var(--pawbar-radius, 999px));
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
   }
   .contact {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
-    gap: 8px 6px;
+    gap: var(--pbf-s2);
     align-self: stretch;
     max-width: 440px;
   }
@@ -2080,7 +2163,7 @@
   }
   .contact-copy {
     margin: 0;
-    font-size: calc(var(--pbf-msg) - 1.5px);
+    font-size: calc(var(--pawbar-message-size, var(--pbf-msg)) - 1.5px);
     line-height: 1.4;
   }
   .contact-form,
@@ -2089,18 +2172,18 @@
   }
   .contact-form {
     display: flex;
-    gap: 6px;
+    gap: var(--pbf-s2);
   }
   .contact-input {
     flex: 1;
     min-width: 0;
-    padding: 7px 12px;
+    padding: var(--pbf-s2) var(--pbf-s3);
     border: 1px solid var(--pawbar-thread-line, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 16%, transparent));
     border-radius: var(--pawbar-radius-pill, var(--pawbar-radius, 999px));
     background: color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 5%, transparent);
     color: var(--pawbar-frame-fg, #f2f2f5);
     font: inherit;
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
   }
   .contact-input::placeholder {
     color: var(--pawbar-thread-muted, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 62%, transparent));
@@ -2120,7 +2203,7 @@
   }
   .contact-err {
     margin: 0;
-    font-size: var(--pbf-meta);
+    font-size: var(--pawbar-meta-size, var(--pbf-meta));
     color: var(--pawbar-danger, color-mix(in oklab, #d93036 72%, var(--pawbar-frame-fg, #f2f2f5)));
   }
   .contact-sent {
@@ -2157,7 +2240,7 @@
      would count as leaving the bar. */
   .credit {
     max-width: 100%;
-    padding-top: 8px;
+    padding-top: var(--pbf-gap);
     text-align: center;
     font-family: var(--pawbar-font, inherit);
     font-size: 11.5px;
@@ -2166,7 +2249,7 @@
   }
   .credit > * {
     display: inline-block;
-    padding: 5px 10px;
+    padding: var(--pbf-s1) var(--pbf-s3);
     border-radius: var(--pawbar-radius-pill, var(--pawbar-radius, 999px));
     border: 1px solid var(--pawbar-frame-border, rgb(255 255 255 / 0.14));
     background: var(--pawbar-frame-bg, rgb(38 38 44 / 0.55));
@@ -2189,8 +2272,8 @@
 
   .dots {
     display: inline-flex;
-    gap: 4px;
-    padding: 6px 0;
+    gap: var(--pbf-s1);
+    padding: var(--pbf-s2) 0;
   }
   .dots span {
     width: 5px;

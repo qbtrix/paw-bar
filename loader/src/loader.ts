@@ -308,7 +308,11 @@ function suppressed(win: LoaderWindow): boolean {
 
   const iframe = doc.createElement('iframe');
   iframe.title = 'Site concierge';
-  iframe.setAttribute('allow', 'clipboard-write');
+  // Permissions the frame may ask the visitor for: copying a reply, and the
+  // mic for dictation (a cross-origin frame gets neither without this). The
+  // browser still prompts, and a host page whose Permissions-Policy denies the
+  // mic wins over this; the bar then reports the mic as blocked.
+  iframe.setAttribute('allow', 'clipboard-write; microphone');
   // BEFORE src, not after: sandbox flags take effect on the frame's next
   // navigation, so setting them once src is assigned would leave the first load
   // (the only one) unsandboxed. The unit test pins this ordering.

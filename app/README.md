@@ -46,12 +46,72 @@ window.__PAWBAR__ = {
   mode: "concierge",
   tokens?: Record<string,string>, // white-label --pawbar-* overrides
   theme?: "light" | "dark",       // default "dark"
+  voice?: boolean,                // dictation mic; on unless exactly false
 };
 ```
 
 With no global (plain `vite dev`) it falls back to localhost dev defaults — a
 real streamed reply still needs a running backend (that's the A4 smoke). To
 work on the UI with no backend at all, use the demo pages below.
+
+### Layout tokens
+
+Sizes and spacing are `--pawbar-*` custom properties like the colours, so a
+site can retune them through `tokens` or on any ancestor. Spacing is one scale:
+every gap, padding and margin in the bar and its frame is ½, 1, 2, 3, 4 or 6
+times `--pawbar-space`. By default the frame's padding, the gap between its
+sections (thread, notices, bar) and the bar's own row gaps are all the same
+value, `--pawbar-gap`.
+
+| Token | sm (default) | md | lg | What it sets |
+|---|---|---|---|---|
+| `--pawbar-space` | 3.5px | 4px | 4.5px | the spacing unit |
+| `--pawbar-gap` | 7px | 8px | 9px | 2 × space; the shared gap |
+| `--pawbar-frame-pad` | = gap | = gap | = gap | the frame's padding |
+| `--pawbar-inset` | 10px | 11px | 13px | (height − logo) ÷ 2: the logo's distance from every pill edge, the pill's side padding, the logo-to-text gap and the open card's padding |
+| `--pawbar-height` | 46px | 52px | 60px | resting pill height (half of it is the default radius) |
+| `--pawbar-launcher-size` | 52px | 60px | 68px | icon launcher diameter |
+| `--pawbar-pill-width` | 250px | 300px | 360px | resting pill width |
+| `--pawbar-card-width` | 440px | 540px | 680px | open card width (full screen uses `--pawbar-full-width`) |
+| `--pawbar-font-size` | 15px | 16px | 17px | the textarea |
+| `--pawbar-font-size-sm` | 14px | 15px | 16px | pill text, contact panel |
+| `--pawbar-logo-size` | 26px | 30px | 34px | the logo in the pill |
+| `--pawbar-message-size` | 14px | 15px | 16px | thread messages |
+| `--pawbar-meta-size` | 12px | 12.5px | 13.5px | thread meta lines, notices |
+
+Setting `--pawbar-space` rescales every spacing step at once; setting
+`--pawbar-gap` changes only the shared gap.
+
+Full screen is a full-page chat: one surface over the whole viewport, a header
+with the site's logo and `agentName`, and the thread and composer in one
+centred column. Two tokens tune it:
+
+| Token | Default | What it sets |
+|---|---|---|
+| `--pawbar-full-width` | 720px | the reading column (messages and the composer) |
+| `--pawbar-full-bg` | `--pawbar-frame-bg` | the page colour, layered over `--pawbar-scrim` and a 40px blur; set an opaque colour for a fully solid page |
+
+### Voice dictation
+
+The open card has a mic button left of Send. A press listens for one utterance
+(it stops by itself on silence) and writes the words into the field after
+whatever the visitor already typed; nothing is sent until they press Enter or
+Send. A second press, Escape, typing, sending or closing the card stops it.
+The implementation is the browser's Web Speech API (`src/lib/voice.ts`).
+
+- **On by default.** The owner turns it off with `voice: false` in the boot
+  config.
+- **Browser support.** Chrome, Edge and Safari. Firefox has no speech
+  recognition, so the mic is simply not shown there.
+- **Privacy.** Chrome sends the audio to Google, Edge to Microsoft and Safari to Apple
+  to transcribe it. Owners with strict privacy requirements should set
+  `voice: false`.
+- **Permissions.** The loader creates the iframe with
+  `allow="clipboard-write; microphone"`; a cross-origin frame cannot reach the
+  mic without it. The browser still asks the visitor. If the visitor refuses,
+  or the host page sends a `Permissions-Policy` that denies `microphone`, the
+  button stays, its tooltip reads "Microphone blocked", and screen readers hear
+  why.
 
 ### postMessage lifecycle (app → loader)
 

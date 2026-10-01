@@ -1,8 +1,9 @@
 <!doctype html>
 <!--
   bar.html — dev harness for the fresh bar components (2026-09-27).
-  Run `bun run dev` and open /bar.html. The gradient stands in for a host
-  page. The control strip switches the launcher (centre bar, or the icon in
+  Run `bun run dev` and open /bar.html. The Background control stands in for the
+  host page (gradient, white, light grey, black, or any colour); the bar's
+  light/dark scheme follows its brightness. The control strip switches the launcher (centre bar, or the icon in
   either corner), the site's default size, and the theme preset (each one is
   only --pawbar-* values, see src/lib/bar-themes.ts). Picking a site size also
   clears the visitor's own pick, which would otherwise win over it. The
@@ -25,10 +26,13 @@
         margin: 0;
         min-height: 100vh;
         font-family: system-ui, sans-serif;
-        background:
+        /* --demo-bg is set by the Background control; unset, the gradient. */
+        background: var(
+          --demo-bg,
           radial-gradient(900px 600px at 15% 20%, #5b3fd1 0%, transparent 60%),
           radial-gradient(900px 700px at 85% 80%, #d98a3d 0%, transparent 60%),
-          #2a2230;
+          #2a2230
+        );
       }
       .controls {
         position: fixed;
@@ -39,7 +43,7 @@
         gap: 16px;
         padding: 10px 14px;
         border-radius: 12px;
-        background: rgb(0 0 0 / 0.45);
+        background: rgb(0 0 0 / 0.7);
         color: #eee;
         font-size: 13px;
       }
@@ -81,11 +85,18 @@
       </fieldset>
       <fieldset>
         <legend>Site size</legend>
-        <label><input type="radio" name="size" value="sm" /> sm</label>
-        <label><input type="radio" name="size" value="md" checked /> md</label>
+        <label><input type="radio" name="size" value="sm" checked /> sm</label>
+        <label><input type="radio" name="size" value="md" /> md</label>
         <label><input type="radio" name="size" value="lg" /> lg</label>
       </fieldset>
       <label>Theme <select name="theme" id="theme"></select></label>
+      <label>Background <select name="bg" id="bg">
+        <option value="gradient">gradient</option>
+        <option value="#ffffff">white</option>
+        <option value="#f4f4f5">light grey</option>
+        <option value="#111114">black</option>
+        <option value="custom">custom</option>
+      </select> <input type="color" name="bgcolor" id="bg-color" value="#ffffff" /></label>
       <label>Next reply <select name="next" id="next">
         <option value="normal">normal</option>
         <option value="sources">with sources</option>
