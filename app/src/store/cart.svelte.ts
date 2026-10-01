@@ -1,16 +1,18 @@
 // cart.svelte.ts — Svelte 5 runes store for the visitor cart + action loop.
-// Created 2026-07-15 (C2 action loop). Holds the server-side visitor cart
-// (never authoritative locally — every mutation round-trips /paw-bar/action and
-// adopts the cart the server returns) plus in-flight + error state for CTA
-// buttons. Shares the anonymous customer_ref with the chat store via the
-// module-singleton getCustomerRef, so both surfaces key the same visitor. No DOM
-// coupling — instantiable directly in a test with a mocked fetch
-// (tests/cart.spec.ts). Provided to descendant card components via context so
-// deeply-nested CTAs don't need prop drilling. load() is one-shot, wired to the
-// first panel open for the initial cart hydrate.
+// Holds the server-side visitor cart (never authoritative locally — every
+// mutation round-trips /paw-bar/action and adopts the cart the server returns)
+// plus in-flight + error state for CTA buttons. act() is the one action path:
+// it returns the whole ActionResult so the lead form and the booking card can
+// read `result` and a refusal's status/detail; runAction() is act() reduced to
+// a boolean for the CTAs and gated forms. Shares the anonymous customer_ref
+// with the chat store via the module-singleton getCustomerRef, so both
+// surfaces key the same visitor. No DOM coupling — instantiable directly in a
+// test with a mocked fetch (tests/cart.spec.ts). Provided to descendant card
+// components via context so deeply-nested CTAs don't need prop drilling.
+// load() is one-shot, wired to the first panel open for the initial hydrate.
 
 import { getContext, setContext } from 'svelte';
-import { postAction, getCart, type ActionConfig, type Cart } from '../lib/action-client';
+import { postAction, getCart, type ActionConfig, type ActionResult, type Cart } from '../lib/action-client';
 import { getCustomerRef } from '../lib/customer-ref';
 
 export interface CartStoreConfig {
@@ -69,21 +71,32 @@ export class CartStore {
     };
   }
 
-  /** Post a structured action event; adopt the returned cart. Returns success. */
-  async runAction(verb: string, args: Record<string, unknown>, pendingKey?: string): Promise<boolean> {
+  /** The API base the actions go to; cards resolve server paths against it. */
+  get endpoint(): string {
+    return this.#config.endpoint;
+  }
+
+  /** Post a structured action event; adopt the returned cart. Returns the full
+   *  result, so a card can read `result` and a refusal's status and detail. */
+  async act(verb: string, args: Record<string, unknown>, pendingKey?: string): Promise<ActionResult> {
     this.error = null;
     this.pending = pendingKey ?? verb;
     try {
       const res = await postAction(await this.#actionConfig(), verb, args);
       if (!res.ok) {
         this.error = res.error ?? 'That action didn’t go through.';
-        return false;
+        return res;
       }
       if (res.cart) this.cart = res.cart;
-      return true;
+      return res;
     } finally {
       this.pending = null;
     }
+  }
+
+  /** act(), reduced to whether it went through. */
+  async runAction(verb: string, args: Record<string, unknown>, pendingKey?: string): Promise<boolean> {
+    return (await this.act(verb, args, pendingKey)).ok;
   }
 
   addToCart(productId: string, qty = 1): Promise<boolean> {
