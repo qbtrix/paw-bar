@@ -291,6 +291,7 @@
     placeholder={config.launcherLabel || undefined}
     greeting={config.greeting}
     logoSrc={config.logo}
+    agentName={config.agentName}
     launcher={config.launcher}
     side={config.side}
     size={config.barSize}
