@@ -6,9 +6,9 @@
 // click vs location.assign, #id and heading lookups, the overlay fade (and its
 // absence under reduced motion), and the overlay cleared by navigate/popstate.
 // Site tools: the window.pawbarTools queue (drained, push replaced), the
-// outline checks and limits, the pawbar:tools post (debounced, on request,
+// checks and limits kept here, the pawbar:tools post (debounced, on request,
 // never to a spoofed asker), and do:'tool' runs: result message, failure,
-// throw, unknown name, bad args, and the 10 s timeout (shortened here).
+// throw, unknown name, absent args, and the 10 s timeout (shortened here).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -353,16 +353,14 @@ test('rejects a bad tool with a warning and keeps the others', async () => {
   window.pawbarTools.push(
     cartTool({ name: 'Bad-Name' }),
     cartTool({ name: 'no_exec', execute: 'nope' }),
-    cartTool({ name: 'no_desc', description: '' }),
-    cartTool({ name: 'long_desc', description: 'd'.repeat(201) }),
-    cartTool({ name: 'array_schema', inputSchema: { type: 'array', properties: {} } }),
-    cartTool({ name: 'bad_prop', inputSchema: { type: 'object', properties: { '1x': { type: 'string' } } } }),
+    cartTool({ name: 'no_desc', description: 5 }),
+    cartTool({ name: 'no_schema', inputSchema: undefined }),
     cartTool({ name: 'too_big', inputSchema: big }),
     cartTool(),
   );
   await sleep(80);
   assert.deepEqual(toolLists(replies)[0].data.tools.map((t) => t.name), ['add_to_cart']);
-  assert.equal(warns.length, 7);
+  assert.equal(warns.length, 5);
   window.pawbarTools.push(cartTool({ name: 'no_props', inputSchema: { type: 'object' } }));
   big.properties.p.description = big.properties.p.description.slice(1);
   window.pawbarTools.push(cartTool({ name: 'at_limit', inputSchema: big }));
@@ -412,7 +410,7 @@ test('runs a tool and replies with its message', async () => {
   let got = null;
   const execute = async (args) => {
     got = args;
-    return { ok: true, message: '  Added   Cairn 45 \n to your cart ' };
+    return { ok: true, message: 'Added Cairn 45 to your cart' };
   };
   const { window, iframe, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool({ execute })]) });
   runTool(window, iframe, { name: 'add_to_cart', args: { product: '/products/cairn-45/', quantity: 1 } });
@@ -458,8 +456,12 @@ test('a tool that says no, throws, or rejects has failed', async () => {
     act(window, { type: 'pawbar:act', id: name, do: 'tool', name, args: {} }, { source: iframe.contentWindow });
   }
   await sleep(10);
+  // Each settles on its own tick; compare in a fixed order.
+  const order = ['no', 'throws', 'rejects'];
   assert.deepEqual(
-    results(replies).map((r) => r.data),
+    results(replies)
+      .map((r) => r.data)
+      .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)),
     [
       { type: 'pawbar:act-result', id: 'no', ok: false, error: 'failed', message: 'Out of stock' },
       { type: 'pawbar:act-result', id: 'throws', ok: false, error: 'failed' },
@@ -468,13 +470,12 @@ test('a tool that says no, throws, or rejects has failed', async () => {
   );
 });
 
-test('an unknown tool is not_found and args that are not an object are unsupported', () => {
+test('an unknown tool is not_found and nothing runs', () => {
   let ran = 0;
   const { window, iframe, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool({ execute: () => ran++ })]) });
   runTool(window, iframe, { name: 'remove_from_cart', args: {} });
-  act(window, { type: 'pawbar:act', id: 't2', do: 'tool', name: 'add_to_cart', args: ['x'] }, { source: iframe.contentWindow });
-  act(window, { type: 'pawbar:act', id: 't3', do: 'tool', name: 'add_to_cart', args: 'x' }, { source: iframe.contentWindow });
-  assert.deepEqual(results(replies).map((r) => r.data.error), ['not_found', 'unsupported', 'unsupported']);
+  runTool(window, iframe, { name: 'toString', args: {} });
+  assert.deepEqual(results(replies).map((r) => r.data.error), ['not_found', 'not_found']);
   assert.equal(ran, 0);
 });
 

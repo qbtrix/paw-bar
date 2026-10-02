@@ -19,13 +19,15 @@
 // styles are never touched).
 //
 // Site tools: `window.pawbarTools` is a queue, so script order does not matter:
-// items queued before load are drained and push is replaced. Only an outline
-// is checked here, to stay inside the gzip budget (name, description <= 200,
-// execute, a {type:'object'} schema with valid property names, <= SCHEMA_MAX
-// chars of compact JSON, <= TOOLS_MAX tools, a repeated name replaces); the
-// frame (app/src/lib/page-tools) and the server apply the full schema and args
-// rules. A refused tool gets a console warning. do:'tool' runs execute(args)
-// (absent args = {}) with a TOOL_MS timeout; ok unless it threw or returned
+// items queued before load are drained and push is replaced. Only what keeps
+// this side safe is checked here, inside the gzip budget: the name pattern,
+// a string description, execute a function, the schema at most SCHEMA_MAX
+// chars of compact JSON (posted as a copy), at most TOOLS_MAX tools (a repeated
+// name replaces its tool); a refused tool gets a console warning. The frame
+// (app/src/lib/page-tools) applies every other declaration rule, and it and
+// the server check args against the schema before anything is posted here.
+// do:'tool' runs execute(args) (absent args = {}) for a registered name (else
+// not_found) with a TOOL_MS timeout; ok unless it threw or returned
 // {ok:false} (`failed`); a string `message` goes back clipped to 160.
 //
 // SECURITY: a message is honoured only when ev.origin is the frame origin AND
@@ -42,7 +44,6 @@ const TARGET_MAX = 120;
 const HIGHLIGHT_MS = 2000;
 const FADE_MS = 300;
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,39}$/;
-const ARG_NAME = /^[A-Za-z]\w{0,39}$/;
 const TOOLS_MAX = 12;
 const SCHEMA_MAX = 2048;
 const TOOL_MS = 10000;
@@ -93,17 +94,11 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
 
   function addTool(t: Data): void {
     try {
-      const s = t.inputSchema;
-      const j = JSON.stringify(s);
+      const j = JSON.stringify(t.inputSchema);
       if (
-        typeof t.name == 'string' &&
         TOOL_NAME.test(t.name) &&
         typeof t.description == 'string' &&
-        t.description.trim() &&
-        t.description.length <= 200 &&
         typeof t.execute == 'function' &&
-        s.type == 'object' &&
-        Object.keys(s.properties || {}).every((k) => ARG_NAME.test(k)) &&
         j.length <= SCHEMA_MAX &&
         (tools.size < TOOLS_MAX || tools.has(t.name))
       ) {
@@ -128,22 +123,15 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
 
   function runTool(d: Data, reply: (r: Data) => void): void {
     const t = tools.get(d.name);
-    const a = d.args ?? {};
-    if (!t || !a || typeof a != 'object' || Array.isArray(a)) {
-      return reply({ ok: false, error: t ? 'unsupported' : 'not_found' });
-    }
+    if (!t) return reply({ ok: false, error: 'not_found' });
+    // First answer wins; a late one after the timeout is dropped.
     let done = 0;
-    const fin = (r: Data) => {
-      if (!done++) {
-        win.clearTimeout(timer);
-        reply(r);
-      }
-    };
-    const timer = win.setTimeout(() => fin({ ok: false, error: 'timeout' }), TOOL_MS);
-    new Promise((res) => res(t[1](a))).then(
+    const fin = (r: Data) => done++ || reply(r);
+    win.setTimeout(() => fin({ ok: false, error: 'timeout' }), TOOL_MS);
+    new Promise((res) => res(t[1](d.args ?? {}))).then(
       (r: any) => {
         const ok = !(r && r.ok === false);
-        const m = r && typeof r.message == 'string' ? r.message.replace(/\s+/g, ' ').trim().slice(0, 160) : '';
+        const m = r && typeof r.message == 'string' && r.message.slice(0, 160);
         fin({ ok, ...(ok ? {} : { error: 'failed' }), ...(m ? { message: m } : {}) });
       },
       () => fin({ ok: false, error: 'failed' }),
