@@ -109,7 +109,7 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
     } catch {
       /* rejected below */
     }
-    console.warn('paw-bar: bad tool', t && t.name);
+    console.warn('paw-bar: bad tool', t);
   }
 
   function sendTools(w = frameWin()): void {
@@ -117,8 +117,8 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
   }
 
   function sendSoon(): void {
-    win.clearTimeout(sendTimer);
-    sendTimer = win.setTimeout(sendTools, 50);
+    clearTimeout(sendTimer);
+    sendTimer = setTimeout(sendTools, 50);
   }
 
   function runTool(d: Data, reply: (r: Data) => void): void {
@@ -127,7 +127,7 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
     // First answer wins; a late one after the timeout is dropped.
     let done = 0;
     const fin = (r: Data) => done++ || reply(r);
-    win.setTimeout(() => fin({ ok: false, error: 'timeout' }), TOOL_MS);
+    setTimeout(() => fin({ ok: false, error: 'timeout' }), TOOL_MS);
     new Promise((res) => res(t[1](d.args ?? {}))).then(
       (r: any) => {
         const ok = r?.ok !== false;
@@ -142,10 +142,9 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
   // The queue: drain what the page pushed before we loaded, then take over push.
   const queue = Array.isArray(win.pawbarTools) ? win.pawbarTools : (win.pawbarTools = []);
   queue.splice(0).forEach(addTool);
-  queue.push = (...ts: Data[]): number => {
+  queue.push = (...ts: Data[]): void => {
     ts.forEach(addTool);
     sendSoon();
-    return tools.size;
   };
   if (tools.size) sendSoon();
 
@@ -253,11 +252,11 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
     if (ev.origin !== frameOrigin) return;
     const d = ev.data as Data | null;
     if (!d || typeof d !== 'object') return;
-    const ask = d.type === 'pawbar:tools-request';
-    if (!ask && (d.type !== 'pawbar:act' || typeof d.id !== 'string')) return;
+    // frameWin is null for anyone but the Paw Bar frame, so a spoof gets nothing.
+    if (d.type === 'pawbar:tools-request') return sendTools(frameWin(ev.source));
+    if (d.type !== 'pawbar:act' || typeof d.id !== 'string') return;
     const target = frameWin(ev.source);
     if (!target) return;
-    if (ask) return sendTools(target);
     const reply = (r: Data) => target.postMessage({ type: 'pawbar:act-result', id: d.id, ...r }, frameOrigin);
     if (d.do === 'tool') return runTool(d, reply);
     let out: ActError | (() => void);

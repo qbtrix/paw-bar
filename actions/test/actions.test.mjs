@@ -28,7 +28,7 @@ function mount({ body = '', path = '/', reducedMotion = false, endpointAttr = nu
   const navigations = [];
   const warns = [];
   const vc = new VirtualConsole();
-  vc.on('warn', (...args) => warns.push(args.join(' ')));
+  vc.on('warn', (...args) => warns.push(args));
   vc.on('jsdomError', (e) => {
     if (/navigation/i.test(String(e.message))) navigations.push(e.message);
   });
@@ -316,8 +316,7 @@ const runTool = (window, iframe, data, source = iframe.contentWindow) =>
 
 test('drains tools queued before it loaded, then takes over push', async () => {
   const { window, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool()]) });
-  const n = window.pawbarTools.push(cartTool({ name: 'pick_size', confirm: false }));
-  assert.equal(n, 2);
+  window.pawbarTools.push(cartTool({ name: 'pick_size', confirm: false }));
   await sleep(80);
   const lists = toolLists(replies);
   assert.equal(lists.length, 1, 'one debounced post');
@@ -366,7 +365,8 @@ test('rejects a bad tool with a warning and keeps the others', async () => {
   window.pawbarTools.push(cartTool({ name: 'at_limit', inputSchema: big }));
   await sleep(80);
   assert.deepEqual(toolLists(replies)[1].data.tools.map((t) => t.name), ['add_to_cart', 'no_props', 'at_limit']);
-  assert.match(warns[0], /bad tool/);
+  assert.equal(warns[0][0], 'paw-bar: bad tool');
+  assert.equal(warns[0][1].name, 'Bad-Name');
 });
 
 test('keeps at most 12 tools, and a repeated name replaces its tool', async () => {
