@@ -19,7 +19,10 @@
 // {items:[…]}, both through lib/sources), optional `action` ({action:{do, to?,
 // target?, label}}, at most one, before stream_end, through
 // lib/page-actions.sanitizeAction), `human_replying` (owner took over; not
-// terminal), and `error` / `interrupted`. A body that ends without a
+// terminal), `unavailable` (the server could not answer: {reason:
+// "temporary"|"limit"}, unknown reasons read as temporary; terminal, the
+// stream_end after it is not read), and `error` / `interrupted`. A body that
+// ends without a
 // terminal frame still finalizes with onEnd({}).
 //
 // Failures reach onError as a structured RawFailure (lib/chat-errors), never
@@ -157,6 +160,11 @@ export function dispatchFrame(frame: SseFrame, cb: ChatCallbacks): boolean {
       const message = data && typeof data.message === 'string' ? data.message.trim() : '';
       cb.onHumanReplying?.(message);
       return true;
+    }
+    case 'unavailable': {
+      const data = safeParse(frame.data);
+      cb.onError({ source: 'frame', event: 'unavailable', reason: data?.reason === 'limit' ? 'limit' : 'temporary' });
+      return false;
     }
     case 'interrupted':
       cb.onError({ source: 'frame', event: 'interrupted' });

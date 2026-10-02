@@ -35,7 +35,8 @@
 // `status: 'queued'` — an offline send the server has never seen; coercing it to
 // 'done' on reload would show an unsent message as sent. `failure` — the
 // FailureKind of a failed turn, so its note survives a reload. `stopped` — a
-// reply the visitor stopped with partial text. Plus a per-conversation handoff
+// reply the visitor stopped with partial text. `unavailable` — why the server
+// could not answer an assistant turn ('temporary' | 'limit'), for its note. Plus a per-conversation handoff
 // flag (loadHandoff / saveHandoff) so "Waiting for the team" survives a reload.
 // A row that predates these simply reads as it did before.
 // An assistant turn's page `action` ({do, to?, target?, label, state}) persists
@@ -76,7 +77,7 @@ export const TRANSCRIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface StoredTranscript {
   saved_at: number;
-  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status' | 'sources' | 'at' | 'failure' | 'stopped' | 'action'>>;
+  messages: Array<Pick<Message, 'id' | 'role' | 'content' | 'status' | 'sources' | 'at' | 'failure' | 'stopped' | 'action' | 'unavailable'>>;
 }
 
 const ROLES: readonly MessageRole[] = ['user', 'assistant', 'owner', 'system'];
@@ -211,6 +212,9 @@ export function loadTranscript(widgetId: string, conversationId = ''): Message[]
         ...(sources.length > 0 ? { sources } : {}),
         ...(at ? { at } : {}),
         ...(m.status === 'error' && FAILURES.includes(m.failure as FailureKind) ? { failure: m.failure } : {}),
+        ...(m.status === 'error' && (m.unavailable === 'temporary' || m.unavailable === 'limit')
+          ? { unavailable: m.unavailable }
+          : {}),
         ...(m.stopped === true ? { stopped: true } : {}),
         ...(action ? { action } : {}),
       });
@@ -238,6 +242,7 @@ export function saveTranscript(widgetId: string, messages: Message[], conversati
         : {}),
       ...(m.at ? { at: m.at } : {}),
       ...(m.failure ? { failure: m.failure } : {}),
+      ...(m.unavailable ? { unavailable: m.unavailable } : {}),
       ...(m.stopped ? { stopped: true } : {}),
       ...(m.action ? { action: { ...m.action } } : {}),
     }));

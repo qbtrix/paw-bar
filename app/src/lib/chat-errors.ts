@@ -20,6 +20,10 @@
 //     of a conversation they are already in is the worse error.
 // Deviation from §10, on purpose: the frame variant carries an optional
 // `message` (the SSE error text) so ownerReason can log it. It is never shown.
+// The server's `unavailable` frame (a turn it could not answer) classifies as
+// kind `unavailable` on the assistant turn with a `reason`: 'temporary' stays
+// per-turn with Try again, 'limit' (spend cap / quota) takes the bar down with
+// the email offer. UNAVAILABLE_COPY holds the visitor's words for each.
 
 export type FailureKind =
   | 'offline'
@@ -35,7 +39,11 @@ export type RawFailure =
   | { source: 'network'; online: boolean; afterResponse: boolean }
   | { source: 'http'; status: number; detail: string | null; retryAfter: string | null }
   | { source: 'frame'; event: 'error' | 'interrupted'; message?: string }
+  | { source: 'frame'; event: 'unavailable'; reason: UnavailableReason }
   | { source: 'empty' };
+
+/** Why the server could not answer a turn (the `unavailable` frame). */
+export type UnavailableReason = 'temporary' | 'limit';
 
 export interface ChatFailure {
   kind: FailureKind;
@@ -47,6 +55,8 @@ export interface ChatFailure {
   retryAfterMs?: number;
   /** Console only, never rendered. */
   ownerReason: string;
+  /** Set when the server's `unavailable` frame caused it. */
+  reason?: UnavailableReason;
 }
 
 /** Cooldown when the server gives no readable Retry-After (the chat 429 sends
@@ -96,6 +106,12 @@ export function classifyError(raw: RawFailure, ctx: { firstUserTurn: boolean }):
         ? turn('unreachable', 'user', 'fetch rejected while online (network, DNS, or a response without CORS headers)')
         : turn('offline', 'user', 'browser offline');
     case 'frame':
+      if (raw.event === 'unavailable') {
+        const ownerReason = `server could not answer (${raw.reason})`;
+        return raw.reason === 'limit'
+          ? { kind: 'unavailable', scope: 'bar', on: 'assistant', contactable: true, ownerReason, reason: 'limit' }
+          : { ...turn('unavailable', 'assistant', ownerReason), reason: 'temporary' };
+      }
       return raw.event === 'interrupted'
         ? turn('interrupted', 'assistant', 'server interrupted the reply')
         : turn('server', 'assistant', `server error frame: ${raw.message ?? '(no message)'}`);
@@ -149,6 +165,12 @@ export const FAILURE_COPY: Record<FailureKind, { turn?: string; line?: string; s
   interrupted: { turn: 'The reply was cut off', sr: 'The reply was cut off.' },
   server: { turn: 'Something went wrong', sr: 'Something went wrong.' },
   empty: { turn: 'No answer came back', sr: 'No answer came back.' },
+};
+
+/** What the visitor reads for a turn the server could not answer. */
+export const UNAVAILABLE_COPY: Record<UnavailableReason, string> = {
+  temporary: "I couldn't answer that just now.",
+  limit: "I'm not available right now.",
 };
 
 /** Appended to the `unavailable` line when a person can still be reached. */

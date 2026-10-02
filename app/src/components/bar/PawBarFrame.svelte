@@ -113,7 +113,9 @@
     from `cooldownUntil`. `unavailable` makes the input read-only with its own
     placeholder; `cooldownUntil` and `queueFull` hold Send. The notice's
     "Leave your email" action opens the bar's Talk-to-a-person panel
-    (`onrequesthuman`, `handoff`).
+    (`onrequesthuman`, `handoff`). A reply the server could not answer
+    (`unavailable` reason): 'temporary' notes "I couldn't answer that just
+    now." with Try again; 'limit' is said by the near-input line instead.
   • `scheme` ('light' | 'dark') is the host's scheme, resolved by the mount
     point (lib/scheme.ts); themes with overlays (Default) follow it, branded
     ones ignore it. It is on the wrapper as data-pawbar-scheme.
@@ -238,7 +240,7 @@
     type BarSize,
   } from './PawBar.svelte';
   import { resolveTheme, type BarScheme } from '../../lib/bar-themes';
-  import { FAILURE_COPY, formatCopy } from '../../lib/chat-errors';
+  import { FAILURE_COPY, formatCopy, UNAVAILABLE_COPY } from '../../lib/chat-errors';
   import { actionLine } from '../../lib/page-actions';
   import type { Notice } from '../../store/chat.svelte';
   import Markdown from '../Markdown.svelte';
@@ -435,11 +437,14 @@
   // The note under a failed turn. A queued turn is waiting, not failed.
   function noteFor(m: BarMessage): string {
     if (m.status === 'queued') return FAILURE_COPY.offline.turn ?? 'Waiting for connection';
+    if (m.role === 'assistant' && m.unavailable) return UNAVAILABLE_COPY[m.unavailable];
     if (m.role === 'assistant') return (m.failure && FAILURE_COPY[m.failure].turn) || 'Something went wrong with this reply.';
     return (m.failure && FAILURE_COPY[m.failure].turn) || 'Not sent';
   }
-  // Retry is offered where a retry can work: never for an unavailable chat.
-  const canRetry = (m: BarMessage) => m.failure !== 'unavailable' && m.failure !== 'rejected';
+  // Retry is offered where a retry can work: never for an unavailable chat,
+  // but yes for a reply the server could only not answer this time.
+  const canRetry = (m: BarMessage) =>
+    m.unavailable === 'temporary' || (m.failure !== 'unavailable' && m.failure !== 'rejected');
 
   // ── Theme ─────────────────────────────────────────────────────────────────
   let applied: string[] = [];
@@ -1080,7 +1085,8 @@
                 {/if}
                 {#if m.status === 'done' && m.stopped}
                   <p class="meta" in:fade={soft}>Stopped</p>
-                {:else if m.status === 'error'}
+                {:else if m.status === 'error' && !(m.unavailable === 'limit' && unavailable)}
+                  <!-- A limit turn is said once, by the near-input line, while it shows. -->
                   {@render turnNote(m)}
                 {:else if m.status === 'done' && m.content}
                   {@const sources = m.sources ?? []}
@@ -1115,7 +1121,8 @@
                     </div>
                   {/if}
                 {/if}
-                {#if m.status === 'done' && m.action}
+                <!-- One note under a reply: an unavailable turn never shows an act line. -->
+                {#if m.status === 'done' && m.action && !m.unavailable}
                   {@const act = m.action}
                   {#if act.state === 'fallback' && act.to}
                     <a class="source" href={act.to} target="_blank" rel="noopener noreferrer">{actionLine(act, act.state)} ↗</a>
