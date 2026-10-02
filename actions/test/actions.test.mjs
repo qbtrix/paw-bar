@@ -3,7 +3,8 @@
 // page with a Paw Bar iframe, forges `pawbar:act` messages with explicit origin
 // and source, and records the `pawbar:act-result` replies the script posts.
 // Covers: spoofed source/origin ignored, cross-origin navigate refused, anchor
-// click vs location.assign, #id and heading lookups, overlay cleanup.
+// click vs location.assign, #id and heading lookups, the overlay fade (and its
+// absence under reduced motion), and the overlay cleared by navigate/popstate.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -64,6 +65,8 @@ function mount({ body = '', path = '/', reducedMotion = false, endpointAttr = nu
   window.document.body.appendChild(s);
   return { window, iframe, replies, navigations };
 }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function act(window, data, { origin = FRAME_ORIGIN, source } = {}) {
   const ev = new window.MessageEvent('message', { data, origin });
@@ -188,7 +191,49 @@ test('highlight draws one overlay, leaves the element alone, and removes it afte
   assert.equal(box.style.pointerEvents, 'none');
   assert.match(box.style.transition, /opacity/);
   assert.equal(el.getAttribute('style'), before);
-  await new Promise((r) => setTimeout(r, 2100));
+  await sleep(2100);
+  // Fades first: still there, opacity 0, then removed once the fade is over
+  // (jsdom fires no transitionend, so the fallback timer does it).
+  assert.equal(window.document.querySelectorAll('[data-pawbar-highlight]').length, 1, 'fades before removal');
+  assert.equal(box.style.opacity, '0');
+  await sleep(500);
+  assert.equal(window.document.querySelectorAll('[data-pawbar-highlight]').length, 0);
+});
+
+test('a faded highlight is removed on transitionend', async () => {
+  const { window, iframe } = mount({ body: '<h2 id="a">A</h2>' });
+  act(window, { type: 'pawbar:act', id: 'h4', do: 'highlight', target: '#a', label: 'A' }, { source: iframe.contentWindow });
+  const box = window.document.querySelector('[data-pawbar-highlight]');
+  await sleep(2050);
+  assert.equal(box.style.opacity, '0');
+  box.dispatchEvent(new window.Event('transitionend'));
+  assert.equal(box.isConnected, false);
+});
+
+test('under reduced motion the highlight is removed at once, never faded', async () => {
+  const { window, iframe } = mount({ body: '<h2 id="a">A</h2>', reducedMotion: true });
+  act(window, { type: 'pawbar:act', id: 'h5', do: 'highlight', target: '#a', label: 'A' }, { source: iframe.contentWindow });
+  const box = window.document.querySelector('[data-pawbar-highlight]');
+  const opacities = [];
+  new window.MutationObserver(() => opacities.push(box.style.opacity)).observe(box, { attributes: true });
+  await sleep(2050);
+  assert.equal(box.isConnected, false);
+  assert.deepEqual(opacities, [], 'no fade step');
+});
+
+test('navigate clears a highlight at once', () => {
+  const { window, iframe } = mount({ body: '<h2 id="a">A</h2><a href="/other">Other</a>' });
+  window.document.querySelector('a').addEventListener('click', (e) => e.preventDefault());
+  act(window, { type: 'pawbar:act', id: 'h6', do: 'highlight', target: '#a', label: 'A' }, { source: iframe.contentWindow });
+  assert.equal(window.document.querySelectorAll('[data-pawbar-highlight]').length, 1);
+  act(window, { type: 'pawbar:act', id: 'n7', do: 'navigate', to: '/other', label: 'Other' }, { source: iframe.contentWindow });
+  assert.equal(window.document.querySelectorAll('[data-pawbar-highlight]').length, 0);
+});
+
+test('popstate clears a highlight at once', () => {
+  const { window, iframe } = mount({ body: '<h2 id="a">A</h2>' });
+  act(window, { type: 'pawbar:act', id: 'h7', do: 'highlight', target: '#a', label: 'A' }, { source: iframe.contentWindow });
+  window.dispatchEvent(new window.PopStateEvent('popstate', { state: null }));
   assert.equal(window.document.querySelectorAll('[data-pawbar-highlight]').length, 0);
 });
 
