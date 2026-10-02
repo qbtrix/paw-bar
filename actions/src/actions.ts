@@ -140,7 +140,7 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
   }
 
   // The queue: drain what the page pushed before we loaded, then take over push.
-  const queue = Array.isArray(win.pawbarTools) ? win.pawbarTools : (win.pawbarTools = []);
+  const queue: Data = Array.isArray(win.pawbarTools) ? win.pawbarTools : (win.pawbarTools = []);
   queue.splice(0).forEach(addTool);
   queue.push = (...ts: Data[]): void => {
     ts.forEach(addTool);
