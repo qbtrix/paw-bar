@@ -13,7 +13,9 @@
 // loader's resize report and the pill.
 // Page actions: pawbar:act-result reaches the runner only from parentOrigin,
 // and never when parentOrigin is empty; a pawbar:page a navigate was heading
-// for opens the bar on "Here's the page".
+// for opens the bar on "Here's the page". Site tools: the shell asks for them
+// at boot, and pawbar:tools reaches the registry only from parentOrigin and
+// the parent window, never when parentOrigin is empty.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 
@@ -37,6 +39,7 @@ import { ContactStore } from '../src/store/contact.svelte';
 import { ConversationsStore } from '../src/store/conversations.svelte';
 import type { PawBarConfig } from '../src/config';
 import type { ActionRunner } from '../src/lib/page-actions';
+import { getPageTools, resetPageTools } from '../src/lib/page-tools';
 
 let live: ReturnType<typeof mount> | null = null;
 beforeEach(() => {
@@ -126,6 +129,7 @@ function shell(extra: Partial<PawBarConfig> = {}, actions?: ActionRunner) {
     overlay: vi.fn(),
     bar: vi.fn(),
     act: vi.fn(() => true),
+    requestTools: vi.fn(),
   };
   const chat = fakeChat();
   const operator = { start: vi.fn(), startClosed: vi.fn(), stop: vi.fn() };
@@ -331,5 +335,54 @@ describe('page actions', () => {
     fromParent('http://host.test', { type: 'pawbar:page', url: 'http://host.test/boots/', title: 'Boots' });
     expect(chat.arrived).toHaveBeenLastCalledWith('http://host.test/boots/');
     expect(operator.start).toHaveBeenCalled();
+  });
+});
+
+describe('site tools', () => {
+  const parent = {} as Window;
+  function message(origin: string, data: unknown, source: unknown = parent) {
+    const ev = new MessageEvent('message', { origin, data });
+    Object.defineProperty(ev, 'source', { value: source });
+    window.dispatchEvent(ev);
+    flushSync();
+  }
+  const tools = {
+    type: 'pawbar:tools',
+    tools: [
+      {
+        name: 'add_to_cart',
+        description: 'Add a product to the cart',
+        inputSchema: { type: 'object', properties: { product: { type: 'string' } }, required: ['product'] },
+        confirm: true,
+      },
+    ],
+  };
+  beforeEach(() => {
+    resetPageTools();
+    vi.spyOn(window, 'parent', 'get').mockReturnValue(parent);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('asks the host page for its tools at boot', () => {
+    const { poster } = shell();
+    expect(poster.requestTools).toHaveBeenCalledOnce();
+  });
+
+  it('takes the list only from parentOrigin and the parent window', () => {
+    shell();
+    message('http://evil.test', tools);
+    message('http://host.test', tools, window);
+    expect(getPageTools()).toEqual([]);
+    message('http://host.test', tools);
+    expect(getPageTools().map((t) => t.name)).toEqual(['add_to_cart']);
+    message('http://host.test', { type: 'pawbar:tools', tools: [] });
+    expect(getPageTools()).toEqual([]);
+  });
+
+  it('ignores tools when parentOrigin is empty (fail closed)', () => {
+    shell({ parentOrigin: '' });
+    message('http://host.test', tools);
+    message('', tools);
+    expect(getPageTools()).toEqual([]);
   });
 });

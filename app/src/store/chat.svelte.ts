@@ -5,6 +5,13 @@
 // drives the line under the reply; a navigate writes the arrival marker first,
 // and arrived(url) turns it into "Here's the page" after the page loads. No
 // runner, or no host script answering, leaves a navigate as a link to open.
+// A tool action (lib/page-tools) whose name is not in the host's registry is
+// dropped; one the host marked confirm:false runs at once, any other waits in
+// 'confirm' for answerTool(id, yes). Confirm stores it as 'pending' before it
+// is posted, so a reload can never offer it again; the host's result message
+// (or "Done" / "That didn't work") becomes its line. Before posting, the args
+// are checked against the CURRENT registry's schema: a tool that is gone or
+// args that no longer fit fail without a post.
 // Updated 2026-09-27 (paw-bar states: failures, C5, C2, C11; specs
 // docs/design/drafts/2026-09-27-paw-bar-states-ux-failures.md §10 and
 // ...-ux-conversation.md). The raw `error` string is GONE: it carried transport
@@ -104,6 +111,7 @@ import {
   type PageAction,
   type PageActionState,
 } from '../lib/page-actions';
+import { findPageTool, validateToolArgs } from '../lib/page-tools';
 import {
   fetchConversationMessages,
   openConversation,
@@ -147,8 +155,9 @@ export interface Message {
   failure?: FailureKind;
   // The visitor pressed Stop and the reply kept its partial text (C5).
   stopped?: boolean;
-  // The page action this reply took, and where it stands.
-  action?: PageAction & { state: PageActionState };
+  // The page action this reply took, and where it stands. `message` is a
+  // tool's result line from the host page.
+  action?: PageAction & { state: PageActionState; message?: string };
   // failure 'unavailable' on an assistant turn: why the server couldn't answer.
   unavailable?: UnavailableReason;
 }
@@ -664,7 +673,8 @@ export class ChatStore {
               m.status = 'done';
               if (info.cancelled) m.stopped = true;
               else if (action && !humanReplying && this.#controller === controller) {
-                m.action = { ...action, state: 'pending' };
+                const state = this.#firstState(action);
+                if (state) m.action = { ...action, state };
               }
             } else if (info.cancelled || humanReplying) {
               this.messages = this.messages.filter((x) => x.id !== assistantId);
@@ -770,26 +780,59 @@ export class ChatStore {
 
   /** Look up the streaming assistant turn by id and return the REACTIVE array
    *  element (a $state proxy), so mutating it fires reactivity for the UI. */
+  /** Where a finished reply's action starts: guide verbs run at once; a tool
+   *  waits for the visitor unless the host said confirm:false, and a tool the
+   *  host never declared is dropped (null). */
+  #firstState(action: PageAction): PageActionState | null {
+    if (action.do !== 'tool') return 'pending';
+    const tool = findPageTool(action.name);
+    if (!tool) return null;
+    return tool.confirm ? 'confirm' : 'pending';
+  }
+
+  /** The visitor's answer to a tool's confirm card. Confirm runs it, once. */
+  answerTool(id: string, confirm: boolean): void {
+    const a = this.#assistant(id)?.action;
+    if (!a || a.do !== 'tool' || a.state !== 'confirm') return;
+    // Recorded before anything is posted: a reload never offers it again.
+    a.state = confirm ? 'pending' : 'cancelled';
+    this.#persist();
+    if (confirm) this.#perform(id, { do: 'tool', name: a.name, args: { ...a.args }, label: a.label });
+  }
+
   /** Run a reply's page action and record how it went. */
   #perform(id: string, action: PageAction): void {
     const widgetId = this.#config.widgetId;
     const navigate = action.do === 'navigate';
-    const set = (state: PageActionState | null) => {
+    const tool = action.do === 'tool';
+    const set = (state: PageActionState | null, message?: string) => {
       const m = this.#assistant(id);
       if (!m?.action || m.action.state === 'arrived') return;
-      if (state) m.action.state = state;
-      else delete m.action;
+      if (state) {
+        m.action.state = state;
+        if (message) m.action.message = message;
+      } else delete m.action;
       this.#persist();
     };
     const run = this.#config.runAction;
+    // The registry can change between the reply and the visitor's Confirm, so
+    // the tool and its args are checked against the current one; actions.js
+    // does not validate args itself.
+    if (tool) {
+      const current = findPageTool(action.name);
+      const args = current ? validateToolArgs(current.inputSchema, action.args) : null;
+      if (!run || !args) return set('failed');
+      action = { ...action, args };
+    }
     if (!run) {
       set(navigate ? 'fallback' : null);
       return;
     }
     if (navigate && action.to) saveArrival(widgetId, { conversationId: this.conversationId, to: action.to });
     void run(action).then((res) => {
-      if (res.ok) return set('done');
+      if (res.ok) return set('done', res.message);
       if (navigate) clearArrival(widgetId);
+      if (tool) return set('failed', res.message);
       // No host script: a page link is still useful, a scroll is not.
       if (res.error === 'no_host') set(navigate ? 'fallback' : null);
       else set('failed');

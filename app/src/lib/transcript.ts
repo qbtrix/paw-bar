@@ -42,12 +42,17 @@
 // An assistant turn's page `action` ({do, to?, target?, label, state}) persists
 // too, so "Taking you to …" survives the navigation it causes and can become
 // "Here's the page". Loading re-sanitizes it (lib/page-actions) and settles a
-// 'pending' state to 'done': nothing is in flight after a reload.
+// 'pending' state to 'done': nothing is in flight after a reload. A tool
+// action keeps a terminal state and result `message`, but never comes back
+// actionable or as a claim it ran: 'confirm' (never answered) restores as
+// 'expired' ("Not done", no buttons), and 'pending' (stored BEFORE it is
+// posted, so possibly failed or unfinished) as 'sent'. Neither runs again.
+// A tool action is restored by shape (the registry arrives after boot).
 
 import type { Message, MessageRole } from '../store/chat.svelte';
 import type { FailureKind } from './chat-errors';
 import { sanitizeSources } from './sources';
-import { sanitizeAction, type PageActionState } from './page-actions';
+import { resultMessage, sanitizeAction, type PageActionState } from './page-actions';
 
 // 2026-08-19 (conversation identity): the row is keyed per CONVERSATION, not
 // per widget. A visitor may now hold several, and the Messages tab lets them
@@ -82,12 +87,24 @@ interface StoredTranscript {
 
 const ROLES: readonly MessageRole[] = ['user', 'assistant', 'owner', 'system'];
 const ACTION_STATES: readonly PageActionState[] = ['done', 'failed', 'arrived', 'fallback'];
+const TOOL_STATES: readonly PageActionState[] = ['done', 'failed', 'cancelled', 'expired', 'sent'];
+/** A stored tool state that is not terminal, settled for a reload. */
+const TOOL_SETTLE: Partial<Record<PageActionState, PageActionState>> = { confirm: 'expired', pending: 'sent' };
 
 function restoreAction(raw: unknown): Message['action'] | undefined {
   const action = sanitizeAction(raw);
   if (!action) return undefined;
-  const state = (raw as { state?: unknown }).state as PageActionState;
-  return { ...action, state: ACTION_STATES.includes(state) ? state : 'done' };
+  const { state, message: rawMessage } = raw as { state?: unknown; message?: unknown };
+  const tool = action.do === 'tool';
+  const stored = (tool ? TOOL_SETTLE[state as PageActionState] : undefined) ?? (state as PageActionState);
+  const states = tool ? TOOL_STATES : ACTION_STATES;
+  const message = tool ? resultMessage(rawMessage) : undefined;
+  return {
+    ...action,
+    // An unknown tool state is neutral, never a claim that it ran.
+    state: states.includes(stored) ? stored : tool ? 'sent' : 'done',
+    ...(message ? { message } : {}),
+  };
 }
 
 function key(widgetId: string, conversationId = ''): string {
@@ -244,7 +261,7 @@ export function saveTranscript(widgetId: string, messages: Message[], conversati
       ...(m.failure ? { failure: m.failure } : {}),
       ...(m.unavailable ? { unavailable: m.unavailable } : {}),
       ...(m.stopped ? { stopped: true } : {}),
-      ...(m.action ? { action: { ...m.action } } : {}),
+      ...(m.action ? { action: { ...m.action, ...(m.action.args ? { args: { ...m.action.args } } : {}) } } : {}),
     }));
   try {
     if (terminal.length === 0) {
