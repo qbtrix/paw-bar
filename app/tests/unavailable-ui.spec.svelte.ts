@@ -96,4 +96,23 @@ describe('an unavailable reply', () => {
     expect(target.querySelector('.contact')).not.toBeNull();
     expect(onrequesthuman).not.toHaveBeenCalled();
   });
+
+  it('never shows the act line alongside the unavailable note', () => {
+    const { target } = frame({
+      messages: [
+        user,
+        {
+          id: 'a1',
+          role: 'assistant',
+          content: 'Here are the boots.',
+          status: 'error',
+          failure: 'unavailable',
+          unavailable: 'temporary',
+          action: { do: 'navigate', to: 'https://shop.example.com/boots', label: 'Cairn boot', state: 'pending' },
+        },
+      ],
+    });
+    expect(text(target.querySelector('.turn-note.error'))).toBe("I couldn't answer that just now. Try again");
+    expect(target.textContent).not.toContain('Cairn boot');
+  });
 });

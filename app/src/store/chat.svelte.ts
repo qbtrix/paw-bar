@@ -89,6 +89,8 @@ import {
   type ChatFailure,
   type FailureKind,
   type RawFailure,
+  type UnavailableReason,
+  UNAVAILABLE_COPY,
 } from '../lib/chat-errors';
 import { postRequestHuman } from '../lib/handoff-client';
 import { getCustomerRef } from '../lib/customer-ref';
@@ -147,6 +149,8 @@ export interface Message {
   stopped?: boolean;
   // The page action this reply took, and where it stands.
   action?: PageAction & { state: PageActionState };
+  // failure 'unavailable' on an assistant turn: why the server couldn't answer.
+  unavailable?: UnavailableReason;
 }
 
 /** The one line near the input. `action: 'contact'` = offer "Leave your email". */
@@ -237,7 +241,7 @@ export class ChatStore {
   notice = $derived.by((): Notice | null => {
     const u = this.unavailable;
     if (u) {
-      const text = FAILURE_COPY.unavailable.line ?? '';
+      const text = u.reason === 'limit' ? UNAVAILABLE_COPY.limit : (FAILURE_COPY.unavailable.line ?? '');
       return u.contactable
         ? { kind: 'unavailable', text: `${text} ${CONTACT_OFFER}`, action: 'contact' }
         : { kind: 'unavailable', text };
@@ -674,6 +678,10 @@ export class ChatStore {
           this.#persist();
         },
         onError: (raw) => {
+          // A failed turn (an `unavailable` frame included) never runs a held
+          // page action: the server shouldn't send both, but if it does the
+          // action is dropped, not attached to the failed reply.
+          action = null;
           // A superseded stream (reset / switch) must not lock the bar or start
           // a cooldown for the thread that replaced it.
           if (this.#controller === controller) result = this.#fail(userId, assistantId, raw);
@@ -698,7 +706,10 @@ export class ChatStore {
       if (m) {
         m.status = 'error';
         m.failure = failure.kind;
+        if (failure.reason) m.unavailable = failure.reason;
+        delete m.action;
       }
+      if (failure.scope === 'bar') this.unavailable = failure;
       return { ok: false, kind: failure.kind };
     }
     // Refused before any reply started: the empty assistant bubble goes.

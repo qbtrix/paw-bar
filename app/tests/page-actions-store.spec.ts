@@ -123,3 +123,30 @@ describe('ChatStore page actions', () => {
     expect(run).not.toHaveBeenCalled();
   });
 });
+
+describe('an unavailable frame in the same turn as an action', () => {
+  const UNAVAILABLE = (reason: string) => `event: unavailable
+data: {"type":"unavailable","reason":"${reason}"}
+
+`;
+
+  it.each(['temporary', 'limit'])('discards the held action (%s): not run, not shown, no arrival marker', async (reason) => {
+    reply(CHUNK + actionFrame(NAV) + UNAVAILABLE(reason) + END);
+    const runAction = vi.fn(async (): Promise<ActResult> => ({ ok: true }));
+    const store = new ChatStore({ ...base, runAction });
+    await store.send('boots?');
+    await flush();
+    expect(runAction).not.toHaveBeenCalled();
+    const m = store.messages[1];
+    expect(m.status).toBe('error');
+    expect(m.unavailable).toBe(reason);
+    expect(m.action).toBeUndefined();
+    expect(localStorage.getItem('pawbar.arrival.v1.w1')).toBeNull();
+    // A reload brings back the note, not the action.
+    const after = new ChatStore({ ...base, runAction });
+    expect(after.messages[1].action).toBeUndefined();
+    expect(after.messages[1].unavailable).toBe(reason);
+    store.dispose();
+    after.dispose();
+  });
+});
