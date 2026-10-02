@@ -47,6 +47,9 @@
 //     lifecycle hints this one reports whether it went: act() returns false
 //     when there is no parent or no parentOrigin, because an empty origin must
 //     never carry a command (postMessage would throw on it anyway).
+//   {type:"pawbar:tools-request"}   asks the host page's actions.js for its
+//     declared tools (it answers with pawbar:tools). Sent once at boot, and
+//     only with a parentOrigin, like act().
 
 export interface PawBarPoster {
   /** `side` docks an icon launcher in its corner (a loader that predates it
@@ -70,6 +73,8 @@ export interface PawBarPoster {
   bar(compact: boolean, expanded: boolean): void;
   /** Send a `pawbar:act` page action. False when it could not be sent. */
   act(message: Record<string, unknown>): boolean;
+  /** Ask actions.js for the site's declared tools. Nothing without parentOrigin. */
+  requestTools(): void;
 }
 
 export function createPoster(parentOrigin: string): PawBarPoster {
@@ -121,6 +126,9 @@ export function createPoster(parentOrigin: string): PawBarPoster {
     },
     bar(compact: boolean, expanded: boolean) {
       post({ type: 'pawbar:bar', compact, expanded });
+    },
+    requestTools() {
+      if (parentOrigin) post({ type: 'pawbar:tools-request' });
     },
     act(message: Record<string, unknown>) {
       if (!target || !parentOrigin || message.type !== 'pawbar:act') return false;

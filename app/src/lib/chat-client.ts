@@ -9,7 +9,9 @@
 // conversation_id?, page?, tz?}. Optional keys are left off, never sent as
 // null; older servers ignore unknown keys (pydantic extra='ignore').
 //   * page — the host page the bar is embedded on (lib/host-page: origin +
-//     pathname, title clipped to 120).
+//     pathname, title clipped to 120), plus `tools` when the host page
+//     declared any (lib/page-tools: [{name, description, input_schema}], no
+//     `confirm`, which only the frame uses).
 //   * tz — the visitor's IANA timezone (visitorTimeZone), so the concierge can
 //     talk about times, and booking slots, in the visitor's own clock. Sent
 //     only when it looks like a real zone name.
@@ -17,8 +19,9 @@
 // Frames: `chunk` (text deltas only; typed non-text chunks never reach a
 // public reply), `stream_end`, optional `sources` ({sources:[…]} or the v2
 // {items:[…]}, both through lib/sources), optional `action` ({action:{do, to?,
-// target?, label}}, at most one, before stream_end, through
-// lib/page-actions.sanitizeAction), `human_replying` (owner took over; not
+// target?, name?, args?, label}}, at most one, before stream_end, through
+// lib/page-actions.sanitizeAction against the live tool registry, so a tool
+// the host page never declared is dropped), `human_replying` (owner took over; not
 // terminal), `unavailable` (the server could not answer: {reason:
 // "temporary"|"limit"}, unknown reasons read as temporary; terminal, the
 // stream_end after it is not read), and `error` / `interrupted`. A body that
@@ -36,6 +39,7 @@ import { sanitizeSources, type Source } from './sources';
 import type { RawFailure } from './chat-errors';
 import { getHostPage } from './host-page';
 import { sanitizeAction, type PageAction } from './page-actions';
+import { getPageTools, wireTools } from './page-tools';
 
 export interface ConciergeChatConfig {
   endpoint: string;
@@ -149,7 +153,7 @@ export function dispatchFrame(frame: SseFrame, cb: ChatCallbacks): boolean {
       return true;
     }
     case 'action': {
-      const action = sanitizeAction(safeParse(frame.data)?.action);
+      const action = sanitizeAction(safeParse(frame.data)?.action, getPageTools());
       if (action) cb.onAction?.(action);
       return true;
     }
@@ -181,7 +185,10 @@ export async function streamConciergeChat(
   callbacks: ChatCallbacks,
   signal?: AbortSignal,
 ): Promise<void> {
-  const page = getHostPage();
+  const host = getHostPage();
+  const tools = wireTools();
+  // Tools ride inside `page`, so they go only when there is a page to carry them.
+  const page = host && tools.length ? { ...host, tools } : host;
   const tz = visitorTimeZone();
   let res: Response;
   try {

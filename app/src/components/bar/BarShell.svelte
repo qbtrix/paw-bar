@@ -64,6 +64,9 @@
   poster.act) gets every pawbar:act-result, but only when parentOrigin is set
   and equals ev.origin. The source check above it still applies. With no
   parentOrigin nothing is ever posted, so there is nothing to answer.
+  Site-declared tools: at boot the shell asks actions.js for them
+  (poster.requestTools), and each pawbar:tools reply replaces the registry in
+  lib/page-tools, under the same parentOrigin rule as act-result.
 -->
 <script lang="ts" module>
   import type { ChatStore } from '../../store/chat.svelte';
@@ -91,6 +94,7 @@
   import { resolveScheme } from '../../lib/scheme';
   import { dockSize } from '../../lib/dock-size';
   import { getHostPage, setHostPage } from '../../lib/host-page';
+  import { setPageTools } from '../../lib/page-tools';
   import type { ActionRunner } from '../../lib/page-actions';
 
   let {
@@ -208,7 +212,7 @@
     function onMessage(ev: MessageEvent) {
       if (window.parent === window || ev.source !== window.parent) return;
       if (parentOrigin && ev.origin !== parentOrigin) return;
-      const data = ev.data as { type?: string; s?: unknown; w?: unknown; h?: unknown } | null;
+      const data = ev.data as { type?: string; s?: unknown; w?: unknown; h?: unknown; tools?: unknown } | null;
       if (!data || typeof data !== 'object') return;
       switch (data.type) {
         case 'pawbar:host-open':
@@ -236,6 +240,10 @@
           // Fail closed: a command channel needs a known host origin.
           if (parentOrigin && ev.origin === parentOrigin) actions?.receive(data);
           break;
+        case 'pawbar:tools':
+          // Same rule: the tools a reply may run come only from the known host.
+          if (parentOrigin && ev.origin === parentOrigin) setPageTools(data.tools);
+          break;
         case 'pawbar:viewport': {
           const w = Number(data.w);
           const h = Number(data.h);
@@ -245,6 +253,8 @@
       }
     }
     window.addEventListener('message', onMessage);
+    // Listening first, so the answer cannot arrive before we can hear it.
+    poster.requestTools();
     const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
     const onScheme = (e: MediaQueryListEvent) => (prefersDark = e.matches);
     mq?.addEventListener?.('change', onScheme);
@@ -295,6 +305,7 @@
     {onsend}
     onstop={() => chat?.stop()}
     onretry={(id) => void chat?.retry(id)}
+    ontoolanswer={(id, yes) => chat?.answerTool(id, yes)}
     onrequesthuman={chat ? (req) => chat.requestHuman(req) : undefined}
     onopenconversation={chat ? onopenconversation : undefined}
     onnewconversation={chat ? onnewconversation : undefined}

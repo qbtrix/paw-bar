@@ -15,6 +15,8 @@
 // 2026-09-27: the field is described by the notice AND the AI disclosure, so
 // the takeover test checks the notice is one of its describers. "Talk to a
 // person" is a chip in the bottom row now, not a ⋯ item.
+// Page actions: the line under a reply for each state, and a site tool waiting
+// on the visitor shows its label with Confirm / Cancel.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
@@ -574,5 +576,45 @@ describe('page action lines under a reply', () => {
   it("says it couldn't find a section", () => {
     const { target } = frame({ expanded: true, messages: [reply({ do: 'highlight', target: '#returns', label: 'Returns', state: 'failed' })] });
     expect(target.textContent).toContain("I couldn't find that on this page");
+  });
+});
+
+describe('a site tool under a reply', () => {
+  const tool = { do: 'tool' as const, name: 'add_to_cart', args: { product: 'CAIRN-45' }, label: 'Add Cairn 45 to your cart' };
+  const reply = (action: BarMessage['action']): BarMessage => ({ ...say('a1', 'assistant', 'Sure.'), action });
+  const buttons = (t: HTMLElement) => [...t.querySelectorAll<HTMLButtonElement>('.tool-confirm button')];
+
+  it('asks first: the label with Confirm and Cancel, each answering for this reply', () => {
+    const ontoolanswer = vi.fn();
+    const { target } = frame({ expanded: true, ontoolanswer, messages: [reply({ ...tool, state: 'confirm' })] });
+    expect(text(target.querySelector('.tool-confirm'))).toContain('Add Cairn 45 to your cart');
+    const [confirm, cancel] = buttons(target);
+    expect(confirm.textContent).toBe('Confirm');
+    expect(cancel.textContent).toBe('Cancel');
+    confirm.click();
+    cancel.click();
+    expect(ontoolanswer.mock.calls).toEqual([
+      ['a1', true],
+      ['a1', false],
+    ]);
+  });
+
+  it('offers no buttons once answered, and says how it went', () => {
+    const { target, props } = frame({ expanded: true, ontoolanswer: vi.fn(), messages: [reply({ ...tool, state: 'pending' })] });
+    expect(buttons(target)).toHaveLength(0);
+    props.messages = [reply({ ...tool, state: 'done', message: 'Added Cairn 45 to your cart' })];
+    flushSync();
+    expect(target.textContent).toContain('Added Cairn 45 to your cart');
+    props.messages = [reply({ ...tool, state: 'failed' })];
+    flushSync();
+    expect(target.textContent).toContain("That didn't work");
+    props.messages = [reply({ ...tool, state: 'done' })];
+    flushSync();
+    expect(target.textContent).toContain('Done');
+  });
+
+  it('offers no buttons without a handler', () => {
+    const { target } = frame({ expanded: true, messages: [reply({ ...tool, state: 'confirm' })] });
+    expect(buttons(target)).toHaveLength(0);
   });
 });

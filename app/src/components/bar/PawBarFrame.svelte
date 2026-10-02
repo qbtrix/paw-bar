@@ -83,6 +83,9 @@
   A done reply with a page `action` shows its line underneath ("Taking you to
   …", "Showing …", "Here's the page", "I couldn't find that on this page"), or,
   when the site has no actions script, a link that opens the page in a tab.
+  A site tool waiting on the visitor (state 'confirm') shows its label with
+  Confirm / Cancel, which call `ontoolanswer(id, yes)`; after that its line is
+  the host's result message, or "Done" / "That didn't work" / "Cancelled".
 
   2026-09-27 (conversation states, spec docs/design/drafts/2026-09-27-paw-bar-
   states-ux-conversation.md + -bar-and-flows.md):
@@ -300,6 +303,7 @@
     privacyHref = '',
     consent = 'granted',
     onconsent,
+    ontoolanswer,
   }: {
     messages?: BarMessage[];
     placeholder?: string;
@@ -384,6 +388,8 @@
     /** 'required' holds every send behind a one-line consent step. */
     consent?: BarConsent;
     onconsent?: (granted: boolean) => void;
+    /** The visitor confirmed (true) or declined a site tool on reply `id`. */
+    ontoolanswer?: (id: string, confirm: boolean) => void;
   } = $props();
 
   // The cards below the thread reach the stores through context, set once.
@@ -1126,6 +1132,12 @@
                   {@const act = m.action}
                   {#if act.state === 'fallback' && act.to}
                     <a class="source" href={act.to} target="_blank" rel="noopener noreferrer">{actionLine(act, act.state)} ↗</a>
+                  {:else if act.do === 'tool' && act.state === 'confirm' && ontoolanswer}
+                    <div class="meta turn-note tool-confirm" role="group" aria-label={act.label} in:fade={soft}>
+                      <span>{actionLine(act, act.state)}</span>
+                      <button type="button" class="retry" onclick={() => ontoolanswer?.(m.id, true)}>Confirm</button>
+                      <button type="button" class="retry quiet" onclick={() => ontoolanswer?.(m.id, false)}>Cancel</button>
+                    </div>
                   {:else}
                     <p class="meta" in:fade={soft}>{actionLine(act, act.state)}</p>
                   {/if}

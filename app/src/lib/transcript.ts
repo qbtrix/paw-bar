@@ -42,12 +42,16 @@
 // An assistant turn's page `action` ({do, to?, target?, label, state}) persists
 // too, so "Taking you to …" survives the navigation it causes and can become
 // "Here's the page". Loading re-sanitizes it (lib/page-actions) and settles a
-// 'pending' state to 'done': nothing is in flight after a reload.
+// 'pending' state to 'done': nothing is in flight after a reload. A tool
+// action keeps its state and result `message` too: 'confirm' is offered again
+// (the visitor never answered), while a confirmed one is stored as 'pending'
+// BEFORE it is posted, so a reload mid-run reads 'done' and never re-offers it.
+// A tool action is restored by shape (the registry arrives after boot).
 
 import type { Message, MessageRole } from '../store/chat.svelte';
 import type { FailureKind } from './chat-errors';
 import { sanitizeSources } from './sources';
-import { sanitizeAction, type PageActionState } from './page-actions';
+import { resultMessage, sanitizeAction, type PageActionState } from './page-actions';
 
 // 2026-08-19 (conversation identity): the row is keyed per CONVERSATION, not
 // per widget. A visitor may now hold several, and the Messages tab lets them
@@ -82,12 +86,19 @@ interface StoredTranscript {
 
 const ROLES: readonly MessageRole[] = ['user', 'assistant', 'owner', 'system'];
 const ACTION_STATES: readonly PageActionState[] = ['done', 'failed', 'arrived', 'fallback'];
+const TOOL_STATES: readonly PageActionState[] = ['done', 'failed', 'confirm', 'cancelled'];
 
 function restoreAction(raw: unknown): Message['action'] | undefined {
   const action = sanitizeAction(raw);
   if (!action) return undefined;
-  const state = (raw as { state?: unknown }).state as PageActionState;
-  return { ...action, state: ACTION_STATES.includes(state) ? state : 'done' };
+  const { state, message: rawMessage } = raw as { state?: unknown; message?: unknown };
+  const states = action.do === 'tool' ? TOOL_STATES : ACTION_STATES;
+  const message = action.do === 'tool' ? resultMessage(rawMessage) : undefined;
+  return {
+    ...action,
+    state: states.includes(state as PageActionState) ? (state as PageActionState) : 'done',
+    ...(message ? { message } : {}),
+  };
 }
 
 function key(widgetId: string, conversationId = ''): string {
@@ -244,7 +255,7 @@ export function saveTranscript(widgetId: string, messages: Message[], conversati
       ...(m.failure ? { failure: m.failure } : {}),
       ...(m.unavailable ? { unavailable: m.unavailable } : {}),
       ...(m.stopped ? { stopped: true } : {}),
-      ...(m.action ? { action: { ...m.action } } : {}),
+      ...(m.action ? { action: { ...m.action, ...(m.action.args ? { args: { ...m.action.args } } : {}) } } : {}),
     }));
   try {
     if (terminal.length === 0) {
