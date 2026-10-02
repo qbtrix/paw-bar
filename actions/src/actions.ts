@@ -20,8 +20,12 @@
 //   scroll_to  `#id` lookup, else the first h1-h4 whose text contains the
 //              target (case-folded); scrollIntoView({block:'center'}).
 //   highlight  scroll_to plus an overlay box positioned from
-//              getBoundingClientRect, removed after HIGHLIGHT_MS. The element's
-//              own styles are never touched; no fade under reduced motion.
+//              getBoundingClientRect. After HIGHLIGHT_MS it fades to opacity 0
+//              and is removed on transitionend (or a fallback timer); under
+//              reduced motion it has no transition and is removed at once.
+//              A new highlight, a navigate, or a popstate removes it
+//              immediately, so it never boxes content from a previous route.
+//              The element's own styles are never touched.
 //
 // SECURITY: a message is honoured only when ev.origin is the frame origin AND
 // ev.source is the contentWindow of the Paw Bar iframe (an iframe on that
@@ -35,6 +39,7 @@ const FRAME_PATH = /\/paw-bar\/frame$/;
 const ID_TARGET = /^#[A-Za-z][\w-]{0,63}$/;
 const TARGET_MAX = 120;
 const HIGHLIGHT_MS = 2000;
+const FADE_MS = 300;
 
 type ActError = 'not_found' | 'blocked' | 'unsupported';
 type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean };
@@ -78,6 +83,7 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean };
   const norm = (p: string): string => p.replace(/\/+$/, '') || '/';
 
   function navigate(to: unknown): ActError | (() => void) {
+    clearOverlay();
     if (typeof to !== 'string') return 'unsupported';
     let url: URL;
     try {
@@ -132,6 +138,14 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean };
     overlay = null;
   }
 
+  // Timed end of a highlight: fade out, then remove. Immediate clears skip this.
+  function fadeOverlay(): void {
+    if (!overlay || reduced()) return clearOverlay();
+    overlay.addEventListener('transitionend', clearOverlay, { once: true });
+    overlayTimer = win.setTimeout(clearOverlay, FADE_MS + 100);
+    overlay.style.opacity = '0';
+  }
+
   function highlight(el: Element): void {
     clearOverlay();
     const r = el.getBoundingClientRect();
@@ -146,10 +160,10 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean };
       'border:3px solid #3b82f6;border-radius:10px;box-shadow:0 0 0 6px rgba(59,130,246,.25);' +
       `top:${r.top + win.scrollY - pad}px;left:${r.left + win.scrollX - pad}px;` +
       `width:${r.width + pad * 2}px;height:${r.height + pad * 2}px;` +
-      (reduced() ? '' : 'transition:opacity .3s;');
+      (reduced() ? '' : `transition:opacity ${FADE_MS}ms;`);
     doc.documentElement.appendChild(box);
     overlay = box;
-    overlayTimer = win.setTimeout(clearOverlay, HIGHLIGHT_MS);
+    overlayTimer = win.setTimeout(fadeOverlay, HIGHLIGHT_MS);
   }
 
   function run(d: Record<string, unknown>): ActError | (() => void) {
@@ -162,6 +176,9 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean };
       if (d.do === 'highlight') highlight(el);
     };
   }
+
+  // Back/forward in an SPA: the highlighted element is likely gone.
+  win.addEventListener('popstate', clearOverlay);
 
   win.addEventListener('message', (ev: MessageEvent): void => {
     if (ev.origin !== frameOrigin) return;
