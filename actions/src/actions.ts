@@ -109,7 +109,7 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
     } catch {
       /* rejected below */
     }
-    console.warn('[paw-bar] tool rejected:', t && t.name);
+    console.warn('paw-bar: bad tool', t && t.name);
   }
 
   function sendTools(w = frameWin()): void {
@@ -130,9 +130,10 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
     win.setTimeout(() => fin({ ok: false, error: 'timeout' }), TOOL_MS);
     new Promise((res) => res(t[1](d.args ?? {}))).then(
       (r: any) => {
-        const ok = !(r && r.ok === false);
-        const m = r && typeof r.message == 'string' && r.message.slice(0, 160);
-        fin({ ok, ...(ok ? {} : { error: 'failed' }), ...(m ? { message: m } : {}) });
+        const ok = r?.ok !== false;
+        const m = r?.message;
+        // Undefined keys are never read by the frame (and vanish in JSON).
+        fin({ ok, error: ok ? undefined : 'failed', message: typeof m == 'string' && m ? m.slice(0, 160) : undefined });
       },
       () => fin({ ok: false, error: 'failed' }),
     );
@@ -257,9 +258,8 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
     const target = frameWin(ev.source);
     if (!target) return;
     if (ask) return sendTools(target);
-    if (d.do === 'tool') {
-      return runTool(d, (r) => target.postMessage({ type: 'pawbar:act-result', id: d.id, ...r }, frameOrigin));
-    }
+    const reply = (r: Data) => target.postMessage({ type: 'pawbar:act-result', id: d.id, ...r }, frameOrigin);
+    if (d.do === 'tool') return runTool(d, reply);
     let out: ActError | (() => void);
     try {
       out = run(d);
@@ -267,10 +267,7 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
       out = 'unsupported';
     }
     const ok = typeof out === 'function';
-    target.postMessage(
-      { type: 'pawbar:act-result', id: d.id, ok, ...(ok ? {} : { error: out }) },
-      frameOrigin,
-    );
+    reply({ ok, ...(ok ? {} : { error: out }) });
     if (ok) {
       try {
         (out as () => void)();

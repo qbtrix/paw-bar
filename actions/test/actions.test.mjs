@@ -366,7 +366,7 @@ test('rejects a bad tool with a warning and keeps the others', async () => {
   window.pawbarTools.push(cartTool({ name: 'at_limit', inputSchema: big }));
   await sleep(80);
   assert.deepEqual(toolLists(replies)[1].data.tools.map((t) => t.name), ['add_to_cart', 'no_props', 'at_limit']);
-  assert.match(warns[0], /tool rejected/);
+  assert.match(warns[0], /bad tool/);
 });
 
 test('keeps at most 12 tools, and a repeated name replaces its tool', async () => {
