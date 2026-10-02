@@ -5,6 +5,10 @@
 // Covers: spoofed source/origin ignored, cross-origin navigate refused, anchor
 // click vs location.assign, #id and heading lookups, the overlay fade (and its
 // absence under reduced motion), and the overlay cleared by navigate/popstate.
+// Site tools: the window.pawbarTools queue (drained, push replaced), the
+// outline checks and limits, the pawbar:tools post (debounced, on request,
+// never to a spoofed asker), and do:'tool' runs: result message, failure,
+// throw, unknown name, bad args, and the 10 s timeout (shortened here).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,9 +24,11 @@ const FRAME_ORIGIN = 'https://api.pawbar.dev';
 const mounted = [];
 test.after(() => mounted.forEach((w) => w.close()));
 
-function mount({ body = '', path = '/', reducedMotion = false, endpointAttr = null } = {}) {
+function mount({ body = '', path = '/', reducedMotion = false, endpointAttr = null, before = null } = {}) {
   const navigations = [];
+  const warns = [];
   const vc = new VirtualConsole();
+  vc.on('warn', (...args) => warns.push(args.join(' ')));
   vc.on('jsdomError', (e) => {
     if (/navigation/i.test(String(e.message))) navigations.push(e.message);
   });
@@ -56,6 +62,7 @@ function mount({ body = '', path = '/', reducedMotion = false, endpointAttr = nu
     configurable: true,
   });
 
+  if (before) before(window);
   const s = window.document.createElement('script');
   if (endpointAttr) s.setAttribute('data-endpoint', endpointAttr);
   // An inline script has no src, so currentScript.src is ''. Give the IIFE the
@@ -63,7 +70,7 @@ function mount({ body = '', path = '/', reducedMotion = false, endpointAttr = nu
   Object.defineProperty(s, 'src', { get: () => ENDPOINT + '/paw-bar/actions.js' });
   s.textContent = BUNDLE;
   window.document.body.appendChild(s);
-  return { window, iframe, replies, navigations };
+  return { window, iframe, replies, navigations, warns };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -284,4 +291,232 @@ test('navigate with a fragment skips a link that would drop it', () => {
   act(window, { type: 'pawbar:act', id: 'n6', do: 'navigate', to: '/products/cairn-boot#reviews', label: 'Reviews' }, { source: iframe.contentWindow });
   assert.equal(clicked, 0);
   assert.equal(navigations.length, 1);
+});
+
+// ── Site tools ────────────────────────────────────────────────────────────────
+const SCHEMA = {
+  type: 'object',
+  properties: {
+    product: { type: 'string', description: 'Product page path or SKU' },
+    quantity: { type: 'integer', minimum: 1, maximum: 20 },
+  },
+  required: ['product'],
+};
+const cartTool = (over = {}) => ({
+  name: 'add_to_cart',
+  description: 'Add a product to the cart',
+  inputSchema: SCHEMA,
+  execute: async () => ({ ok: true, message: 'Added Cairn 45 to your cart' }),
+  ...over,
+});
+const toolLists = (replies) => replies.filter((r) => r.data.type === 'pawbar:tools');
+const results = (replies) => replies.filter((r) => r.data.type === 'pawbar:act-result');
+const runTool = (window, iframe, data, source = iframe.contentWindow) =>
+  act(window, { type: 'pawbar:act', id: 't1', do: 'tool', ...data }, { source });
+
+test('drains tools queued before it loaded, then takes over push', async () => {
+  const { window, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool()]) });
+  const n = window.pawbarTools.push(cartTool({ name: 'pick_size', confirm: false }));
+  assert.equal(n, 2);
+  await sleep(80);
+  const lists = toolLists(replies);
+  assert.equal(lists.length, 1, 'one debounced post');
+  assert.equal(lists[0].origin, FRAME_ORIGIN);
+  assert.deepEqual(lists[0].data.tools, [
+    { name: 'add_to_cart', description: 'Add a product to the cart', inputSchema: SCHEMA, confirm: true },
+    { name: 'pick_size', description: 'Add a product to the cart', inputSchema: SCHEMA, confirm: false },
+  ]);
+});
+
+test('a queue made after it loaded works the same way', async () => {
+  const { window, replies } = mount();
+  window.pawbarTools = window.pawbarTools || [];
+  window.pawbarTools.push(cartTool());
+  window.pawbarTools.push(cartTool({ name: 'other' }));
+  await sleep(80);
+  const lists = toolLists(replies);
+  assert.equal(lists.length, 1);
+  assert.deepEqual(lists[0].data.tools.map((t) => t.name), ['add_to_cart', 'other']);
+});
+
+test('posts nothing at boot when no tools were queued', async () => {
+  const { replies } = mount();
+  await sleep(80);
+  assert.equal(toolLists(replies).length, 0);
+});
+
+test('rejects a bad tool with a warning and keeps the others', async () => {
+  // 2,049 characters of compact JSON.
+  const big = { type: 'object', properties: { p: { type: 'string', description: '' } } };
+  big.properties.p.description = 'x'.repeat(2049 - JSON.stringify(big).length);
+  const { window, replies, warns } = mount();
+  window.pawbarTools.push(
+    cartTool({ name: 'Bad-Name' }),
+    cartTool({ name: 'no_exec', execute: 'nope' }),
+    cartTool({ name: 'no_desc', description: '' }),
+    cartTool({ name: 'long_desc', description: 'd'.repeat(201) }),
+    cartTool({ name: 'array_schema', inputSchema: { type: 'array', properties: {} } }),
+    cartTool({ name: 'bad_prop', inputSchema: { type: 'object', properties: { '1x': { type: 'string' } } } }),
+    cartTool({ name: 'too_big', inputSchema: big }),
+    cartTool(),
+  );
+  await sleep(80);
+  assert.deepEqual(toolLists(replies)[0].data.tools.map((t) => t.name), ['add_to_cart']);
+  assert.equal(warns.length, 7);
+  window.pawbarTools.push(cartTool({ name: 'no_props', inputSchema: { type: 'object' } }));
+  big.properties.p.description = big.properties.p.description.slice(1);
+  window.pawbarTools.push(cartTool({ name: 'at_limit', inputSchema: big }));
+  await sleep(80);
+  assert.deepEqual(toolLists(replies)[1].data.tools.map((t) => t.name), ['add_to_cart', 'no_props', 'at_limit']);
+  assert.match(warns[0], /tool rejected/);
+});
+
+test('keeps at most 12 tools, and a repeated name replaces its tool', async () => {
+  const { window, replies } = mount();
+  for (let i = 1; i <= 13; i++) window.pawbarTools.push(cartTool({ name: `tool_${i}` }));
+  window.pawbarTools.push(cartTool({ name: 'tool_1', description: 'again' }));
+  await sleep(80);
+  const tools = toolLists(replies)[0].data.tools;
+  assert.equal(tools.length, 12);
+  assert.equal(tools[0].description, 'again');
+  assert.ok(!tools.some((t) => t.name === 'tool_13'));
+});
+
+test('sends a copy of the schema, not the live object', async () => {
+  const schema = structuredClone(SCHEMA);
+  const { window, replies } = mount();
+  window.pawbarTools.push(cartTool({ inputSchema: schema }));
+  schema.properties.quantity.maximum = 999;
+  await sleep(80);
+  assert.equal(toolLists(replies)[0].data.tools[0].inputSchema.properties.quantity.maximum, 20);
+});
+
+test('answers the frame with the list on pawbar:tools-request', () => {
+  const { window, iframe, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool()]) });
+  act(window, { type: 'pawbar:tools-request' }, { source: iframe.contentWindow });
+  const lists = toolLists(replies);
+  assert.equal(lists.length, 1);
+  assert.equal(lists[0].origin, FRAME_ORIGIN);
+  assert.equal(lists[0].data.tools[0].name, 'add_to_cart');
+  assert.ok(!('execute' in lists[0].data.tools[0]));
+});
+
+test('ignores a spoofed pawbar:tools-request', () => {
+  const { window, iframe, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool()]) });
+  act(window, { type: 'pawbar:tools-request' }, { source: window });
+  act(window, { type: 'pawbar:tools-request' }, { origin: HOST_ORIGIN, source: iframe.contentWindow });
+  assert.equal(toolLists(replies).length, 0);
+});
+
+test('runs a tool and replies with its message', async () => {
+  let got = null;
+  const execute = async (args) => {
+    got = args;
+    return { ok: true, message: '  Added   Cairn 45 \n to your cart ' };
+  };
+  const { window, iframe, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool({ execute })]) });
+  runTool(window, iframe, { name: 'add_to_cart', args: { product: '/products/cairn-45/', quantity: 1 } });
+  await sleep(10);
+  assert.deepEqual(got, { product: '/products/cairn-45/', quantity: 1 });
+  assert.deepEqual(results(replies), [
+    { data: { type: 'pawbar:act-result', id: 't1', ok: true, message: 'Added Cairn 45 to your cart' }, origin: FRAME_ORIGIN },
+  ]);
+});
+
+test('clips a long message to 160 and treats a bare return as done', async () => {
+  const { window, iframe, replies } = mount({
+    before: (w) =>
+      (w.pawbarTools = [
+        cartTool({ execute: () => ({ message: 'm'.repeat(300) }) }),
+        cartTool({ name: 'quiet', execute: () => undefined }),
+      ]),
+  });
+  runTool(window, iframe, { name: 'add_to_cart', args: { product: 'x' } });
+  act(window, { type: 'pawbar:act', id: 't2', do: 'tool', name: 'quiet', args: {} }, { source: iframe.contentWindow });
+  await sleep(10);
+  const [a, b] = results(replies).map((r) => r.data);
+  assert.equal(a.ok, true);
+  assert.equal(a.message.length, 160);
+  assert.deepEqual(b, { type: 'pawbar:act-result', id: 't2', ok: true });
+});
+
+test('a tool that says no, throws, or rejects has failed', async () => {
+  const { window, iframe, replies } = mount({
+    before: (w) =>
+      (w.pawbarTools = [
+        cartTool({ name: 'no', execute: async () => ({ ok: false, message: 'Out of stock' }) }),
+        cartTool({
+          name: 'throws',
+          execute: () => {
+            throw new Error('boom');
+          },
+        }),
+        cartTool({ name: 'rejects', execute: () => Promise.reject(new Error('boom')) }),
+      ]),
+  });
+  for (const name of ['no', 'throws', 'rejects']) {
+    act(window, { type: 'pawbar:act', id: name, do: 'tool', name, args: {} }, { source: iframe.contentWindow });
+  }
+  await sleep(10);
+  assert.deepEqual(
+    results(replies).map((r) => r.data),
+    [
+      { type: 'pawbar:act-result', id: 'no', ok: false, error: 'failed', message: 'Out of stock' },
+      { type: 'pawbar:act-result', id: 'throws', ok: false, error: 'failed' },
+      { type: 'pawbar:act-result', id: 'rejects', ok: false, error: 'failed' },
+    ],
+  );
+});
+
+test('an unknown tool is not_found and args that are not an object are unsupported', () => {
+  let ran = 0;
+  const { window, iframe, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool({ execute: () => ran++ })]) });
+  runTool(window, iframe, { name: 'remove_from_cart', args: {} });
+  act(window, { type: 'pawbar:act', id: 't2', do: 'tool', name: 'add_to_cart', args: ['x'] }, { source: iframe.contentWindow });
+  act(window, { type: 'pawbar:act', id: 't3', do: 'tool', name: 'add_to_cart', args: 'x' }, { source: iframe.contentWindow });
+  assert.deepEqual(results(replies).map((r) => r.data.error), ['not_found', 'unsupported', 'unsupported']);
+  assert.equal(ran, 0);
+});
+
+test('absent args reach execute as {}', async () => {
+  let got = null;
+  const { window, iframe, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool({ execute: (a) => void (got = a) })]) });
+  act(window, { type: 'pawbar:act', id: 't4', do: 'tool', name: 'add_to_cart' }, { source: iframe.contentWindow });
+  await sleep(10);
+  assert.equal(JSON.stringify(got), '{}');
+  assert.deepEqual(results(replies).map((r) => r.data), [{ type: 'pawbar:act-result', id: 't4', ok: true }]);
+});
+
+test('a spoofed tool act never runs the tool', async () => {
+  let ran = 0;
+  const { window, iframe, replies } = mount({ before: (w) => (w.pawbarTools = [cartTool({ execute: () => ran++ })]) });
+  runTool(window, iframe, { name: 'add_to_cart', args: { product: 'x' } }, window);
+  act(
+    window,
+    { type: 'pawbar:act', id: 't1', do: 'tool', name: 'add_to_cart', args: { product: 'x' } },
+    { origin: HOST_ORIGIN, source: iframe.contentWindow },
+  );
+  await sleep(10);
+  assert.equal(ran, 0);
+  assert.equal(results(replies).length, 0);
+});
+
+test('a tool that never settles times out, and a late answer sends nothing more', async () => {
+  let finish;
+  const { window, iframe, replies } = mount({
+    before: (w) => {
+      // The real wait is 10 s; shorten only that one.
+      const st = w.setTimeout.bind(w);
+      w.setTimeout = (fn, ms, ...rest) => st(fn, ms === 10000 ? 20 : ms, ...rest);
+      w.pawbarTools = [cartTool({ execute: () => new Promise((r) => (finish = r)) })];
+    },
+  });
+  runTool(window, iframe, { name: 'add_to_cart', args: { product: 'x' } });
+  await sleep(60);
+  finish({ ok: true, message: 'late' });
+  await sleep(10);
+  assert.deepEqual(
+    results(replies).map((r) => r.data),
+    [{ type: 'pawbar:act-result', id: 't1', ok: false, error: 'timeout' }],
+  );
 });

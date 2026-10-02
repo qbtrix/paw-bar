@@ -2,36 +2,37 @@
 //
 // An opt-in IIFE a site owner adds beside the loader
 // (`<script src="{endpoint}/paw-bar/actions.js" defer>`) so the concierge can
-// guide a visitor around the page: go to another page on the same site, scroll
-// to a section, or highlight one. The loader stays untouched; this file owns
-// everything the bar does to the host document.
+// act on the host page: guide verbs, and tools the site declares. The loader
+// stays untouched; this file owns everything the bar does to the host document.
 //
-// Protocol (app -> here, then here -> app):
-//   {type:'pawbar:act', id, do, to?, target?, label}
-//   {type:'pawbar:act-result', id, ok, error?: 'not_found'|'blocked'|'unsupported'}
+// Protocol (frame -> here -> frame):
+//   {type:'pawbar:act', id, do, to?, target?, label} | {..., do:'tool', name, args}
+//   -> {type:'pawbar:act-result', id, ok, error?, message?}
+//   {type:'pawbar:tools-request'} -> {type:'pawbar:tools', tools:[{name,
+//   description, inputSchema, confirm}]}, also sent ~50 ms after registrations.
 //
-// Verbs:
-//   navigate   `to` must be same-origin. An <a href> on the page pointing at the
-//              same path+query+hash is clicked (SPA routers intercept it),
-//              otherwise location.assign. Already on that page: scroll to its
-//              `#id` fragment if any, else nothing. The reply goes out first: a
-//              full navigation unloads the page, and the frame keeps its own
-//              arrival marker.
-//   scroll_to  `#id` lookup, else the first h1-h4 whose text contains the
-//              target (case-folded); scrollIntoView({block:'center'}).
-//   highlight  scroll_to plus an overlay box positioned from
-//              getBoundingClientRect. After HIGHLIGHT_MS it fades to opacity 0
-//              and is removed on transitionend (or a fallback timer); under
-//              reduced motion it has no transition and is removed at once.
-//              A new highlight, a navigate, or a popstate removes it
-//              immediately, so it never boxes content from a previous route.
-//              The element's own styles are never touched.
+// Guide verbs: navigate (same origin only; clicks a matching <a href> so SPA
+// routers intercept, else location.assign; the reply goes first), scroll_to
+// (#id, else the first h1-h4 containing the text), highlight (scroll_to plus
+// an overlay box that fades after HIGHLIGHT_MS, at once under reduced motion,
+// and is cleared by a new highlight, a navigate or popstate; the element's own
+// styles are never touched).
+//
+// Site tools: `window.pawbarTools` is a queue, so script order does not matter:
+// items queued before load are drained and push is replaced. Only an outline
+// is checked here, to stay inside the gzip budget (name, description <= 200,
+// execute, a {type:'object'} schema with valid property names, <= SCHEMA_MAX
+// chars of compact JSON, <= TOOLS_MAX tools, a repeated name replaces); the
+// frame (app/src/lib/page-tools) and the server apply the full schema and args
+// rules. A refused tool gets a console warning. do:'tool' runs execute(args)
+// (absent args = {}) with a TOOL_MS timeout; ok unless it threw or returned
+// {ok:false} (`failed`); a string `message` goes back clipped to 160.
 //
 // SECURITY: a message is honoured only when ev.origin is the frame origin AND
 // ev.source is the contentWindow of the Paw Bar iframe (an iframe on that
-// origin whose path ends in /paw-bar/frame). Replies are pinned to the frame
-// origin, never '*'. The frame origin is the script's own src origin, or
-// data-endpoint when given. Idempotent across double includes.
+// origin whose path ends in /paw-bar/frame). Replies and the tool list are
+// pinned to the frame origin, never '*'. The frame origin is the script's own
+// src origin, or data-endpoint when given. Idempotent across double includes.
 
 const LOADED_FLAG = '__pawBarActionsLoaded';
 const SELF_PATH = /\/paw-bar\/actions\.js$/;
@@ -40,9 +41,15 @@ const ID_TARGET = /^#[A-Za-z][\w-]{0,63}$/;
 const TARGET_MAX = 120;
 const HIGHLIGHT_MS = 2000;
 const FADE_MS = 300;
+const TOOL_NAME = /^[a-z][a-z0-9_]{0,39}$/;
+const ARG_NAME = /^[A-Za-z]\w{0,39}$/;
+const TOOLS_MAX = 12;
+const SCHEMA_MAX = 2048;
+const TOOL_MS = 10000;
 
 type ActError = 'not_found' | 'blocked' | 'unsupported';
-type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean };
+type Data = Record<string, any>;
+type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarTools?: any };
 
 (function boot(win: ActWindow): void {
   if (win[LOADED_FLAG]) return;
@@ -64,21 +71,94 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean };
 
   let overlay: HTMLElement | null = null;
   let overlayTimer = 0;
+  let sendTimer = 0;
+  // name -> [what the frame sees, execute]
+  const tools = new Map<string, [Data, (args: Data) => unknown]>();
 
-  // The Paw Bar iframe that sent this message, or null.
-  function frameFor(source: MessageEventSource | null): HTMLIFrameElement | null {
-    if (!source) return null;
+  // The Paw Bar iframe's window: the one that sent `source`, or with no
+  // source given, the first on the page. Null when there is none.
+  function frameWin(source?: MessageEventSource | null): Window | null {
     for (const f of Array.from(doc.querySelectorAll('iframe'))) {
-      if (f.contentWindow !== source) continue;
+      const w = f.contentWindow;
+      if (!w || (source !== undefined && w !== source)) continue;
       try {
         const u = new URL(f.src);
-        if (u.origin === frameOrigin && FRAME_PATH.test(u.pathname)) return f;
+        if (u.origin === frameOrigin && FRAME_PATH.test(u.pathname)) return w;
       } catch {
         /* not ours */
       }
     }
     return null;
   }
+
+  function addTool(t: Data): void {
+    try {
+      const s = t.inputSchema;
+      const j = JSON.stringify(s);
+      if (
+        typeof t.name == 'string' &&
+        TOOL_NAME.test(t.name) &&
+        typeof t.description == 'string' &&
+        t.description.trim() &&
+        t.description.length <= 200 &&
+        typeof t.execute == 'function' &&
+        s.type == 'object' &&
+        Object.keys(s.properties || {}).every((k) => ARG_NAME.test(k)) &&
+        j.length <= SCHEMA_MAX &&
+        (tools.size < TOOLS_MAX || tools.has(t.name))
+      ) {
+        const w = { name: t.name, description: t.description, inputSchema: JSON.parse(j), confirm: t.confirm !== false };
+        tools.set(t.name, [w, t.execute]);
+        return;
+      }
+    } catch {
+      /* rejected below */
+    }
+    console.warn('[paw-bar] tool rejected:', t && t.name);
+  }
+
+  function sendTools(w = frameWin()): void {
+    w?.postMessage({ type: 'pawbar:tools', tools: Array.from(tools.values(), (t) => t[0]) }, frameOrigin);
+  }
+
+  function sendSoon(): void {
+    win.clearTimeout(sendTimer);
+    sendTimer = win.setTimeout(sendTools, 50);
+  }
+
+  function runTool(d: Data, reply: (r: Data) => void): void {
+    const t = tools.get(d.name);
+    const a = d.args ?? {};
+    if (!t || !a || typeof a != 'object' || Array.isArray(a)) {
+      return reply({ ok: false, error: t ? 'unsupported' : 'not_found' });
+    }
+    let done = 0;
+    const fin = (r: Data) => {
+      if (!done++) {
+        win.clearTimeout(timer);
+        reply(r);
+      }
+    };
+    const timer = win.setTimeout(() => fin({ ok: false, error: 'timeout' }), TOOL_MS);
+    new Promise((res) => res(t[1](a))).then(
+      (r: any) => {
+        const ok = !(r && r.ok === false);
+        const m = r && typeof r.message == 'string' ? r.message.replace(/\s+/g, ' ').trim().slice(0, 160) : '';
+        fin({ ok, ...(ok ? {} : { error: 'failed' }), ...(m ? { message: m } : {}) });
+      },
+      () => fin({ ok: false, error: 'failed' }),
+    );
+  }
+
+  // The queue: drain what the page pushed before we loaded, then take over push.
+  const queue = Array.isArray(win.pawbarTools) ? win.pawbarTools : (win.pawbarTools = []);
+  queue.splice(0).forEach(addTool);
+  queue.push = (...ts: Data[]): number => {
+    ts.forEach(addTool);
+    sendSoon();
+    return tools.size;
+  };
+  if (tools.size) sendSoon();
 
   const norm = (p: string): string => p.replace(/\/+$/, '') || '/';
 
@@ -182,11 +262,16 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean };
 
   win.addEventListener('message', (ev: MessageEvent): void => {
     if (ev.origin !== frameOrigin) return;
-    const d = ev.data as Record<string, unknown> | null;
-    if (!d || typeof d !== 'object' || d.type !== 'pawbar:act' || typeof d.id !== 'string') return;
-    const frame = frameFor(ev.source);
-    const target = frame?.contentWindow;
+    const d = ev.data as Data | null;
+    if (!d || typeof d !== 'object') return;
+    const ask = d.type === 'pawbar:tools-request';
+    if (!ask && (d.type !== 'pawbar:act' || typeof d.id !== 'string')) return;
+    const target = frameWin(ev.source);
     if (!target) return;
+    if (ask) return sendTools(target);
+    if (d.do === 'tool') {
+      return runTool(d, (r) => target.postMessage({ type: 'pawbar:act-result', id: d.id, ...r }, frameOrigin));
+    }
     let out: ActError | (() => void);
     try {
       out = run(d);
