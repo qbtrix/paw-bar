@@ -9,7 +9,9 @@
 // dropped; one the host marked confirm:false runs at once, any other waits in
 // 'confirm' for answerTool(id, yes). Confirm stores it as 'pending' before it
 // is posted, so a reload can never offer it again; the host's result message
-// (or "Done" / "That didn't work") becomes its line.
+// (or "Done" / "That didn't work") becomes its line. Before posting, the args
+// are checked against the CURRENT registry's schema: a tool that is gone or
+// args that no longer fit fail without a post.
 // Updated 2026-09-27 (paw-bar states: failures, C5, C2, C11; specs
 // docs/design/drafts/2026-09-27-paw-bar-states-ux-failures.md §10 and
 // ...-ux-conversation.md). The raw `error` string is GONE: it carried transport
@@ -109,7 +111,7 @@ import {
   type PageAction,
   type PageActionState,
 } from '../lib/page-actions';
-import { findPageTool } from '../lib/page-tools';
+import { findPageTool, validateToolArgs } from '../lib/page-tools';
 import {
   fetchConversationMessages,
   openConversation,
@@ -813,8 +815,15 @@ export class ChatStore {
       this.#persist();
     };
     const run = this.#config.runAction;
-    // The registry can change between the reply and the visitor's Confirm.
-    if (tool && (!run || !findPageTool(action.name))) return set('failed');
+    // The registry can change between the reply and the visitor's Confirm, so
+    // the tool and its args are checked against the current one; actions.js
+    // does not validate args itself.
+    if (tool) {
+      const current = findPageTool(action.name);
+      const args = current ? validateToolArgs(current.inputSchema, action.args) : null;
+      if (!run || !args) return set('failed');
+      action = { ...action, args };
+    }
     if (!run) {
       set(navigate ? 'fallback' : null);
       return;

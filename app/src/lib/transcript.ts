@@ -43,9 +43,10 @@
 // too, so "Taking you to …" survives the navigation it causes and can become
 // "Here's the page". Loading re-sanitizes it (lib/page-actions) and settles a
 // 'pending' state to 'done': nothing is in flight after a reload. A tool
-// action keeps its state and result `message` too: 'confirm' is offered again
-// (the visitor never answered), while a confirmed one is stored as 'pending'
-// BEFORE it is posted, so a reload mid-run reads 'done' and never re-offers it.
+// action keeps a terminal state and result `message`, but never comes back
+// actionable or as a claim it ran: 'confirm' (never answered) restores as
+// 'expired' ("Not done", no buttons), and 'pending' (stored BEFORE it is
+// posted, so possibly failed or unfinished) as 'sent'. Neither runs again.
 // A tool action is restored by shape (the registry arrives after boot).
 
 import type { Message, MessageRole } from '../store/chat.svelte';
@@ -86,17 +87,22 @@ interface StoredTranscript {
 
 const ROLES: readonly MessageRole[] = ['user', 'assistant', 'owner', 'system'];
 const ACTION_STATES: readonly PageActionState[] = ['done', 'failed', 'arrived', 'fallback'];
-const TOOL_STATES: readonly PageActionState[] = ['done', 'failed', 'confirm', 'cancelled'];
+const TOOL_STATES: readonly PageActionState[] = ['done', 'failed', 'cancelled', 'expired', 'sent'];
+/** A stored tool state that is not terminal, settled for a reload. */
+const TOOL_SETTLE: Partial<Record<PageActionState, PageActionState>> = { confirm: 'expired', pending: 'sent' };
 
 function restoreAction(raw: unknown): Message['action'] | undefined {
   const action = sanitizeAction(raw);
   if (!action) return undefined;
   const { state, message: rawMessage } = raw as { state?: unknown; message?: unknown };
-  const states = action.do === 'tool' ? TOOL_STATES : ACTION_STATES;
-  const message = action.do === 'tool' ? resultMessage(rawMessage) : undefined;
+  const tool = action.do === 'tool';
+  const stored = (tool ? TOOL_SETTLE[state as PageActionState] : undefined) ?? (state as PageActionState);
+  const states = tool ? TOOL_STATES : ACTION_STATES;
+  const message = tool ? resultMessage(rawMessage) : undefined;
   return {
     ...action,
-    state: states.includes(state as PageActionState) ? (state as PageActionState) : 'done',
+    // An unknown tool state is neutral, never a claim that it ran.
+    state: states.includes(stored) ? stored : tool ? 'sent' : 'done',
     ...(message ? { message } : {}),
   };
 }

@@ -86,6 +86,7 @@
   A site tool waiting on the visitor (state 'confirm') shows its label with
   Confirm / Cancel, which call `ontoolanswer(id, yes)`; after that its line is
   the host's result message, or "Done" / "That didn't work" / "Cancelled".
+  A reload shows an unanswered one as "<label> · Not done" with no buttons.
 
   2026-09-27 (conversation states, spec docs/design/drafts/2026-09-27-paw-bar-
   states-ux-conversation.md + -bar-and-flows.md):

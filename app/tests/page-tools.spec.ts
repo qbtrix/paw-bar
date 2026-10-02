@@ -3,7 +3,8 @@
 // rules, the registry and its wire form in the chat request, and ChatStore's
 // tool flow (unknown name dropped, confirm card, Confirm runs once, Cancel,
 // confirm:false runs at once, the result line, an unavailable frame discards,
-// and a reload that never re-offers a tool that already ran).
+// Confirm re-checks args against the current schema, and a reload that never
+// re-offers a card or claims an unfinished tool is done).
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import schemasRaw from './fixtures/action_parity/tool_schemas.json?raw';
 import expectedRaw from './fixtures/action_parity/expected.json?raw';
@@ -12,6 +13,7 @@ import {
   ARG_STRING_MAX,
   ARG_TYPES,
   ENUM_MAX,
+  ENUM_STRING_MAX,
   TOOL_DESCRIPTION_MAX,
   TOOL_NAME_RE,
   TOOL_SCHEMA_MAX,
@@ -27,7 +29,7 @@ import {
 } from '../src/lib/page-tools';
 import { ChatStore } from '../src/store/chat.svelte';
 import { resetHostPage, setHostPage } from '../src/lib/host-page';
-import type { ActResult, PageAction } from '../src/lib/page-actions';
+import { actionLine, type ActResult, type PageAction } from '../src/lib/page-actions';
 
 type WireTool = { name: string; description: unknown; input_schema: unknown };
 type SchemaFixture = {
@@ -77,6 +79,7 @@ describe('tool schema parity with pocketpaw', () => {
       arg_string_max: ARG_STRING_MAX,
       arg_name_re: re(ARG_NAME_RE),
       enum_max: ENUM_MAX,
+      enum_string_max: ENUM_STRING_MAX,
       arg_types: [...ARG_TYPES],
     });
   });
@@ -345,20 +348,63 @@ describe('ChatStore and site tools', () => {
     store.dispose();
   });
 
-  it('a reload re-offers an unanswered card but never one that was confirmed', async () => {
+  it('fails a confirmed tool whose args no longer fit the current schema, without posting', async () => {
+    setPageTools([CART]);
+    reply(CHUNK + actionFrame(TOOL_ACTION) + END);
+    const runAction = ok();
+    const store = new ChatStore({ ...base, runAction });
+    await store.send('add it');
+    // The site redeclares the tool between the reply and the visitor's Confirm.
+    const tighter = structuredClone(CART_SCHEMA);
+    tighter.properties!.product.maxLength = 5;
+    setPageTools([{ ...CART, inputSchema: tighter }]);
+    store.answerTool(store.messages[1].id, true);
+    await flush();
+    expect(runAction).not.toHaveBeenCalled();
+    const a = store.messages[1].action!;
+    expect(a.state).toBe('failed');
+    expect(actionLine(a, a.state)).toBe("That didn't work");
+  });
+
+  it('a reload shows an unanswered card as not done, with nothing to confirm', async () => {
+    setPageTools([CART]);
+    reply(CHUNK + actionFrame(TOOL_ACTION) + END);
+    const store = new ChatStore({ ...base, runAction: ok() });
+    await store.send('add it');
+    expect(store.messages[1].action?.state).toBe('confirm');
+
+    const runAction = ok();
+    const after = new ChatStore({ ...base, runAction });
+    const a = after.messages[1].action!;
+    expect(a).toMatchObject({ do: 'tool', name: 'add_to_cart', state: 'expired' });
+    expect(actionLine(a, a.state)).toBe('Add Cairn 45 to your cart · Not done');
+    after.answerTool(after.messages[1].id, true);
+    await flush();
+    expect(runAction).not.toHaveBeenCalled();
+    expect(after.messages[1].action?.state).toBe('expired');
+    // And it stays that way across a further reload.
+    expect(new ChatStore(base).messages[1].action?.state).toBe('expired');
+  });
+
+  it('a reload mid-run shows the tool as sent, never done, and never runs it again', async () => {
     setPageTools([CART]);
     reply(CHUNK + actionFrame(TOOL_ACTION) + END);
     // A host that never answers: the page reloads while the tool is running.
     const store = new ChatStore({ ...base, runAction: () => new Promise<ActResult>(() => {}) });
     await store.send('add it');
-    expect(new ChatStore(base).messages[1].action?.state).toBe('confirm');
-
     store.answerTool(store.messages[1].id, true);
-    resetPageTools();
-    const after = new ChatStore(base);
-    expect(after.messages[1].action).toMatchObject({ do: 'tool', name: 'add_to_cart', state: 'done' });
+    expect(store.messages[1].action?.state).toBe('pending');
+
+    const runAction = ok();
+    const after = new ChatStore({ ...base, runAction });
+    const a = after.messages[1].action!;
+    expect(a).toMatchObject({ do: 'tool', name: 'add_to_cart', state: 'sent' });
+    expect(actionLine(a, a.state)).toBe('Sent to the site');
     after.answerTool(after.messages[1].id, true);
-    expect(after.messages[1].action?.state).toBe('done');
+    await flush();
+    expect(runAction).not.toHaveBeenCalled();
+    expect(after.messages[1].action?.state).toBe('sent');
+    expect(new ChatStore(base).messages[1].action?.state).toBe('sent');
   });
 
   it('a stored result message survives a reload', async () => {

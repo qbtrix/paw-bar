@@ -260,6 +260,8 @@ describe('the visitor copy', () => {
     [tool, 'failed', "That didn't work"],
     [{ ...tool, message: 'Out of stock' }, 'failed', 'Out of stock'],
     [tool, 'cancelled', 'Cancelled'],
+    [tool, 'expired', 'Add Cairn 45 to your cart · Not done'],
+    [tool, 'sent', 'Sent to the site'],
   ] as const)('%o %s', (a, state, line) => {
     expect(actionLine(a, state)).toBe(line);
   });
@@ -298,7 +300,7 @@ describe('the transcript keeps a reply action', () => {
     expect(back[3].action).toEqual({ do: 'highlight', target: '#a', label: 'A', state: 'failed' });
   });
 
-  it('keeps a tool action by shape, its state and its message, with no registry', () => {
+  it('keeps a tool action by shape and its message, settling confirm and pending, with no registry', () => {
     const args = { product: 'CAIRN-45', quantity: 1 };
     const tool = { do: 'tool' as const, name: 'add_to_cart', args, label: 'Add it' };
     const msgs: Message[] = [
@@ -313,12 +315,13 @@ describe('the transcript keeps a reply action', () => {
     ];
     saveTranscript('w1', msgs, 'c1');
     const back = loadTranscript('w1', 'c1');
-    expect(back[1].action).toEqual({ ...tool, state: 'confirm' });
-    expect(back[2].action).toEqual({ ...tool, state: 'done' });
+    // Never offered again, and never claimed as done.
+    expect(back[1].action).toEqual({ ...tool, state: 'expired' });
+    expect(back[2].action).toEqual({ ...tool, state: 'sent' });
     expect(back[3].action).toEqual({ ...tool, state: 'failed', message: 'Out of stock' });
     expect(back[4].action).toEqual({ ...tool, state: 'cancelled' });
     expect(back[5].action).toBeUndefined();
     expect(back[6].action).toBeUndefined();
-    expect(back[7].action).toEqual({ ...tool, state: 'done' });
+    expect(back[7].action).toEqual({ ...tool, state: 'sent' });
   });
 });

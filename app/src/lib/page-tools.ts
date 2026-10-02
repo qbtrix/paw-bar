@@ -18,7 +18,8 @@
 //     TOOL_SCHEMA_MAX characters of compact JSON (JSON.stringify(...).length);
 //   * property names ARG_NAME_RE; each property a string/number/integer/boolean
 //     with optional description (one-line, ≤ 200), enum (1–ENUM_MAX values of
-//     its type, strings ≤ ARG_STRING_MAX), minimum ≤ maximum (numbers only),
+//     its type; a string value is 1–ENUM_STRING_MAX chars by JS .length with
+//     none of < > « »), minimum ≤ maximum (numbers only),
 //     maxLength (strings only, whole, ≥ 0); `required` lists known names once.
 // `confirm` is true unless the host said exactly false: the frame is the
 // authority on it, and it never reaches the server.
@@ -69,6 +70,9 @@ export const TOOL_DESCRIPTION_MAX = 200;
 export const TOOL_SCHEMA_MAX = 2048;
 export const ARG_STRING_MAX = 200;
 export const ENUM_MAX = 50;
+export const ENUM_STRING_MAX = 80;
+/** Characters an enum string may not hold (same rule as the server). */
+export const ENUM_STRING_BAD = /[<>«»]/;
 export const ARG_TYPES: readonly ToolPropType[] = ['string', 'number', 'integer', 'boolean'];
 const SCHEMA_KEYS = ['type', 'properties', 'required'];
 const PROP_KEYS = ['type', 'description', 'enum', 'minimum', 'maximum', 'maxLength'];
@@ -92,6 +96,10 @@ function fits(value: unknown, type: ToolPropType): value is ToolArg {
   return typeof value === type;
 }
 
+function validEnumString(v: string): boolean {
+  return v.length >= 1 && v.length <= ENUM_STRING_MAX && !ENUM_STRING_BAD.test(v);
+}
+
 function validProp(p: unknown): p is ToolProp {
   if (!isObj(p) || !Object.keys(p).every((k) => PROP_KEYS.includes(k))) return false;
   const type = p.type as ToolPropType;
@@ -100,7 +108,7 @@ function validProp(p: unknown): p is ToolProp {
   if (own(p, 'enum')) {
     const e = p.enum;
     if (!Array.isArray(e) || !e.length || e.length > ENUM_MAX || !e.every((v) => fits(v, type))) return false;
-    if (type === 'string' && e.some((v) => (v as string).length > ARG_STRING_MAX)) return false;
+    if (type === 'string' && !e.every((v) => validEnumString(v as string))) return false;
   }
   const numeric = type === 'number' || type === 'integer';
   for (const k of ['minimum', 'maximum']) {

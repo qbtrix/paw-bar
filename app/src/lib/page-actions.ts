@@ -20,13 +20,17 @@
 // name must be in the host's registry and args must fit its schema, checked
 // here against the registry passed in (dispatchFrame passes the live one). The
 // transcript restores a stored tool action without a registry (it arrives
-// after boot), so then only its shape is checked. A tool action waits on the
+// after boot), so then only its shape is checked; the store checks args
+// against the current registry again before it posts. A tool action waits on the
 // visitor in 'confirm' unless the host set confirm:false, and the runner posts
 // {type:'pawbar:act', id, do:'tool', name, args}; the host runs it with a 10 s
 // timeout and replies {..., ok, error?, message?}. The runner waits
 // TOOL_ACT_TIMEOUT_MS for that, longer than the host's own timeout. `message`
 // (plain text, <= RESULT_MESSAGE_MAX) is what the bar shows, else "Done" /
-// "That didn't work".
+// "That didn't work". A reload settles a tool that was never answered to
+// 'expired' ("<label> · Not done", no buttons) and one that was mid-run to
+// 'sent' ("Sent to the site"): neither is offered or run again, neither
+// claims Done.
 //
 // actionLine is the visitor-facing copy for each state.
 
@@ -44,8 +48,19 @@ export interface PageAction {
 }
 
 /** Where an action stands. `fallback` = no host script; the bar offers a link.
- *  `confirm` / `cancelled` belong to tools: waiting on the visitor, or declined. */
-export type PageActionState = 'pending' | 'done' | 'failed' | 'arrived' | 'fallback' | 'confirm' | 'cancelled';
+ *  `confirm` / `cancelled` belong to tools: waiting on the visitor, or declined.
+ *  `expired` / `sent` are tools settled by a reload: never answered, or posted
+ *  with no result seen. */
+export type PageActionState =
+  | 'pending'
+  | 'done'
+  | 'failed'
+  | 'arrived'
+  | 'fallback'
+  | 'confirm'
+  | 'cancelled'
+  | 'expired'
+  | 'sent';
 export type ActError = 'not_found' | 'blocked' | 'unsupported' | 'failed' | 'timeout' | 'no_host';
 export type ActResult = { ok: true; message?: string } | { ok: false; error: ActError; message?: string };
 
@@ -129,6 +144,8 @@ export function actionLine(a: PageAction & { message?: string }, state: PageActi
     if (state === 'done') return a.message || 'Done';
     if (state === 'failed') return a.message || "That didn't work";
     if (state === 'cancelled') return 'Cancelled';
+    if (state === 'expired') return `${a.label} · Not done`;
+    if (state === 'sent') return 'Sent to the site';
     if (state === 'pending') return `${a.label}…`;
     return a.label;
   }
