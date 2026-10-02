@@ -34,6 +34,8 @@
 // 2026-09-26 (reply links): calls setLinkBase(config.parentOrigin) before
 // mount, so site-relative links in agent replies (`/returns`) resolve to the
 // host page instead of rendering as dead text (lib/markdown.ts validates it).
+// It also builds the page-actions runner over the poster and hands it to both
+// the chat store (to run actions) and BarShell (to deliver the host's replies).
 import { mount } from 'svelte';
 import { readConfig } from './config';
 import { ChatStore } from './store/chat.svelte';
@@ -42,6 +44,7 @@ import { CartStore } from './store/cart.svelte';
 import { ContactStore } from './store/contact.svelte';
 import { OperatorStore } from './store/operator.svelte';
 import { createPoster } from './lib/postmessage';
+import { createActionRunner } from './lib/page-actions';
 import { installPreviewTokenListener } from './lib/preview-tokens';
 import { setLinkBase } from './lib/markdown';
 import BarShell from './components/bar/BarShell.svelte';
@@ -65,6 +68,8 @@ const contact = new ContactStore(storeConfig);
 // The visitor's own conversation list (2026-08-19, Messenger).
 const conversations = new ConversationsStore(storeConfig);
 const poster = createPoster(config.parentOrigin);
+// Page actions go to the host page's actions.js through the same pinned poster.
+const actions = createActionRunner((message) => poster.act(message));
 
 mount(BarShell, {
   target,
@@ -74,8 +79,9 @@ mount(BarShell, {
     cart,
     contact,
     conversations,
+    actions,
     createChat: () => {
-      const chat = new ChatStore(storeConfig);
+      const chat = new ChatStore({ ...storeConfig, runAction: actions.run });
       return { chat, operator: new OperatorStore(chat, storeConfig) };
     },
   },

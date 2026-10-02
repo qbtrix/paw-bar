@@ -57,6 +57,13 @@
   load) is the host page's {url, title}. It goes to lib/host-page, which
   re-strips the query and hash, and chat-client sends it as `page` on every
   chat request. An old loader never posts it, and the field is then omitted.
+  Each pawbar:page also asks the chat store whether a page action was heading
+  there (arrived); when it was, the bar opens on "Here's the page".
+
+  Page actions: `actions` (lib/page-actions runner, built in main.ts over
+  poster.act) gets every pawbar:act-result, but only when parentOrigin is set
+  and equals ev.origin. The source check above it still applies. With no
+  parentOrigin nothing is ever posted, so there is nothing to answer.
 -->
 <script lang="ts" module>
   import type { ChatStore } from '../../store/chat.svelte';
@@ -83,7 +90,8 @@
   import type { ConversationsStore } from '../../store/conversations.svelte';
   import { resolveScheme } from '../../lib/scheme';
   import { dockSize } from '../../lib/dock-size';
-  import { setHostPage } from '../../lib/host-page';
+  import { getHostPage, setHostPage } from '../../lib/host-page';
+  import type { ActionRunner } from '../../lib/page-actions';
 
   let {
     config,
@@ -92,6 +100,7 @@
     contact,
     conversations,
     createChat,
+    actions,
   }: {
     config: PawBarConfig;
     poster: PawBarPoster;
@@ -100,6 +109,8 @@
     conversations: ConversationsStore;
     /** Builds the chat and operator stores. Called once, when chatting is allowed. */
     createChat: () => ChatStores;
+    /** Settles page actions with the host page's replies. */
+    actions?: ActionRunner;
   } = $props();
 
   // ── Consent and the stores ────────────────────────────────────────────────
@@ -215,8 +226,15 @@
         case 'pawbar:scheme':
           if (data.s === 'l' || data.s === 'd') hostScheme = data.s;
           break;
-        case 'pawbar:page':
+        case 'pawbar:page': {
           setHostPage(data);
+          const page = getHostPage();
+          if (page && chat?.arrived(page.url)) expanded = true;
+          break;
+        }
+        case 'pawbar:act-result':
+          // Fail closed: a command channel needs a known host origin.
+          if (parentOrigin && ev.origin === parentOrigin) actions?.receive(data);
           break;
         case 'pawbar:viewport': {
           const w = Number(data.w);

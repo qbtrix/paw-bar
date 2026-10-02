@@ -80,6 +80,9 @@
   (role user|assistant|owner|system, content, status streaming|done|error,
   optional sources). It used to be a parallel shape with a `pending` flag, so
   wiring the real store in would have been a rewrite; now it is a hand-off.
+  A done reply with a page `action` shows its line underneath ("Taking you to
+  …", "Showing …", "Here's the page", "I couldn't find that on this page"), or,
+  when the site has no actions script, a link that opens the page in a tab.
 
   2026-09-27 (conversation states, spec docs/design/drafts/2026-09-27-paw-bar-
   states-ux-conversation.md + -bar-and-flows.md):
@@ -236,6 +239,7 @@
   } from './PawBar.svelte';
   import { resolveTheme, type BarScheme } from '../../lib/bar-themes';
   import { FAILURE_COPY, formatCopy } from '../../lib/chat-errors';
+  import { actionLine } from '../../lib/page-actions';
   import type { Notice } from '../../store/chat.svelte';
   import Markdown from '../Markdown.svelte';
   import { provideCart, type CartStore } from '../../store/cart.svelte';
@@ -1109,6 +1113,14 @@
                         <a class="source" href={src.url} target="_blank" rel="noopener noreferrer" title={src.title}>{src.title}</a>
                       {/each}
                     </div>
+                  {/if}
+                {/if}
+                {#if m.status === 'done' && m.action}
+                  {@const act = m.action}
+                  {#if act.state === 'fallback' && act.to}
+                    <a class="source" href={act.to} target="_blank" rel="noopener noreferrer">{actionLine(act, act.state)} ↗</a>
+                  {:else}
+                    <p class="meta" in:fade={soft}>{actionLine(act, act.state)}</p>
                   {/if}
                 {/if}
               </div>
