@@ -70,6 +70,12 @@
     and sets a system font, since the iframe has no site font to inherit.
   • Layout: a fixed, bottom-anchored stage aligned to the launcher's corner.
     The wrapper never shrinks (flex: none): a lagging box clips, not reflows.
+    The stage covers the whole window but takes no pointer input; only the
+    frame-wrap (the bar, its scrim and full screen all live inside it) does.
+    In the owner preview the site (iframe.pawbar-scene) sits under the stage
+    in this same document and must scroll and click; there is no loader to
+    report its clicks, so focus moving into that iframe (window blur) is the
+    outside press that folds an open card.
   • pawbar:page is the host page's {url, title}; lib/host-page re-strips the
     query and hash, and chat-client sends it as `page`. Each one also asks the
     chat store whether a page action was heading there; if so the bar opens on
@@ -277,7 +283,8 @@
     return () => clearTimeout(id);
   });
   /** The owner preview's scene: the site, framed beside the bar in this document. */
-  const scene = () => document.querySelector<HTMLIFrameElement>('iframe.pawbar-scene')?.contentWindow ?? null;
+  const sceneFrame = () => document.querySelector<HTMLIFrameElement>('iframe.pawbar-scene');
+  const scene = () => sceneFrame()?.contentWindow ?? null;
 
   // ── Messages from the loader ──────────────────────────────────────────────
   let frame: ReturnType<typeof PawBarFrame> | undefined = $state();
@@ -354,11 +361,19 @@
     // sandboxed to an opaque origin, so '*' is the only target that reaches
     // it, and the ask carries nothing.
     if (preview) scene()?.postMessage({ type: 'pawbar:sniff' }, '*');
+    // The preview's outside press: a click on the scene moves focus into its
+    // iframe, which is all this window can see of it.
+    const onBlur = () => {
+      const el = sceneFrame();
+      if (el && document.activeElement === el) frame?.outsidePress();
+    };
+    if (preview) window.addEventListener('blur', onBlur);
     const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
     const onScheme = (e: MediaQueryListEvent) => (prefersDark = e.matches);
     mq?.addEventListener?.('change', onScheme);
     return () => {
       window.removeEventListener('message', onMessage);
+      window.removeEventListener('blur', onBlur);
       mq?.removeEventListener?.('change', onScheme);
     };
   });
@@ -456,6 +471,9 @@
        iframe there is no site font to inherit, so it would fall to Times. */
     font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     color: #1c1c21;
+    /* Empty stage is see-through to input too: in the owner preview the site
+       sits under it. The bar takes its own (below). */
+    pointer-events: none;
   }
   .stage[data-anchor='left'] {
     justify-content: flex-start;
@@ -467,5 +485,6 @@
      the true size. */
   .stage > :global(.frame-wrap) {
     flex: none;
+    pointer-events: auto;
   }
 </style>
