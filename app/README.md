@@ -89,7 +89,7 @@ centred column. Two tokens tune it:
 | Token | Default | What it sets |
 |---|---|---|
 | `--pawbar-full-width` | 720px | the reading column (messages and the composer) |
-| `--pawbar-full-bg` | `--pawbar-frame-bg` | the page colour, layered over `--pawbar-scrim` and a 40px blur; set an opaque colour for a fully solid page |
+| `--pawbar-full-bg` | the frame colour, made opaque | a colour laid over the page. The page underneath is always solid: the frame colour at full opacity (browsers without relative colours fall back to the scrim plus a 40px blur) |
 
 ### Voice dictation
 
