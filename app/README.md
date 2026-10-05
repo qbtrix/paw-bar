@@ -176,7 +176,7 @@ both directions, is in `../loader/README.md`.
 - `dist/pawbar.js` — the single app chunk (Svelte + app; no markdown or sanitizer library)
 - `dist/pawbar.css` — the single stylesheet
 
-First-paint budget: **`pawbar.js` ≤ 80KB gz** (CI-enforced via `bun run size`).
+First-paint budget: **`pawbar.js` ≤ 82KB gz** (CI-enforced via `bun run size`).
 Current: ~41KB gz.
 
 ## Commands
@@ -185,7 +185,7 @@ Current: ~41KB gz.
 bun install
 bun run dev      # dev harness (stubbed __PAWBAR__) at http://localhost:5173
 bun run build    # emit dist/pawbar.{js,css}
-bun run size     # enforce the ≤80KB gz main-chunk budget
+bun run size     # enforce the ≤82KB gz main-chunk budget
 bun run test     # vitest: sse parser, markdown security + parity with the old renderer, store flow + stop()
 bun run check    # svelte-check (types + a11y)
 ```
