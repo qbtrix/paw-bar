@@ -1,14 +1,14 @@
 <!doctype html>
 <!--
-  bar.html — dev harness for the fresh bar components (2026-09-27).
+  bar.html — dev harness for the bar components.
   Run `bun run dev` and open /bar.html. The Background control stands in for the
   host page (gradient, white, light grey, black, or any colour); the bar's
   light/dark scheme follows its brightness. The control strip switches the launcher (centre bar, or the icon in
-  either corner), the site's default size, and the theme preset (each one is
-  only --pawbar-* values, see src/lib/bar-themes.ts). Picking a site size also
-  clears the visitor's own pick, which would otherwise win over it. The
-  Corners slider is the owner's `radius` setting (it beats the theme's). Full
-  screen lives in the bar's own ⋯ menu.
+  either corner) and the site's default size. Picking a site size also clears
+  the visitor's own pick, which would otherwise win over it. Site accent and
+  Corners stand in for the site theme the loader reads off a real host page
+  (src/lib/site-theme.ts): an accent too faint for the bar's background only
+  marks the logo and focus ring. Full screen lives in the bar's own ⋯ menu.
   2026-09-27 (section E): "Next reply" adds markdown, a form card, one
   product and 4- / 12-product catalogs; Reset also empties the demo cart and
   clears the email prompt.
@@ -89,7 +89,7 @@
         <label><input type="radio" name="size" value="md" /> md</label>
         <label><input type="radio" name="size" value="lg" /> lg</label>
       </fieldset>
-      <label>Theme <select name="theme" id="theme"></select></label>
+      <label>Site accent <input type="color" name="accent" value="#ff5a36" /></label>
       <label>Background <select name="bg" id="bg">
         <option value="gradient">gradient</option>
         <option value="#ffffff">white</option>
@@ -120,7 +120,7 @@
       <button type="button" data-act="history">Seed history</button>
       <button type="button" data-act="consent">Ask consent</button>
       <button type="button" data-act="reset">Reset</button>
-      <label>Corners <input type="range" name="radius" min="0" max="40" value="" id="radius" /> <output id="radius-out">theme</output></label>
+      <label>Corners <input type="range" name="radius" min="0" max="32" value="" id="radius" /> <output id="radius-out">default</output></label>
     </form>
     <div id="stage"></div>
     <script type="module" src="/src/bar-demo.svelte.ts"></script>

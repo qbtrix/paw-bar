@@ -370,12 +370,11 @@ describe('failure states', () => {
 });
 
 describe('host scheme and narrow screens (F)', () => {
-  it('Default follows the host scheme; a branded theme ignores it', () => {
-    expect(resolveTheme('default', {}, 'light')['--pawbar-frame-fg']).toBe('#1c1c21');
-    expect(resolveTheme('default', {}, 'dark')).toEqual({});
-    expect(resolveTheme('paper', {}, 'dark')).toEqual(resolveTheme('paper', {}));
+  it('the defaults follow the host scheme', () => {
+    expect(resolveTheme({}, 'light')['--pawbar-frame-fg']).toBe('#1c1c21');
+    expect(resolveTheme({}, 'dark')).toEqual({});
     // The owner's tokens still win over the overlay.
-    expect(resolveTheme('default', { '--pawbar-frame-fg': '#123456' }, 'light')['--pawbar-frame-fg']).toBe('#123456');
+    expect(resolveTheme({ '--pawbar-frame-fg': '#123456' }, 'light')['--pawbar-frame-fg']).toBe('#123456');
   });
 
   it('the frame applies the overlay and marks the scheme', () => {
@@ -410,11 +409,11 @@ describe('host scheme and narrow screens (F)', () => {
     expect(wrap.style.getPropertyValue('--pawbar-bubble-bg')).toBe('#1c1c21');
   });
 
-  it('resolveTheme layers the dark set only on dark, over any theme', () => {
+  it('resolveTheme layers the dark set only on dark', () => {
     const dark = { '--pawbar-fg': '#abcdef' };
-    expect(resolveTheme('paper', {}, 'dark', dark)['--pawbar-fg']).toBe('#abcdef');
-    expect(resolveTheme('paper', {}, 'light', dark)['--pawbar-fg']).toBe(resolveTheme('paper')['--pawbar-fg']);
-    expect(resolveTheme('default', {}, undefined, dark)).toEqual({});
+    expect(resolveTheme({ '--pawbar-fg': '#111111' }, 'dark', dark)['--pawbar-fg']).toBe('#abcdef');
+    expect(resolveTheme({ '--pawbar-fg': '#111111' }, 'light', dark)['--pawbar-fg']).toBe('#111111');
+    expect(resolveTheme({}, undefined, dark)).toEqual({});
   });
 
   it('on a narrow screen, pinning a bar with a conversation opens it full screen', () => {

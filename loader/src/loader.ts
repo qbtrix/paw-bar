@@ -1,71 +1,33 @@
-// loader/src/loader.ts — Paw Bar glass-bar loader (A2).
-// Created 2026-07-15: the ~2KB zero-dependency IIFE a foreign site pastes in to
-// embed the glass concierge. It finds its own <script> tag, reads the embed
-// config off it (data-site-key / data-widget-id / data-endpoint), computes the
-// host (parent) origin, and mounts the concierge iframe pointing at the A1
-// frame endpoint (/paw-bar/frame?key=&w=&po=). The loader owns ONLY the iframe
-// box (size + position); the glass app (A3) renders INSIDE the iframe and
-// drives the box over postMessage.
+// loader/src/loader.ts — the Paw Bar embed loader.
 //
-// 2026-07-15 bar-first docking (captain direction): the docked resting state is
-// {pawbar:overlay,on} tells this loader an in-frame menu/popover is showing, so
-// a click on the HOST page answers {pawbar:host-pointerdown} and dismisses it.
-// {pawbar:bar,compact,expanded} (2026-08-22) is the docked bar's resting-width
-// INTENT — the app says which state it is in, this loader owns both widths
-// (BAR_W_REST / BAR_W) and eases between them. Never a measured width: see
-// BAR_W_REST for the clipping bug that distinction exists to prevent.
-// a center-bottom BAR (width is loader policy, BAR_W) that the app can flip to a
-// minimized CHIP ({pawbar:view}). {pawbar:resize,h,w} sizes the docked box —
-// height always, width only for the chip (the bar width is loader policy; using
-// the app-reported width for the bar would feed back and shrink it). OPEN is a
-// full-viewport overlay (the app draws the dim backdrop + centered palette).
-// MOVE: on {pawbar:drag,phase:start} the loader snapshots the dock box, goes
-// full-viewport, and replies {pawbar:box,x,y,w,h} so the app can track the
-// pointer; {pawbar:drag,phase:end,x,y} adopts the new anchor and persists it
-// (host localStorage) so the placement survives reloads. The anchor is the
-// box's CENTER-BOTTOM point, so the bar and the (narrower) chip stay pinned to
-// the same visual spot; a sub-DRAG_MIN_PX "drag" is a click on the grip and
-// adopts nothing (else the default-centered dock gets silently pinned).
+// The small zero-dependency IIFE a site pastes in. It finds its own <script>
+// tag, reads the embed config (data-site-key / data-widget-id / data-endpoint),
+// and mounts ONE sandboxed iframe pointing at {endpoint}/paw-bar/frame
+// (?key=&w=&po=&s=). The app renders inside the frame; this file owns only the
+// iframe box (size + position), the host-page scrim behind an open panel, and
+// the facts about the host page a cross-origin frame cannot read for itself:
+//   - `s`, the host's light/dark scheme (hostScheme), on the frame URL;
+//   - the SITE THEME (detectSiteTheme: accent, page bg/fg, font, Google Fonts
+//     href, button radius), in the frame URL fragment `#t=<base64url JSON>` so
+//     the first paint already has it (a fragment never reaches the server), and
+//     again as {pawbar:site-theme} when it changes (scheme change, page load);
+//   - {pawbar:viewport} and {pawbar:page} (origin + pathname + title only).
+// The app drives the box over postMessage: pawbar:resize / view / bar / open /
+// close / expand / overlay / drag / dead. The dock policy (BAR_W, PANEL_W, the
+// sheet threshold, the scrim) is documented where each constant lives.
 //
-// 2026-09-01 THE OPEN MESSENGER REPLACES THE BROWSING (captain direction). Two
-// changes that are really one product decision: the docked column grew from
-// 400x720 to 520x840 (PANEL_W / PANEL_MAX_H), and the host page behind it is now
-// blurred and dimmed by a SCRIM this loader paints — a plain div in the host
-// document, under the frame, that also takes the click that dismisses the panel.
-// It is a host-document element rather than a full-viewport iframe on purpose:
-// see the SCRIM_* block for why the obvious implementation is the modal the
-// 2026-08-19 work removed. This deliberately reverses "the host page stays
-// usable while the bar is open" — an open bar is now the foreground, and one
-// click on the page puts it back.
-//
-// 2026-09-26 THE FRAME IS SANDBOXED (FRAME_SANDBOX). A reply link with
-// target="_top" could otherwise navigate the customer's whole page. The app's
-// sanitizer blocks that already; the sandbox is the browser-level backstop, and
-// the server sends the same flags as a `Content-Security-Policy: sandbox` header
-// on the frame response. The browser enforces the stricter of the two. The
-// attribute is set BEFORE src, because sandbox flags apply on navigation.
-//
-// 2026-09-27 THE NEW BAR. Two additive pieces for the rebuilt app, which docks
-// as a content-sized 'chip' for everything short of full screen:
-//   - {pawbar:resize} may carry `side: 'left' | 'right'`. With no dragged
-//     anchor, the box then sits in that corner (VIEWPORT_MARGIN/2 in) instead
-//     of centred: the icon launcher. An older app never sends it.
-//   - {pawbar:viewport,w,h} goes to the frame on load and on every host resize.
-//     The app sizes against it rather than its own window, which is the box
-//     this loader sizes from the app's own content (a feedback loop).
-//
-// PAGE CONTEXT (CR-7). The loader posts {pawbar:page, url, title} to the frame:
-// the host page's origin + pathname (query string and hash stripped here, so
-// they never cross into the frame) and its title clipped to 120 chars. It goes
-// on every frame load and again whenever the path or title changes, so SPA
-// navigation is seen (popstate/hashchange plus a 1s poll, armed at the first
-// frame load; history is never patched). The app sends it as `page` on every
-// chat request.
+// `?pawbar=off` on the host URL mounts nothing (the owner preview frames the
+// real site and draws its own bar). `?pawbar=sniff` also mounts nothing, but
+// posts {pawbar:site-theme} to window.parent (targetOrigin '*': public CSS
+// facts only) on run, on load, on scheme change and when the parent asks with
+// {pawbar:sniff}. The owner preview's sandboxed scene iframe uses it to feed
+// the site's look to the bar beside it.
 //
 // SECURITY: inbound messages are honoured ONLY when event.origin === the frame
 // origin AND event.source === the iframe's own contentWindow. Every outbound
-// post pins targetOrigin to the frame origin — never "*". Idempotent; exposes
-// window.PawBar = { open, close } for programmatic control.
+// post to the frame pins targetOrigin to the frame origin — never "*". The one
+// "*" post is sniff mode's theme, which carries nothing a stylesheet does not.
+// Idempotent; exposes window.PawBar = { open, close } for programmatic control.
 
 const LOADED_FLAG = '__pawBarLoaderLoaded';
 const FRAME_PATH = '/paw-bar/frame';
@@ -223,37 +185,69 @@ interface PawBarApi {
   close(): void;
 }
 
+/** What detectSiteTheme read off the host page. Untrusted on the far side. */
+interface SiteTheme {
+  accent?: string;
+  bg?: string;
+  fg?: string;
+  font?: string;
+  fontHref?: string;
+  radius?: number;
+}
+
 type LoaderWindow = Window &
   typeof globalThis & { PawBar?: PawBarApi; [key: string]: unknown };
 
-/** Does this page ask us not to mount? (`?pawbar=off`)
+/** The host URL's `?pawbar=` value: 'off' and 'sniff' mount nothing.
  *
  *  For the owner's appearance preview. The dashboard frames the REAL published
  *  site so a theme can be judged on the page it will sit on, and overlays its own
- *  owner-preview bar — the one that accepts live token updates. The framed page
- *  would otherwise grow a SECOND bar: the public embed, showing the SAVED look,
- *  sitting behind the one being edited. Two bars, and the wrong one is the one
- *  that responds.
+ *  owner-preview bar. The framed page would otherwise grow a SECOND bar showing
+ *  the SAVED look behind the one being edited. 'sniff' is the same, plus the
+ *  site theme posted up to the preview (see the header).
  *
  *  Not a security control, and it does not need to be. A visitor who adds this to
  *  a URL hides a widget on a page they are already looking at, which costs
  *  nobody anything. The site owner's own switch is `concierge_enabled`, which is
  *  server-side and cannot be talked out of by a query string.
  */
-function suppressed(win: LoaderWindow): boolean {
+function pawbarParam(win: LoaderWindow): string | null {
   try {
-    return new URLSearchParams(win.location.search).get('pawbar') === 'off';
+    return new URLSearchParams(win.location.search).get('pawbar');
   } catch {
-    return false;
+    return null;
   }
 }
 
 (function bootstrap(win: LoaderWindow): void {
   // Idempotent: a duplicate paste / double-include must be a silent no-op.
   if (win[LOADED_FLAG]) return;
-  if (suppressed(win)) return;
+  const param = pawbarParam(win);
+  if (param === 'off') return;
 
   const doc = win.document;
+  const schemeQuery = win.matchMedia && win.matchMedia('(prefers-color-scheme: dark)');
+  const onScheme = (fn: () => void): void => {
+    if (schemeQuery && schemeQuery.addEventListener) schemeQuery.addEventListener('change', fn);
+  };
+
+  if (param === 'sniff') {
+    const sniff = (): void => {
+      try {
+        win.parent.postMessage({ type: 'pawbar:site-theme', theme: detectSiteTheme(win) }, '*');
+      } catch {
+        /* no parent to tell */
+      }
+    };
+    sniff();
+    win.addEventListener('load', sniff);
+    onScheme(sniff);
+    // The preview may boot after this ran; it asks, and gets the answer again.
+    win.addEventListener('message', (ev: MessageEvent): void => {
+      if (ev.source === win.parent && ev.data && ev.data.type === 'pawbar:sniff') sniff();
+    });
+    return;
+  }
 
   // 1. Locate our own <script> tag and read the embed config off it.
   const script =
@@ -294,6 +288,11 @@ function suppressed(win: LoaderWindow): boolean {
   // after boot it would arrive a frame or two late, and every visitor on a light
   // site would watch a dark widget flip. The frame treats it as a default the
   // owner's own tokens still override.
+  //
+  // The site theme rides in the FRAGMENT for the same first-paint reason. A
+  // fragment is never sent to the server, so the frame request stays the same
+  // cacheable URL and nothing about the host page lands in a log.
+  let theme = JSON.stringify(detectSiteTheme(win));
   const src =
     endpoint +
     FRAME_PATH +
@@ -304,7 +303,8 @@ function suppressed(win: LoaderWindow): boolean {
     '&po=' +
     encodeURIComponent(parentOrigin) +
     '&s=' +
-    hostScheme(win);
+    hostScheme(win) +
+    (theme === '{}' ? '' : '#t=' + b64url(theme));
 
   const iframe = doc.createElement('iframe');
   iframe.title = 'Site concierge';
@@ -573,13 +573,19 @@ function suppressed(win: LoaderWindow): boolean {
   // listener and it is the only scheme change we can see without watching the
   // host's DOM. A site with its OWN in-page toggle still needs a reload — see
   // hostScheme() for why that is not worth a MutationObserver on someone else's
-  // document.
-  const schemeQuery = win.matchMedia && win.matchMedia('(prefers-color-scheme: dark)');
-  if (schemeQuery && schemeQuery.addEventListener) {
-    schemeQuery.addEventListener('change', (): void => {
-      postToFrame({ type: 'pawbar:scheme', s: hostScheme(win) });
-    });
+  // document. The site theme is re-read on the same signal, and once more at
+  // page load (stylesheets may still have been arriving when this script ran).
+  function postTheme(): void {
+    const next = JSON.stringify(detectSiteTheme(win));
+    if (next === theme) return;
+    theme = next;
+    postToFrame({ type: 'pawbar:site-theme', theme: JSON.parse(next) });
   }
+  onScheme((): void => {
+    postToFrame({ type: 'pawbar:scheme', s: hostScheme(win) });
+    postTheme();
+  });
+  win.addEventListener('load', postTheme);
 
   // 4. postMessage handshake — accept ONLY messages provably from our iframe:
   //    exact origin match AND source-identity match. Anything else is ignored.
@@ -847,6 +853,99 @@ function hostScheme(win: Window): string {
     /* a hostile or exotic host document — fall through to the visitor */
   }
   return win.matchMedia && win.matchMedia('(prefers-color-scheme: dark)').matches ? 'd' : 'l';
+}
+
+/**
+ * The host page's look, as the bar should wear it. Every facet is optional:
+ * a facet that cannot be read is simply absent, and the bar keeps its own.
+ *
+ *   accent  `meta[name=theme-color]`, then a brand custom property on :root,
+ *           then the background of the first visible coloured button, then the
+ *           link colour. Neutrals (greys, near black/white) are skipped: they
+ *           say nothing about the brand.
+ *   bg/fg   the computed body (then html) background and text colour.
+ *   font    the body's font-family; fontHref the page's Google Fonts sheet.
+ *   radius  that button's corner (or the first filled button's), px, 0–32.
+ *
+ * One getComputedStyle pass, no observer: see hostScheme() for why. Colours are
+ * normalised to #rrggbb through a detached element's style, which serialises
+ * any colour the browser understands as rgb(); anything it does not (named
+ * colours, oklch) yields no digits and is skipped. The frame re-validates all
+ * of it: this runs on a page we do not control.
+ */
+function detectSiteTheme(win: Window): SiteTheme {
+  const doc = win.document;
+  const t: SiteTheme = {};
+  try {
+    const cs = (el: Element): CSSStyleDeclaration => win.getComputedStyle(el);
+    const probe = doc.createElement('i').style;
+    const hex = (v: string | null): string => {
+      probe.color = '';
+      probe.color = (v || '').trim();
+      // A shadcn-style `--primary: 222 47% 11%` is an hsl() without the hsl.
+      if (!probe.color && v) probe.color = 'hsl(' + v + ')';
+      const p = probe.color.match(/[\d.]+/g);
+      if (!p || p.length < 3 || (p.length > 3 && +p[3] < 0.5)) return '';
+      return '#' + p.slice(0, 3).map((n) => (256 | +n).toString(16).slice(1)).join('');
+    };
+    const brand = (c: string): string => {
+      const n = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+      return c && Math.max(...n) - Math.min(...n) > 32 ? c : '';
+    };
+    const meta = doc.querySelector('meta[name=theme-color]');
+    let accent = brand(hex(meta && meta.getAttribute('content')));
+    const root = cs(doc.documentElement);
+    'primary,accent,brand,color-primary,primary-color,brand-color,color-accent,accent-color,color-brand'
+      .split(',')
+      .forEach((n) => (accent = accent || brand(hex(root.getPropertyValue('--' + n)))));
+    // The first visible coloured button is the primary one. A site whose
+    // buttons are all black or white still has corners worth copying, so the
+    // first visible filled one stands in for the radius.
+    let btn: CSSStyleDeclaration | null = null;
+    let filled: CSSStyleDeclaration | null = null;
+    const list = doc.querySelectorAll('button,.btn,[class*=button],a[class*=btn]');
+    for (let i = 0; i < list.length && i < 60 && !btn; i++) {
+      const s = cs(list[i]);
+      const bg = s.display !== 'none' && s.visibility !== 'hidden' ? hex(s.backgroundColor) : '';
+      filled = filled || (bg ? s : null);
+      if (brand(bg)) {
+        btn = s;
+        accent = accent || bg;
+      }
+    }
+    // An unstyled link is the browser's own blue, which is nobody's brand.
+    const a = doc.querySelector('a[href]');
+    const link = a ? brand(hex(cs(a).color)) : '';
+    accent = accent || (link === '#0000ee' ? '' : link);
+    if (accent) t.accent = accent;
+
+    for (const el of [doc.body, doc.documentElement]) {
+      const bg = el && hex(cs(el).backgroundColor);
+      if (bg) {
+        t.bg = bg;
+        break;
+      }
+    }
+    const body = cs(doc.body || doc.documentElement);
+    const fg = hex(body.color);
+    if (fg) t.fg = fg;
+    if (body.fontFamily) t.font = body.fontFamily.slice(0, 200);
+    const gf = doc.querySelector<HTMLLinkElement>(
+      'link[rel=stylesheet][href^="https://fonts.googleapis.com/css"]',
+    );
+    if (gf) t.fontHref = gf.href;
+    const b = btn || filled;
+    const r = b ? b.borderTopLeftRadius || b.borderRadius : '';
+    if (r && r.indexOf('%') < 0 && isFinite(parseFloat(r))) t.radius = clamp(Math.round(parseFloat(r)), 0, 32);
+  } catch {
+    /* a hostile or exotic host document: whatever was read so far stands */
+  }
+  return t;
+}
+
+/** base64url of a UTF-8 string (font names need not be ASCII). */
+function b64url(s: string): string {
+  return btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function originOf(url: string): string {

@@ -1,4 +1,11 @@
 // loader/test/loader.test.mjs — jsdom unit tests for the glass-bar loader (A2).
+// Site theme (end of file): detection order for the accent (theme-color, then
+// :root brand properties, then the first coloured button, then the link
+// colour, neutrals skipped), page bg/fg, font + Google Fonts href, the button
+// radius clamped to 0–32; the theme rides in the frame URL fragment (#t=,
+// base64url JSON, never the query), is re-posted pinned to the frame origin
+// only when it changed, and ?pawbar=sniff mounts nothing but posts it to the
+// parent ('*'), again when the parent asks.
 // Page context (CR-7): on load the frame gets {pawbar:page} with the host URL
 // as origin + pathname (no query, no hash), the title clipped to 120, and
 // targetOrigin pinned to the frame origin; after load, an SPA navigation
@@ -46,6 +53,9 @@ function mount({
   widgetId = 'w_abc',
   // The host page's own styling, which is what the colour-scheme detector reads.
   hostStyle = '',
+  // Extra host markup: <head> tags (meta, links) and <body> content (buttons).
+  hostHead = '',
+  hostBody = '',
   prefersDark = false,
   path = '/products',
   // Runs against the fresh window BEFORE the loader IIFE, so a test can
@@ -53,7 +63,7 @@ function mount({
   beforeLoad = null,
 } = {}) {
   const dom = new JSDOM(
-    `<!doctype html><html><head><style>${hostStyle}</style></head><body></body></html>`,
+    `<!doctype html><html><head><style>${hostStyle}</style>${hostHead}</head><body>${hostBody}</body></html>`,
     {
       url: HOST_ORIGIN + path,
       runScripts: 'dangerously',
@@ -1085,4 +1095,171 @@ test('a frame reload re-arms nothing twice and still gets the page', () => {
   assert.equal(pages().length, 2, 'a reloaded frame is told the page again');
   tick();
   assert.equal(pages().length, 2);
+});
+
+// ── The site theme ──────────────────────────────────────────────────────────
+// The bar follows the website: the loader reads the host's accent, page
+// colours, font and button corners, and hands them to the frame. Detection is
+// a best guess on a page we do not control, so the order of the signals is the
+// contract worth pinning.
+
+/** The theme the loader put in the frame URL fragment, or null. */
+function fragmentTheme(window) {
+  const hash = new URL(onlyIframe(window).src).hash;
+  if (!hash.startsWith('#t=')) return null;
+  const b64 = hash.slice(3).replace(/-/g, '+').replace(/_/g, '/');
+  return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+}
+
+test('theme-color is the accent first: it is the site stating its brand', () => {
+  const window = mount({
+    hostHead: '<meta name="theme-color" content="#635bff">',
+    hostStyle: ':root { --primary: #e11d48 } .btn { background: #16a34a }',
+    hostBody: '<a class="btn" href="/buy">Buy</a>',
+  });
+  assert.equal(fragmentTheme(window).accent, '#635bff');
+});
+
+test('a brand custom property comes next, including a bare shadcn hsl triplet', () => {
+  const brand = mount({
+    hostStyle: ':root { --brand: #e11d48 } .btn { background: #16a34a }',
+    hostBody: '<a class="btn" href="/">x</a>',
+  });
+  assert.equal(fragmentTheme(brand).accent, '#e11d48');
+  assert.equal(fragmentTheme(mount({ hostStyle: ':root { --primary: 0 100% 50% }' })).accent, '#ff0000');
+});
+
+test('then the first visible coloured button, whose corner is the radius', () => {
+  const window = mount({
+    hostStyle:
+      '.hidden { display: none; background: #ff0000 } .go { background: #ff5a36; border-top-left-radius: 10px }',
+    hostBody: '<button class="hidden">a</button><button class="go">b</button>',
+  });
+  const t = fragmentTheme(window);
+  assert.equal(t.accent, '#ff5a36');
+  assert.equal(t.radius, 10);
+});
+
+test('then the link colour', () => {
+  const window = mount({ hostStyle: 'a:link { color: #2563eb }', hostBody: '<a href="/x">x</a>' });
+  assert.equal(fragmentTheme(window).accent, '#2563eb');
+});
+
+test('neutral colours are never the accent, but a neutral button still gives its corners', () => {
+  const t = fragmentTheme(
+    mount({
+      hostHead: '<meta name="theme-color" content="#ffffff">',
+      hostStyle: ':root { --primary: #333333 } button { background: #111114; border-top-left-radius: 999px }',
+      hostBody: '<button>x</button>',
+    }),
+  );
+  assert.equal(t.accent, undefined);
+  assert.equal(t.radius, 32, 'clamped to 32');
+});
+
+test('a percentage radius is not a length and is skipped', () => {
+  const t = fragmentTheme(
+    mount({
+      hostStyle: 'button { background: #ff5a36; border-top-left-radius: 50% }',
+      hostBody: '<button>x</button>',
+    }),
+  );
+  assert.equal(t.radius, undefined);
+});
+
+test('page colours, font and the Google Fonts sheet come off the page', () => {
+  const t = fragmentTheme(
+    mount({
+      hostHead:
+        '<link rel="stylesheet" href="https://cdn.example.com/site.css">' +
+        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter&display=swap">',
+      hostStyle: 'body { background: #0e1117; color: #e6e6e6; font-family: "Inter", sans-serif }',
+    }),
+  );
+  assert.equal(t.bg, '#0e1117');
+  assert.equal(t.fg, '#e6e6e6');
+  assert.equal(t.font, '"Inter", sans-serif');
+  assert.equal(t.fontHref, 'https://fonts.googleapis.com/css2?family=Inter&display=swap');
+});
+
+test('a transparent body falls through to html for the page background', () => {
+  assert.equal(fragmentTheme(mount({ hostStyle: 'html { background: #fafaf9 }' })).bg, '#fafaf9');
+});
+
+test('the theme rides in the fragment, never the query the server sees', () => {
+  const window = mount({ hostStyle: 'a:link { color: #2563eb }', hostBody: '<a href="/">x</a>' });
+  const url = new URL(onlyIframe(window).src);
+  assert.ok(url.hash.startsWith('#t='));
+  assert.ok(!/[+/=]/.test(url.hash.slice(3)), 'base64url, not base64');
+  assert.equal(url.searchParams.get('t'), null);
+  assert.ok(!url.search.includes('2563eb'));
+});
+
+test('a scheme change re-posts the theme only when it changed, pinned to the frame origin', () => {
+  const window = mount({ hostStyle: 'a:link { color: #2563eb }', hostBody: '<a href="/">x</a>' });
+  const posts = [];
+  Object.defineProperty(onlyIframe(window).contentWindow, 'postMessage', {
+    value: (data, targetOrigin) => posts.push({ data, targetOrigin }),
+    configurable: true,
+  });
+  const themes = () => posts.filter((p) => p.data.type === 'pawbar:site-theme');
+
+  window.__schemeListeners.forEach((fn) => fn({ matches: true }));
+  assert.equal(themes().length, 0, 'nothing changed, nothing sent');
+
+  window.document.querySelector('style').textContent = 'a:link { color: #16a34a }';
+  window.__schemeListeners.forEach((fn) => fn({ matches: true }));
+  assert.equal(themes().length, 1);
+  assert.equal(themes()[0].data.theme.accent, '#16a34a');
+  assert.equal(themes()[0].targetOrigin, FRAME_ORIGIN); // never "*"
+
+  // Page load re-reads too (stylesheets may have been arriving), same rule.
+  window.dispatchEvent(new window.Event('load'));
+  assert.equal(themes().length, 1);
+});
+
+// ── ?pawbar=sniff ───────────────────────────────────────────────────────────
+// The owner preview frames the real site in a sandboxed scene iframe and needs
+// the site's look for the bar beside it. sniff mounts nothing, like off, and
+// posts the theme up to the preview.
+function sniffParent(window) {
+  const posts = [];
+  const parent = { postMessage: (data, targetOrigin) => posts.push({ data, targetOrigin }) };
+  Object.defineProperty(window, 'parent', { value: parent, configurable: true });
+  return { parent, posts };
+}
+
+test('?pawbar=sniff mounts nothing and posts the theme to the parent', () => {
+  let spy;
+  const window = mount({
+    path: '/?pawbar=sniff',
+    hostStyle: 'a:link { color: #2563eb }',
+    hostBody: '<a href="/">x</a>',
+    beforeLoad: (w) => (spy = sniffParent(w)),
+  });
+  assert.equal(window.document.querySelector('iframe'), null);
+  assert.equal(window.PawBar, undefined);
+  assert.equal(spy.posts.length, 1);
+  assert.equal(spy.posts[0].data.type, 'pawbar:site-theme');
+  assert.equal(spy.posts[0].data.theme.accent, '#2563eb');
+  assert.equal(spy.posts[0].targetOrigin, '*');
+});
+
+test('sniff answers the parent asking again, and nobody else', () => {
+  let spy;
+  const window = mount({ path: '/?pawbar=sniff', beforeLoad: (w) => (spy = sniffParent(w)) });
+  const ask = (source) =>
+    window.dispatchEvent(messageEvent(window, { data: { type: 'pawbar:sniff' }, origin: 'null', source }));
+  ask({});
+  assert.equal(spy.posts.length, 1, 'a stranger asked');
+  ask(spy.parent);
+  assert.equal(spy.posts.length, 2);
+  window.__schemeListeners.forEach((fn) => fn({ matches: true }));
+  assert.equal(spy.posts.length, 3, 'and on a scheme change');
+});
+
+test('?pawbar=off still posts nothing anywhere', () => {
+  let spy;
+  mount({ path: '/?pawbar=off', beforeLoad: (w) => (spy = sniffParent(w)) });
+  assert.equal(spy.posts.length, 0);
 });

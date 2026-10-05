@@ -63,24 +63,21 @@
   under the composer on the page. The thread's spring height is dropped here,
   because the layout, not the content, decides its height.
 
-  2026-09-27 (themes): `theme` picks a preset from lib/bar-themes (Default,
-  Midnight, Geist, Indigo, Paper, Glass) and `tokens` overrides any --pawbar-*
-  value on top of it; `tokensDark` goes over `tokens` while `scheme` is dark
-  and is removed again when it turns light. Both land on the wrapper through the typed CSSOM
-  (setProperty), never a concatenated style string, and a theme switch clears
-  the keys the previous one set so nothing leaks between them.
+  THEME. `site` is the website's own look (lib/site-theme, validated by the
+  caller); `tokens` overrides any --pawbar-* value on top of it, and
+  `tokensDark` goes over `tokens` while `scheme` is dark and is removed again
+  when it turns light. lib/bar-themes resolveTheme layers them over the
+  default's scheme overlay. The result lands on the wrapper through the typed
+  CSSOM (setProperty), never a concatenated style string, and each pass clears
+  the keys the previous one set so nothing leaks between them. Corners come
+  from --pawbar-radius like any other token: every surface follows it
+  directly, bubbles and the credit pill cap it at their own natural size, and
+  circles stay circles.
 
   2026-09-27 (credit pill): the credit has its own small surface in the
   frame's colours. It sits on the host page, whose colour no theme can know,
   so bare text vanished on one kind of page or the other (dark ink on a dark
   site under the light themes).
-
-  2026-09-27 (owner radius): `radius` (px, 0–40) is the owner's corner
-  setting. It becomes --pawbar-radius and wins over the theme's own radius
-  and over `tokens`. Every corner follows it: the surfaces directly, the
-  bubbles and the credit pill capped at their own natural size (so 40px does
-  not turn a one-line bubble into a lozenge). Circles stay circles. It is an
-  OWNER setting only; visitors never see it.
 
   2026-09-27 (states groundwork): `BarMessage` IS the chat store's Message
   (role user|assistant|owner|system, content, status streaming|done|error,
@@ -127,8 +124,8 @@
     (`unavailable` reason): 'temporary' notes "I couldn't answer that just
     now." with Try again; 'limit' is said by the near-input line instead.
   • `scheme` ('light' | 'dark') is the host's scheme, resolved by the mount
-    point (lib/scheme.ts); themes with overlays (Default) follow it, branded
-    ones ignore it. It is on the wrapper as data-pawbar-scheme.
+    point (lib/scheme.ts); the default's overlay and the site theme follow
+    it. It is on the wrapper as data-pawbar-scheme.
   • Narrow screens (under 600 × 620, the loader's sheet threshold): pinning
     the bar with a conversation opens it full screen, where it has room.
   • The thread is the ONE live region: role="log", additions only; each
@@ -250,6 +247,7 @@
     type BarSize,
   } from './PawBar.svelte';
   import { resolveTheme, type BarScheme } from '../../lib/bar-themes';
+  import type { SiteTheme } from '../../lib/site-theme';
   import { FAILURE_COPY, formatCopy, UNAVAILABLE_COPY } from '../../lib/chat-errors';
   import { actionLine } from '../../lib/page-actions';
   import type { Notice } from '../../store/chat.svelte';
@@ -277,10 +275,9 @@
     expandable = true,
     voice = true,
     fullscreen = $bindable(false),
-    theme = 'default',
+    site = {},
     tokens = {},
     tokensDark = {},
-    radius,
     scheme,
     greeting = '',
     restoring = false,
@@ -334,15 +331,13 @@
     /** PawBar's dictation mic (shown only where the browser supports it). */
     voice?: boolean;
     fullscreen?: boolean;
-    /** A preset from lib/bar-themes. Unknown ids fall back to the default. */
-    theme?: string;
-    /** --pawbar-* overrides applied on top of the theme. */
+    /** The website's own look (validated by the caller). Under `tokens`. */
+    site?: SiteTheme;
+    /** --pawbar-* overrides applied on top of the site theme. */
     tokens?: Record<string, string>;
     /** --pawbar-* overrides applied over `tokens` while `scheme` is dark. */
     tokensDark?: Record<string, string>;
-    /** Owner's corner radius in px (0–40). Overrides the theme's radius. */
-    radius?: number;
-    /** The host page's scheme; themes with light/dark overlays follow it. */
+    /** The host page's scheme; the default overlay and the site theme follow it. */
     scheme?: BarScheme;
     /** The owner's first line for an empty conversation. */
     greeting?: string;
@@ -467,10 +462,7 @@
   $effect(() => {
     const el = frameEl;
     if (!el) return;
-    const vars = resolveTheme(theme, tokens, scheme, tokensDark);
-    if (typeof radius === 'number' && Number.isFinite(radius)) {
-      vars['--pawbar-radius'] = `${Math.min(40, Math.max(0, Math.round(radius)))}px`;
-    }
+    const vars = resolveTheme(tokens, scheme, tokensDark, site);
     for (const k of applied) if (!(k in vars)) el.style.removeProperty(k);
     for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
     applied = Object.keys(vars);
