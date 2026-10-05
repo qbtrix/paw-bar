@@ -48,7 +48,9 @@
   declarations on our own element, so a site setting them on any ancestor wins.
   The ⋯ / ✕ / send glyphs and washes derive from --pawbar-fg (overridable as
   --pawbar-icon, -icon-hover, -icon-disabled, -control, -control-hover), so they
-  contrast in any theme. No elevation shadow: the team dropped those on
+  contrast in any theme. The plain mark (no logo image) wears --pawbar-brand
+  over --pawbar-accent: a site accent too faint for buttons still marks the
+  logo (lib/site-theme). No elevation shadow: the team dropped those on
   2026-08-19 because on a bordered glass surface they read as a second border.
 
   FULL SCREEN (2026-09-27). A ⋯ menu item, and a visible exit button while
@@ -64,8 +66,8 @@
   tall, 540px wide open), and the icon launcher has its own larger diameter
   (--pb-launch) with a radius of half that, so it stays a circle.
 
-  Corners: every corner derives from --pawbar-radius (PawBarFrame's owner
-  `radius` setting), chips included; only true circles (send, ⋯, the plain
+  Corners: every corner derives from --pawbar-radius (the site's or the
+  owner's, see lib/site-theme), chips included; only true circles (send, ⋯, the plain
   mark) stay at 50%.
 
   STATES (2026-09-27, specs in docs/design/drafts/2026-09-27-paw-bar-states-ux-*):
@@ -1263,8 +1265,8 @@
     width: 100%;
     height: 100%;
     border-radius: 50%;
-    background: var(--pawbar-accent, #111114);
-    color: var(--pawbar-accent-fg, #fff);
+    background: var(--pawbar-brand, var(--pawbar-accent, #111114));
+    color: var(--pawbar-brand-fg, var(--pawbar-accent-fg, #fff));
   }
   .mark svg {
     width: 62%;

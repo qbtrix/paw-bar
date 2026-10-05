@@ -1,6 +1,7 @@
-// bar-demo.svelte.ts — dev harness for bar.html (2026-09-27). Mounts one
-// PawBarFrame and drives its launcher / side / size / theme from the control
-// strip, plus the owner's corner radius slider.
+// bar-demo.svelte.ts — dev harness for bar.html. Mounts one PawBarFrame and
+// drives its launcher / side / size from the control strip, plus a stand-in
+// SITE THEME (the look the loader reads off a real host page, lib/site-theme):
+// a site accent picker and a corner radius slider.
 // Messages use the chat store's shape (content + status), same as production.
 // A fake reply streams in word by word so the thread's growth can be watched.
 // DEMO_LOGO stands in for a site's brand logo; it is inlined rather than put in
@@ -33,7 +34,8 @@
 import { mount, untrack } from 'svelte';
 import PawBarFrame, { type BarMessage } from './components/bar/PawBarFrame.svelte';
 import { SIZE_KEY, type BarLauncher, type BarSide, type BarSize } from './components/bar/PawBar.svelte';
-import { BAR_THEMES, BAR_THEME_IDS, type BarScheme } from './lib/bar-themes';
+import type { BarScheme } from './lib/bar-themes';
+import type { SiteTheme } from './lib/site-theme';
 import { CONTACT_OFFER, FAILURE_COPY } from './lib/chat-errors';
 import type { Notice } from './store/chat.svelte';
 import { CartStore } from './store/cart.svelte';
@@ -231,9 +233,8 @@ const props = $state({
   launcher: 'bar' as BarLauncher,
   side: 'right' as BarSide,
   size: 'sm' as BarSize,
-  theme: 'midnight',
+  site: {} as SiteTheme,
   scheme: 'dark' as BarScheme,
-  radius: undefined as number | undefined,
   restoring: false,
   notice: null as Notice | null,
   cooldownUntil: null as number | null,
@@ -346,11 +347,6 @@ $effect.root(() => {
   });
 });
 
-const themeSelect = document.getElementById('theme') as HTMLSelectElement;
-for (const tid of BAR_THEME_IDS) {
-  const t = BAR_THEMES[tid];
-  themeSelect.add(new Option(t.inspiredBy ? `${t.label} (${t.inspiredBy}-style)` : t.label, tid, false, tid === props.theme));
-}
 
 // ── Host background ─────────────────────────────────────────────────────────
 const BG_KEY = 'pawbar-demo-bg';
@@ -393,8 +389,6 @@ form.addEventListener('change', (e) => {
       void unmount(live);
       live = mount(PawBarFrame, { target: stage, props });
     });
-  } else if (input.name === 'theme') {
-    props.theme = input.value;
   } else if (input.name === 'bg') {
     setBackground(input.value === 'custom' ? bgColor.value : input.value);
   }
@@ -402,8 +396,12 @@ form.addEventListener('change', (e) => {
 form.addEventListener('input', (e) => {
   const input = e.target as HTMLInputElement;
   if (input.name === 'bgcolor') return setBackground(input.value);
+  if (input.name === 'accent') {
+    props.site = { ...props.site, accent: input.value };
+    return;
+  }
   if (input.name !== 'radius') return;
-  props.radius = Number(input.value);
+  props.site = { ...props.site, radius: Number(input.value) };
   document.getElementById('radius-out')!.textContent = `${input.value}px`;
 });
 form.addEventListener('click', (e) => {

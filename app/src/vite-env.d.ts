@@ -1,17 +1,9 @@
-// vite-env.d.ts — ambient types for the Paw Bar iframe app.
-// Created 2026-07-15 (A3): registers Vite client + Svelte types and declares
-// the window.__PAWBAR__ config contract the serving frame HTML injects before
-// the bundle loads (see src/config.ts for the reader + dev fallback).
-// 2026-07-16 (D4): added the optional `greeting` field — the owner's concierge
-// greeting the frame emits from the Site doc; the bar renders it as the
-// empty-state welcome (blank/absent falls back to the default copy).
-// 2026-09-27 (new bar): the optional owner settings the new Paw Bar reads
-// (`ui`, `barTheme`, `radius`, `launcher`, `side`, `barSize`, `logo`,
-// `disclosure`, `privacyHref`, `consentRequired`, `voice`). The backend sends
-// none of them yet; config.ts defaults every one.
-// 2026-09-27 (old shell removed): dropped the __PAWBAR_GLASS__ build-time
-// declaration. `ui` stays on the boot shape so frame HTML that still sends it
-// type-checks, but nothing reads it: the new bar is always mounted.
+// vite-env.d.ts — ambient types for the Paw Bar iframe app: Vite client and
+// Svelte types, and the window.__PAWBAR__ boot config the serving frame HTML
+// injects before the bundle loads. Every owner field is optional; src/config.ts
+// reads each one defensively and defaults it. Retired keys a served frame may
+// still send (`theme`, `ui`, `barTheme`, `radius`) are ignored at runtime;
+// `theme` and `ui` stay declared so old fixtures type-check.
 /// <reference types="svelte" />
 /// <reference types="vite/client" />
 
@@ -58,10 +50,6 @@ interface PawBarBootConfig {
   /** IGNORED since 2026-09-27, when the old 'glass' shell was removed. Kept so
    *  a frame that still sends it type-checks; readConfig does not read it. */
   ui?: string;
-  /** A preset id from lib/bar-themes. `theme` above is an older, ignored field. */
-  barTheme?: string;
-  /** Corner radius in px (0–40). */
-  radius?: number;
   launcher?: 'bar' | 'icon';
   side?: 'left' | 'right';
   barSize?: 'sm' | 'md' | 'lg';
@@ -74,6 +62,10 @@ interface PawBarBootConfig {
   consentRequired?: boolean;
   /** The dictation mic. Absent or anything but `false` → on. */
   voice?: boolean;
+  /** The "Powered by Paw Sites" credit. Absent or anything but `false` → on. */
+  poweredBy?: boolean;
+  /** The full-screen toggle. Absent or anything but `false` → on. */
+  expandable?: boolean;
 }
 
 interface Window {

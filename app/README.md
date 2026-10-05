@@ -1,27 +1,8 @@
-<!-- README.md — glass concierge app. Created 2026-07-15 (A3). Documents the
-     boot contract, build output, and commands for the loader (A2) + frame
-     endpoint (A1) + smoke (A4) that integrate with this bundle.
-     2026-09-27: added "Design without a backend", which documents the
-     demo.html / host.html dev pages and their ?state= presets.
-     2026-09-27 (new bar): bar.html, and scripts/widget-harness.mjs for
-     checking the built widget under the real loader.
-     2026-09-27 (old shell removed): host.html and demo.html?state=light are
-     gone; demo.html now shows the new bar with a fake backend. The note
-     about the frozen vanilla widget in ../src is gone with that widget.
-     2026-09-27 (native markdown): marked and DOMPurify no longer ship; the
-     build-output line, the test list and the security note describe the
-     parsed-tree renderer in src/lib/md/ instead.
-     2026-09-27 (spec renderer): added "Drawing a Ripple spec", covering
-     components/spec/ and the vendored @ripple-ui/core tarball.
-     2026-09-27 (slim runtime): the renderer runs on
-     @ripple-ui/core/headless/slim; sizes updated.
-     2026-09-27 (after the native markdown renderer merged): sizes re-measured;
-     no budget change is needed; the tarball is packed from ripple-iui main.
-     2026-09-27 (spec cards): "Generated UI in the thread" documents spec
-     cards, the widgets and pawbar-manifest.json; @ripple-ui/core is now the
-     v0.8.0 release asset (core 0.6.0).
-     2026-09-28 (card parity): "Card parity with pocketpaw" documents the
-     shared tests/fixtures/card_parity/ fixtures and how to refresh them. -->
+<!-- README.md — the Paw Bar iframe app: its boot contract (window.__PAWBAR__,
+     the loader-supplied host scheme and site theme, the owner preview's live
+     channels), layout tokens, build output and budgets, commands, the dev
+     pages, the action loop, the Ripple spec renderer and generated cards, card
+     parity with pocketpaw, and the security note. -->
 
 # Paw Bar — Glass Concierge (`app/`)
 
@@ -35,7 +16,8 @@ It has its own `package.json`, own lockfile, own `node_modules`/`dist`
 ## Boot contract
 
 The serving frame HTML (backend endpoint, A1) sets a global **before** this
-bundle loads:
+bundle loads. Every owner field is optional and defaulted in `src/config.ts`, so
+a backend that sends none of them still boots a complete bar:
 
 ```js
 window.__PAWBAR__ = {
@@ -44,15 +26,81 @@ window.__PAWBAR__ = {
   endpoint: string,       // REST base, e.g. "http://localhost:8888/api/v1"
   parentOrigin: string,   // exact host origin; postMessage targetOrigin is pinned to this
   mode: "concierge",
-  tokens?: Record<string,string>, // white-label --pawbar-* overrides
-  theme?: "light" | "dark",       // default "dark"
-  voice?: boolean,                // dictation mic; on unless exactly false
+  preview?: boolean,      // true ONLY in the owner preview frame
+
+  // Owner settings
+  tokens?: Record<string,string>,     // --pawbar-* overrides (corners: --pawbar-radius)
+  tokensDark?: Record<string,string>, // over `tokens` while the bar resolves dark
+  scheme?: "light" | "dark" | "auto", // default "auto": follow the host page
+  launcher?: "bar" | "icon",          // default "bar"
+  side?: "left" | "right",            // icon launcher corner; default "right"
+  barSize?: "sm" | "md" | "lg",       // default "sm"
+  logo?: string,                      // http(s) or data: image; falls back to agentAvatar
+  launcherLabel?: string,             // resting pill copy, max 40
+  disclosure?: string,                // AI disclosure wording, max 140 (cannot remove it)
+  privacyHref?: string,               // http(s) only
+  consentRequired?: boolean,          // ask before chatting; default false
+  voice?: boolean,                    // dictation mic; on unless exactly false
+  poweredBy?: boolean,                // "Powered by Paw Sites"; on unless exactly false
+  expandable?: boolean,               // full-screen toggle; on unless exactly false
+
+  greeting?: string, starters?: string[], agentName?: string, agentAvatar?: string,
 };
 ```
+
+Retired keys are ignored rather than rejected, so old frame HTML keeps booting:
+`theme`, `ui`, `barTheme` (the branded presets are gone) and `radius` (corners
+are `--pawbar-radius` in `tokens`).
 
 With no global (plain `vite dev`) it falls back to localhost dev defaults — a
 real streamed reply still needs a running backend (that's the A4 smoke). To
 work on the UI with no backend at all, use the demo pages below.
+
+### The bar follows the website
+
+Two facts come from the loader, which is the only code that can see the host
+page:
+
+- `?s=l|d` on the frame URL: the host's light/dark scheme (`src/lib/scheme.ts`).
+- `#t=<base64url JSON>` in the frame URL fragment, then `{type:
+  "pawbar:site-theme", theme}` whenever it changes: the **site theme**, read off
+  the page (`src/lib/site-theme.ts`). The fragment means the first paint is
+  already in the site's colours, and it never reaches the server.
+
+| Facet | Detected from (first hit wins) | Becomes |
+|---|---|---|
+| `accent` | `meta[name=theme-color]`, `:root` `--primary` / `--accent` / `--brand` / `--color-primary` (and variants), the first visible coloured button, the link colour; neutrals skipped | `--pawbar-accent` + black/white `--pawbar-accent-fg` |
+| `bg`, `fg` | computed `body` (then `html`) background and colour | `--pawbar-bg` / `--pawbar-frame-bg` (keeping the default glass alpha), `--pawbar-fg` / `--pawbar-frame-fg` |
+| `font`, `fontHref` | `body` font-family; the page's `https://fonts.googleapis.com/css` stylesheet | `--pawbar-font` (with a generic fallback); the sheet is linked into the frame |
+| `radius` | that button's corner, px | `--pawbar-radius`, 0–32 |
+
+Layering, lowest to highest: bar defaults (with the light/dark overlay) < site
+theme < owner `tokens` < owner `tokensDark` (dark only). Every facet is
+validated as untrusted: `#rrggbb` colours, a clamped radius, a font family
+matching `^[\w\s,'"-]{1,200}$`, a stylesheet URL under
+`https://fonts.googleapis.com/css`. Page colours apply only as a pair that reads
+at 4.5:1 and only on the scheme the bar resolved. An accent under 3:1 against
+the bar's background still marks the logo (`--pawbar-brand`) and focus ring,
+but buttons keep the bar's own accent. The live message is honoured only from
+the parent window at exactly `parentOrigin`.
+
+### Owner preview
+
+With `preview: true` the frame opens two channels from `parentOrigin` (exact
+match; neither installs without it), in `src/lib/preview-tokens.ts`:
+
+- `{type: "pawbar:preview-config", config}`: any of the owner settings above,
+  normalised like the boot config and applied live. Only the keys present are
+  applied.
+- `{type: "pawbar:preview-tokens", tokens, tokensDark}`: tokens only, for
+  editors that predate preview-config.
+
+The preview frame puts the site in an `<iframe class="pawbar-scene">` in this
+same document, loaded with `?pawbar=sniff`: the loader there mounts nothing and
+posts `pawbar:site-theme` to this window. That scene is sandboxed without
+`allow-same-origin`, so its messages arrive with origin `null`; they are
+accepted only when `event.source` is the scene's `contentWindow`. The bar also
+asks it once at boot (`{type: "pawbar:sniff"}`) in case it posted first.
 
 ### Layout tokens
 
@@ -115,12 +163,11 @@ The implementation is the browser's Web Speech API (`src/lib/voice.ts`).
 
 ### postMessage lifecycle (app → loader)
 
-The app owns the panel content; the loader owns the launcher chrome + iframe
-sizing. The app posts (targetOrigin pinned to `parentOrigin`, never `*`):
-
-- `{ type: "pawbar:resize", h }` — on every shell size change (ResizeObserver)
-- `{ type: "pawbar:open" }` — pill → bar/panel
-- `{ type: "pawbar:close" }` — collapsed back to the pill
+The app owns the content; the loader owns the iframe box. The app posts
+(targetOrigin pinned to `parentOrigin`, never `*`) `pawbar:view` (`chip` once at
+boot), `pawbar:resize` (`h`, `w`, `side`) on every size change, `pawbar:expand`
+for full screen and `pawbar:overlay` while the card is open. The full protocol,
+both directions, is in `../loader/README.md`.
 
 ## Build output
 
@@ -162,7 +209,7 @@ bun run dev
 | `demo.html?state=thread` | Opens straight into a populated conversation |
 | `demo.html?state=cart` | Items in the cart, so the checkout controls show |
 | `demo.html?state=long` | A very long streamed reply, for layout and scrolling |
-| `localhost:5173/bar.html` | The new Paw Bar on its own, with a control strip for launcher, size, theme and corners, and a "Next reply" picker that fakes every reply type and failure. |
+| `localhost:5173/bar.html` | The Paw Bar on its own, with a control strip for launcher, size, a stand-in site accent and corners, and a "Next reply" picker that fakes every reply type and failure. |
 
 Run `bun run dev` from `app/`, not the repo root. The root `package.json` has
 no `dev` script. Edits hot-reload in these pages.

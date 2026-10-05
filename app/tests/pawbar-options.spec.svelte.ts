@@ -1,9 +1,9 @@
 // tests/pawbar-options.spec.svelte.ts — the bar's owner and visitor options
 // (2026-09-27): the ⋯ size menu, an owner opt-in since the menu was cleared
 // out (the visitor's pick is stored and beats the site default), full screen
-// (an icon in the card's top row; Escape leaves it before closing anything), the icon launcher (click-only, ✕ to close), and theme presets
-// (applied as --pawbar-* properties, cleared when switching), and the owner's
-// corner `radius`, which beats the theme's and is clamped to 0–40px.
+// (an icon in the card's top row; Escape leaves it before closing anything), the icon launcher (click-only, ✕ to close), and the site theme
+// under the owner's tokens (applied as --pawbar-* properties, cleared when it
+// changes), corners included.
 // 2026-09-27: ✕ closes the card on both launchers and from full screen, even
 // with a draft typed (the draft comes back on the next open), a pointer left
 // over the bar cannot hover it back open until it leaves, and the
@@ -29,7 +29,7 @@ vi.hoisted(() => {
 import { mount, unmount, flushSync, tick } from 'svelte';
 import PawBarFrame from '../src/components/bar/PawBarFrame.svelte';
 import { SIZE_KEY } from '../src/components/bar/PawBar.svelte';
-import { BAR_THEMES, resolveTheme } from '../src/lib/bar-themes';
+import { resolveTheme } from '../src/lib/bar-themes';
 
 let live: ReturnType<typeof mount> | null = null;
 
@@ -273,45 +273,50 @@ describe('host viewport (inside the widget iframe)', () => {
   });
 });
 
-describe('themes', () => {
-  it('applies the preset as --pawbar-* properties, overrides win, a switch clears', () => {
-    const { target, props } = render({ theme: 'indigo', tokens: { '--pawbar-accent': '#ff0000' } });
+describe('the site theme', () => {
+  it('applies as --pawbar-* properties, owner tokens win, and a change clears what it set', () => {
+    const { target, props } = render({
+      scheme: 'light',
+      site: { accent: '#635bff', radius: 6, font: 'Inter' },
+      tokens: { '--pawbar-radius': '14px' },
+    });
     const wrap = q(target, '.frame-wrap')!;
-    expect(wrap.style.getPropertyValue('--pawbar-fg')).toBe(BAR_THEMES.indigo.vars['--pawbar-fg']);
-    expect(wrap.style.getPropertyValue('--pawbar-accent')).toBe('#ff0000');
+    expect(wrap.style.getPropertyValue('--pawbar-accent')).toBe('#635bff');
+    expect(wrap.style.getPropertyValue('--pawbar-font')).toBe('Inter, ui-sans-serif, system-ui, sans-serif');
+    expect(wrap.style.getPropertyValue('--pawbar-radius')).toBe('14px');
 
-    (props as Record<string, unknown>).theme = 'default';
+    (props as Record<string, unknown>).site = {};
     (props as Record<string, unknown>).tokens = {};
     flushSync();
-    expect(wrap.style.getPropertyValue('--pawbar-fg')).toBe('');
     expect(wrap.style.getPropertyValue('--pawbar-accent')).toBe('');
+    expect(wrap.style.getPropertyValue('--pawbar-font')).toBe('');
+    expect(wrap.style.getPropertyValue('--pawbar-radius')).toBe('');
   });
 
-  it('only --pawbar-* keys get through, and unknown themes are the default', () => {
-    expect(resolveTheme('nope')).toEqual({});
-    expect(resolveTheme('default', { color: 'red', '--other': 'x', '--pawbar-fg': '#111' })).toEqual({
+  it("the site's corners are the bar's when the owner set none", () => {
+    const { target } = render({ site: { radius: 4 } });
+    expect(q(target, '.frame-wrap')!.style.getPropertyValue('--pawbar-radius')).toBe('4px');
+  });
+
+  it('only --pawbar-* keys get through', () => {
+    expect(resolveTheme({ color: 'red', '--other': 'x', '--pawbar-fg': '#111' })).toEqual({
       '--pawbar-fg': '#111',
     });
   });
 });
 
-describe('owner radius', () => {
-  it("beats the theme's radius, is clamped, and clears when unset", () => {
-    const { target, props } = render({ theme: 'indigo', radius: 30 });
-    const wrap = q(target, '.frame-wrap')!;
-    expect(BAR_THEMES.indigo.vars['--pawbar-radius']).toBe('8px');
-    expect(wrap.style.getPropertyValue('--pawbar-radius')).toBe('30px');
+describe('poweredBy and expandable', () => {
+  it('the credit and the full screen toggle go when the owner turns them off', async () => {
+    const msgs = [{ id: 'u1', role: 'user', content: 'hi', status: 'done' }];
+    const on = render({ expanded: true, messages: msgs });
+    expect(on.target.textContent).toContain('Paw Sites');
+    expect(q(on.target, 'button[aria-label*="ull screen"]')).not.toBeNull();
+    if (live) unmount(live);
+    live = null;
+    document.body.innerHTML = '';
 
-    (props as Record<string, unknown>).radius = 400;
-    flushSync();
-    expect(wrap.style.getPropertyValue('--pawbar-radius')).toBe('40px');
-
-    (props as Record<string, unknown>).radius = -5;
-    flushSync();
-    expect(wrap.style.getPropertyValue('--pawbar-radius')).toBe('0px');
-
-    (props as Record<string, unknown>).radius = undefined;
-    flushSync();
-    expect(wrap.style.getPropertyValue('--pawbar-radius')).toBe('8px');
+    const off = render({ expanded: true, messages: msgs, poweredBy: false, expandable: false });
+    expect(off.target.textContent).not.toContain('Paw Sites');
+    expect(q(off.target, 'button[aria-label*="ull screen"]')).toBeNull();
   });
 });

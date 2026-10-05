@@ -16,6 +16,11 @@
 // for opens the bar on "Here's the page". Site tools: the shell asks for them
 // at boot, and pawbar:tools reaches the registry only from parentOrigin and
 // the parent window, never when parentOrigin is empty.
+// Site theme: the #t= theme paints at boot; pawbar:site-theme replaces it only
+// from the parent window at parentOrigin; in the owner preview it comes from
+// the iframe.pawbar-scene window (origin 'null') and nobody else, and the
+// shell asks that scene for it at boot. poweredBy / expandable reach the
+// frame, and a live (preview) config change redraws it.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 
@@ -74,8 +79,7 @@ function config(extra: Partial<PawBarConfig> = {}): PawBarConfig {
     avatars: [],
     launcherLabel: '',
     barResting: 'compact',
-    barTheme: 'default',
-    radius: undefined,
+    siteTheme: {},
     launcher: 'bar',
     side: 'right',
     barSize: 'md',
@@ -84,6 +88,8 @@ function config(extra: Partial<PawBarConfig> = {}): PawBarConfig {
     privacyHref: '',
     consentRequired: false,
     voice: true,
+    poweredBy: true,
+    expandable: true,
     ...extra,
   };
 }
@@ -115,7 +121,7 @@ function fakeChat() {
   return chat;
 }
 
-function shell(extra: Partial<PawBarConfig> = {}, actions?: ActionRunner) {
+function shell(extra: Partial<PawBarConfig> = {}, actions?: ActionRunner, liveConfig?: PawBarConfig) {
   const target = document.createElement('div');
   document.body.append(target);
   const poster = {
@@ -137,7 +143,7 @@ function shell(extra: Partial<PawBarConfig> = {}, actions?: ActionRunner) {
   live = mount(BarShell, {
     target,
     props: {
-      config: config(extra),
+      config: liveConfig ?? config(extra),
       poster,
       cart: new CartStore(storeConfig),
       contact: new ContactStore(storeConfig),
@@ -384,5 +390,116 @@ describe('site tools', () => {
     message('http://host.test', tools);
     message('', tools);
     expect(getPageTools()).toEqual([]);
+  });
+});
+
+describe('the site theme', () => {
+  const parent = {} as Window;
+  function message(origin: string, data: unknown, source: unknown = parent) {
+    const ev = new MessageEvent('message', { origin, data });
+    Object.defineProperty(ev, 'source', { value: source });
+    window.dispatchEvent(ev);
+    flushSync();
+  }
+  const accent = (t: HTMLElement) => q(t, '.frame-wrap')!.style.getPropertyValue('--pawbar-accent');
+  const theme = (a: string) => ({ type: 'pawbar:site-theme', theme: { accent: a } });
+  beforeEach(() => {
+    vi.spyOn(window, 'parent', 'get').mockReturnValue(parent);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('paints the theme the loader put in the fragment, under the owner tokens', () => {
+    const { target } = shell({ scheme: 'light', siteTheme: { accent: '#1d4ed8', radius: 6 } });
+    expect(accent(target)).toBe('#1d4ed8');
+    expect(q(target, '.frame-wrap')!.style.getPropertyValue('--pawbar-radius')).toBe('6px');
+    const owned = shell({ scheme: 'light', siteTheme: { accent: '#1d4ed8' }, tokens: { '--pawbar-accent': '#0f766e' } });
+    expect(accent(owned.target)).toBe('#0f766e');
+  });
+
+  it('takes a new theme only from the parent window at parentOrigin, validated', () => {
+    const { target } = shell({ scheme: 'light' });
+    message('http://evil.test', theme('#1d4ed8'));
+    message('http://host.test', theme('#1d4ed8'), window);
+    expect(accent(target)).toBe('');
+    message('http://host.test', theme('#1d4ed8'));
+    expect(accent(target)).toBe('#1d4ed8');
+    message('http://host.test', theme('url(x)'));
+    expect(accent(target)).toBe('');
+  });
+
+  it('ignores the loader theme when parentOrigin is empty (fail closed)', () => {
+    const { target } = shell({ scheme: 'light', parentOrigin: '' });
+    message('http://host.test', theme('#1d4ed8'));
+    message('', theme('#1d4ed8'));
+    expect(accent(target)).toBe('');
+  });
+
+  describe('in the owner preview', () => {
+    let scene: HTMLIFrameElement;
+    beforeEach(() => {
+      scene = document.createElement('iframe');
+      scene.className = 'pawbar-scene';
+      document.body.append(scene);
+    });
+
+    it("asks the scene at boot and takes its theme, origin 'null'", () => {
+      const ask = vi.spyOn(scene.contentWindow!, 'postMessage');
+      const { target } = shell({ scheme: 'light', preview: true });
+      expect(ask).toHaveBeenCalledWith({ type: 'pawbar:sniff' }, '*');
+      message('null', theme('#1d4ed8'), scene.contentWindow);
+      expect(accent(target)).toBe('#1d4ed8');
+    });
+
+    it('takes it from no other window, and not outside the preview', () => {
+      const { target } = shell({ scheme: 'light', preview: true });
+      message('null', theme('#1d4ed8'), {});
+      expect(accent(target)).toBe('');
+      if (live) unmount(live);
+      live = null;
+      document.body.append(scene);
+      const pub = shell({ scheme: 'light', preview: false });
+      message('null', theme('#1d4ed8'), scene.contentWindow);
+      expect(accent(pub.target)).toBe('');
+    });
+  });
+});
+
+describe('owner switches', () => {
+  it('poweredBy and expandable reach the frame', () => {
+    const on = shell({ greeting: 'Hi' });
+    openCard(on.target);
+    expect(on.target.textContent).toContain('Paw Sites');
+    expect(q(on.target, 'button[aria-label="Full screen"]')).not.toBeNull();
+    if (live) unmount(live);
+    live = null;
+    const { target } = shell({ poweredBy: false, expandable: false, greeting: 'Hi' });
+    openCard(target);
+    expect(target.textContent).not.toContain('Paw Sites');
+    expect(q(target, 'button[aria-label="Full screen"]')).toBeNull();
+  });
+
+  it('a live config change redraws the bar (the owner preview)', () => {
+    const cfg = $state(config({ preview: true }));
+    const { target } = shell({}, undefined, cfg);
+    expect(q(target, '.stage')!.dataset.anchor).toBe('center');
+    cfg.launcher = 'icon';
+    cfg.side = 'left';
+    flushSync();
+    expect(q(target, '.stage')!.dataset.anchor).toBe('left');
+  });
+
+  it('a live consentRequired shows the step in the preview, and saves nothing', () => {
+    const cfg = $state(config({ preview: true }));
+    const { target } = shell({}, undefined, cfg);
+    cfg.consentRequired = true;
+    flushSync();
+    openCard(target);
+    type(target, 'hi').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    flushSync();
+    expect(q(target, '.consent')).not.toBeNull();
+    cfg.consentRequired = false;
+    flushSync();
+    expect(q(target, '.consent')).toBeNull();
+    expect(localStorage.getItem(CONSENT_KEY + 'w1')).toBeNull();
   });
 });

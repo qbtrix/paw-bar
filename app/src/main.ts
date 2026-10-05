@@ -1,20 +1,24 @@
-// main.ts — Entry point for the Paw Bar iframe app.
+// main.ts — entry point for the Paw Bar iframe app.
 //
-// Reads the window.__PAWBAR__ boot config (dev fallback in config.ts), builds
-// the stores that touch nothing until used (cart, contact, the visitor's
-// conversation list) and the lifecycle poster, and mounts BarShell, which
-// builds the chat and operator stores itself once chatting is allowed. The
-// operator store is built after the chat store so it seeds its cursor from
-// the restored transcript. Styles imported here become the single pawbar.css.
+// Reads the boot config (config.ts; dev fallbacks there) into reactive state
+// (lib/live-config), points reply links at the host page (setLinkBase, so a
+// site-relative `/returns` resolves instead of rendering dead), builds the
+// stores that touch nothing until used (cart, contact, conversations), the
+// pinned poster to the loader and the page-actions runner over it, and mounts
+// BarShell, which builds the chat and operator stores itself once chatting is
+// allowed (consent).
 //
-// Before mount it pins site-relative reply links (`/returns`) to the host page
-// via setLinkBase(config.parentOrigin), and warns once when there is no pinned
-// parent origin, because every loader message is then ignored
-// (lib/from-loader). The owner-preview token listener targets the wrapper.
-// It also builds the page-actions runner over the poster and hands it to both
-// the chat store (to run actions) and BarShell (to deliver the host's replies).
+// The owner preview (config.preview) also gets its two live channels from
+// lib/preview-tokens: pawbar:preview-config writes owner settings into the
+// live config, and pawbar:preview-tokens paints tokens on the bar's
+// .frame-wrap. Both refuse to install without preview and an exact
+// parentOrigin.
+//
+// It warns once at boot when there is no pinned parent origin, because every
+// loader message is then ignored (lib/from-loader).
 import { mount } from 'svelte';
 import { readConfig } from './config';
+import { liveConfig } from './lib/live-config.svelte';
 import { ChatStore } from './store/chat.svelte';
 import { ConversationsStore } from './store/conversations.svelte';
 import { CartStore } from './store/cart.svelte';
@@ -22,12 +26,12 @@ import { ContactStore } from './store/contact.svelte';
 import { OperatorStore } from './store/operator.svelte';
 import { createPoster } from './lib/postmessage';
 import { createActionRunner } from './lib/page-actions';
-import { installPreviewTokenListener } from './lib/preview-tokens';
+import { installPreviewConfigListener, installPreviewTokenListener } from './lib/preview-tokens';
 import { setLinkBase } from './lib/markdown';
 import { isPinnedOrigin } from './lib/from-loader';
 import BarShell from './components/bar/BarShell.svelte';
 
-const config = readConfig();
+const config = liveConfig(readConfig());
 
 // No pinned parent origin means the bar ignores every loader message (see
 // lib/from-loader). Say so once, so a missing allowed origin is not silent.
@@ -69,6 +73,11 @@ mount(BarShell, {
       return { chat, operator: new OperatorStore(chat, storeConfig) };
     },
   },
+});
+installPreviewConfigListener({
+  preview: config.preview,
+  parentOrigin: config.parentOrigin,
+  apply: (patch) => Object.assign(config, patch),
 });
 installPreviewTokenListener({
   preview: config.preview,

@@ -1,13 +1,20 @@
-// lib/preview-tokens.ts — the owner preview's live-restyle channel.
+// lib/preview-tokens.ts — the owner preview's live channels.
 //
-// Created 2026-08-20. Extracted from main.ts so the gate below is unit-testable:
-// main.ts runs the whole app on import, and a security check nobody can exercise
-// is a security check nobody has watched work.
+// Kept out of main.ts so the gate below is unit-testable: main.ts runs the whole
+// app on import, and a security check nobody can exercise is a security check
+// nobody has watched work.
 //
-// WHAT THIS OPENS. The appearance editor renders a draft to --pawbar-* tokens
-// server-side and posts the map here, so the owner preview repaints as they
-// edit. That means accepting styling instructions from another window, which is
-// only ever acceptable under both of these:
+// WHAT THIS OPENS. The appearance editor posts its draft here so the owner
+// preview repaints as they edit. Two messages:
+//   - {pawbar:preview-config, config} — the draft's owner settings (tokens,
+//     tokensDark, scheme, launcher, side, barSize, logo, launcherLabel,
+//     disclosure, privacyHref, consentRequired, voice, poweredBy, expandable),
+//     normalised by config.ts readOwnerConfig exactly like the boot config.
+//     Only the keys the message carries are applied (installPreviewConfigListener).
+//   - {pawbar:preview-tokens, tokens, tokensDark} — tokens only, painted
+//     straight onto the root. Kept for editors that predate preview-config.
+// That means accepting instructions from another window, which is only ever
+// acceptable under both of these:
 //
 //   1. `preview` — true ONLY for the owner preview frame (D5). A public embed
 //      never installs this at all.
@@ -34,6 +41,7 @@
 // same flip) cannot leave the saved values showing over the draft.
 
 import { applyTokens } from './tokens';
+import { readOwnerConfig, type OwnerConfig } from '../config';
 
 export interface PreviewTokenChannel {
   /** True only in the owner preview frame. */
@@ -92,4 +100,41 @@ export function installPreviewTokenListener(ch: PreviewTokenChannel): (() => voi
     window.removeEventListener('message', onMessage);
     observer?.disconnect();
   };
+}
+
+export interface PreviewConfigChannel {
+  /** True only in the owner preview frame. */
+  preview: boolean;
+  /** The exact origin allowed to drive the preview. "" means refuse. */
+  parentOrigin: string;
+  /** Receives the normalised settings the message carried. */
+  apply: (patch: Partial<OwnerConfig>) => void;
+}
+
+/**
+ * The live owner-settings channel. Same two gates as the token channel, and the
+ * same null when it does not install. The payload is read as `data.config`;
+ * every key goes through readOwnerConfig, so a draft the server has not
+ * normalised still cannot put a script URL in the logo or a non-map in tokens.
+ */
+export function installPreviewConfigListener(ch: PreviewConfigChannel): (() => void) | null {
+  if (!ch.preview) return null;
+  if (!ch.parentOrigin) return null;
+
+  const onMessage = (event: MessageEvent): void => {
+    if (event.origin !== ch.parentOrigin) return;
+    const data = event.data as { type?: unknown; config?: unknown } | null;
+    if (!data || data.type !== 'pawbar:preview-config') return;
+    const raw = data.config;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+    const all = readOwnerConfig(raw as Partial<PawBarBootConfig>);
+    const patch: Partial<OwnerConfig> = {};
+    for (const key of Object.keys(all) as (keyof OwnerConfig)[]) {
+      if (key in raw) (patch as Record<string, unknown>)[key] = all[key];
+    }
+    ch.apply(patch);
+  };
+
+  window.addEventListener('message', onMessage);
+  return () => window.removeEventListener('message', onMessage);
 }

@@ -21,8 +21,8 @@
 // `tokens` while the root is marked data-pawbar-scheme="dark", and a flip of
 // that attribute repaints without a new message.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { installPreviewTokenListener } from '../src/lib/preview-tokens';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { installPreviewConfigListener, installPreviewTokenListener } from '../src/lib/preview-tokens';
 import { resetAppliedTokens } from '../src/lib/tokens';
 
 const PARENT = 'https://dash.example.com';
@@ -206,5 +206,70 @@ describe('the preview token channel, light and dark', () => {
     root.setAttribute('data-pawbar-scheme', 'dark');
     await flush();
     expect(read(root)).toBe('#ff5a36');
+  });
+});
+
+// ── pawbar:preview-config ───────────────────────────────────────────────────
+// The editor's whole draft (owner settings, not just tokens). Same two gates,
+// same "did not install" property, and every value normalised the way the
+// boot config is, so a draft cannot smuggle a script URL into the logo.
+describe('the preview config channel', () => {
+  const install = (over: Partial<{ preview: boolean; parentOrigin: string }> = {}) => {
+    const apply = vi.fn();
+    teardown = installPreviewConfigListener({ preview: true, parentOrigin: PARENT, apply, ...over });
+    return apply;
+  };
+
+  it('applies the draft from the declared parent origin, only the keys it carries', () => {
+    const apply = install();
+    post(PARENT, {
+      type: 'pawbar:preview-config',
+      config: { launcher: 'icon', side: 'left', poweredBy: false, tokens: { '--pawbar-accent': '#ff5a36' } },
+    });
+    expect(apply).toHaveBeenCalledOnce();
+    expect(apply.mock.calls[0][0]).toEqual({
+      launcher: 'icon',
+      side: 'left',
+      poweredBy: false,
+      tokens: { '--pawbar-accent': '#ff5a36' },
+    });
+  });
+
+  it('normalises like the boot config', () => {
+    const apply = install();
+    post(PARENT, {
+      type: 'pawbar:preview-config',
+      config: { logo: 'javascript:alert(1)', barSize: 'xl', expandable: 'no', disclosure: ' x '.repeat(100) },
+    });
+    const patch = apply.mock.calls[0][0];
+    expect(patch.logo).toBe('');
+    expect(patch.barSize).toBe('sm');
+    expect(patch.expandable).toBe(true);
+    expect(patch.disclosure.length).toBeLessThanOrEqual(140);
+  });
+
+  it('REFUSES TO INSTALL without a parent origin, or outside the preview', () => {
+    expect(installPreviewConfigListener({ preview: true, parentOrigin: '', apply: vi.fn() })).toBeNull();
+    expect(installPreviewConfigListener({ preview: false, parentOrigin: PARENT, apply: vi.fn() })).toBeNull();
+  });
+
+  it('ignores other origins, look-alikes, other types and a non-object config', () => {
+    const apply = install();
+    const msg = { type: 'pawbar:preview-config', config: { voice: false } };
+    post('https://evil.example.com', msg);
+    post(PARENT + '.evil.test', msg);
+    post(PARENT, { ...msg, type: 'pawbar:preview-tokens' });
+    post(PARENT, { type: 'pawbar:preview-config', config: ['voice'] });
+    post(PARENT, { type: 'pawbar:preview-config' });
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('the token channel keeps working beside it', () => {
+    install();
+    const root = build();
+    const tokens = installPreviewTokenListener({ preview: true, parentOrigin: PARENT, getRoot: () => root });
+    post(PARENT, { type: 'pawbar:preview-tokens', tokens: TOKENS });
+    expect(root.style.getPropertyValue('--pawbar-accent')).toBe('#ff5a36');
+    tokens?.();
   });
 });

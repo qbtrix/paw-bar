@@ -12,7 +12,8 @@
   • Consent. `config.consentRequired` plus no saved yes means the frame asks
     first (consent 'required') and nothing above is built. Accept saves the
     yes, builds the stores, then flips consent, and the frame sends the
-    message it was holding. "Not now" builds nothing.
+    message it was holding. "Not now" builds nothing. In the owner preview a
+    live consentRequired change shows or clears the step (nothing is saved).
   • The operator poll runs fast while the bar is pinned and slow while it is
     closed (only while a person is in the conversation; see OperatorStore).
     The conversation list refreshes on pin and after a reply settles, and the
@@ -40,14 +41,26 @@
         the content, and sizing content against it is a feedback loop. The
         owner preview is the exception: no loader runs there, and the window
         IS the page (a fixed box the dashboard sizes), so it is measured.
-  • Owner settings from the boot config (launcher, side, size, theme, tokens,
-    radius, disclosure, privacy link, voice) go straight to the frame.
+  • Owner settings from the config (launcher, side, size, tokens, tokensDark,
+    logo, label, disclosure, privacy link, `voice` for the dictation mic,
+    `poweredBy` for the credit, `expandable` for the full-screen toggle) go
+    straight through to the frame. `config` may be live state (main.ts): the
+    owner preview rewrites it, and the frame follows.
+  • The site theme (lib/site-theme): the website's own look, under the owner's
+    tokens. It starts from the loader's `#t=` fragment (config.siteTheme) and
+    is replaced by each {pawbar:site-theme} from the loader, through the same
+    loader gate as everything else. In the owner preview it comes instead from
+    the scene iframe (iframe.pawbar-scene, the site running the loader in
+    `?pawbar=sniff` mode, sandboxed so its origin is 'null'): accepted only
+    when ev.source is that iframe's contentWindow, and asked for once at boot
+    with {pawbar:sniff} in case it already ran. Every theme is validated by
+    readSiteTheme. The site's Google Fonts sheet is linked into this document
+    unless the owner set --pawbar-font.
   • config.starters is not shown; the bar has no starter chips.
   • It owns the iframe document's reset (no margin, transparent background)
     and sets a system font, since the iframe has no site font to inherit.
   • Layout: a fixed, bottom-anchored stage aligned to the launcher's corner.
     The wrapper never shrinks (flex: none): a lagging box clips, not reflows.
-
   • pawbar:page is the host page's {url, title}; lib/host-page re-strips the
     query and hash, and chat-client sends it as `page`. Each one also asks the
     chat store whether a page action was heading there; if so the bar opens on
@@ -85,6 +98,7 @@
   import { dockSize } from '../../lib/dock-size';
   import { getHostPage, setHostPage } from '../../lib/host-page';
   import { setPageTools } from '../../lib/page-tools';
+  import { loadSiteFont, readSiteTheme, type SiteTheme } from '../../lib/site-theme';
   import type { ActionRunner } from '../../lib/page-actions';
   import { isFromLoader } from '../../lib/from-loader';
 
@@ -120,17 +134,29 @@
   let consent = $state<BarConsent>(untrack(() => (config.consentRequired && !savedConsent() ? 'required' : 'granted')));
   let stores = $state.raw<ChatStores | null>(untrack(() => (consent === 'granted' ? createChat() : null)));
   function onconsent(granted: boolean) {
-    if (!granted || stores) return;
-    try {
-      localStorage.setItem(consentKey, '1');
-    } catch {
-      /* blocked storage: the yes lasts for this page only */
+    if (!granted || consent === 'granted') return;
+    // The owner previewing their own consent step is not a visitor saying yes.
+    if (!config.preview) {
+      try {
+        localStorage.setItem(consentKey, '1');
+      } catch {
+        /* blocked storage: the yes lasts for this page only */
+      }
     }
     // Stores first: the frame sends its held message the moment consent flips.
-    stores = createChat();
+    stores ??= createChat();
     consent = 'granted';
     void conversations.refresh();
   }
+  // The owner preview toggles consentRequired live; show or clear the step.
+  $effect(() => {
+    const required = config.consentRequired;
+    untrack(() => {
+      if (!config.preview) return;
+      if (required) consent = 'required';
+      else if (consent === 'required') onconsent(true);
+    });
+  });
   const chat = $derived(stores?.chat ?? null);
 
   // ── Sending and the rest of the frame's events ───────────────────────────
@@ -204,13 +230,32 @@
   let prefersDark = $state(typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
   const scheme = $derived(resolveScheme({ owner: config.scheme, host: hostScheme, prefersDark }));
 
+  // ── Site theme ────────────────────────────────────────────────────────────
+  let siteTheme = $state.raw<SiteTheme>(untrack(() => config.siteTheme));
+  $effect(() => {
+    loadSiteFont('--pawbar-font' in config.tokens ? undefined : siteTheme.fontHref);
+  });
+  /** The owner preview's scene: the site, framed beside the bar in this document. */
+  const scene = () => document.querySelector<HTMLIFrameElement>('iframe.pawbar-scene')?.contentWindow ?? null;
+
   // ── Messages from the loader ──────────────────────────────────────────────
   let frame: ReturnType<typeof PawBarFrame> | undefined = $state();
   $effect(() => {
     const parentOrigin = untrack(() => config.parentOrigin);
+    const preview = untrack(() => config.preview);
     function onMessage(ev: MessageEvent) {
+      // The preview's scene speaks first, and only about the site theme. Its
+      // origin is 'null' (sandboxed without allow-same-origin), so the window
+      // identity is the whole check.
+      if (preview && ev.source && ev.source === scene()) {
+        const d = ev.data as { type?: unknown; theme?: unknown } | null;
+        if (d && d.type === 'pawbar:site-theme') siteTheme = readSiteTheme(d.theme);
+        return;
+      }
       if (!isFromLoader(ev, { self: window, parent: window.parent, parentOrigin })) return;
-      const data = ev.data as { type?: string; s?: unknown; w?: unknown; h?: unknown; tools?: unknown } | null;
+      const data = ev.data as
+        | { type?: string; s?: unknown; w?: unknown; h?: unknown; tools?: unknown; theme?: unknown }
+        | null;
       if (!data || typeof data !== 'object') return;
       switch (data.type) {
         case 'pawbar:host-open':
@@ -227,6 +272,9 @@
           break;
         case 'pawbar:scheme':
           if (data.s === 'l' || data.s === 'd') hostScheme = data.s;
+          break;
+        case 'pawbar:site-theme':
+          siteTheme = readSiteTheme(data.theme);
           break;
         case 'pawbar:page': {
           setHostPage(data);
@@ -251,6 +299,10 @@
     window.addEventListener('message', onMessage);
     // Listening first, so the answer cannot arrive before we can hear it.
     poster.requestTools();
+    // The scene may have posted its theme before we were listening. It is
+    // sandboxed to an opaque origin, so '*' is the only target that reaches
+    // it, and the ask carries nothing.
+    if (preview) scene()?.postMessage({ type: 'pawbar:sniff' }, '*');
     const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
     const onScheme = (e: MediaQueryListEvent) => (prefersDark = e.matches);
     mq?.addEventListener?.('change', onScheme);
@@ -266,7 +318,7 @@
     const stage = stageEl;
     const wrap = stage?.querySelector<HTMLElement>('.frame-wrap');
     if (!wrap) return;
-    const side = untrack(() => (config.launcher === 'icon' ? config.side : undefined));
+    const side = config.launcher === 'icon' ? config.side : undefined;
     const report = () => {
       if (fullscreen) return;
       const r = wrap.getBoundingClientRect();
@@ -322,13 +374,14 @@
     launcher={config.launcher}
     side={config.side}
     size={config.barSize}
-    theme={config.barTheme}
+    site={siteTheme}
     tokens={config.tokens}
     tokensDark={config.tokensDark}
-    radius={config.radius}
     disclosure={config.disclosure}
     privacyHref={config.privacyHref}
     voice={config.voice}
+    poweredBy={config.poweredBy}
+    expandable={config.expandable}
   />
 </div>
 

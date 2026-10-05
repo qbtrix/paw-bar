@@ -1,43 +1,32 @@
-// config.ts — Reads the window.__PAWBAR__ boot config the serving frame HTML
-// injects before this bundle loads, with sane fallbacks for local `vite dev`.
-// Created 2026-07-15 (A3): the frame endpoint (A1) sets window.__PAWBAR__ with
-// { siteKey, widgetId, endpoint, parentOrigin, mode, tokens? }. In a
-// plain `vite dev` page that global is absent, so we fall back to localhost
-// dev defaults (a real reply still needs a running backend — that's the A4
-// smoke, not this app's concern). parentOrigin defaults to document.referrer's
-// origin (the embedding page) or '*' ONLY as a dev-page fallback — the real
-// frame always supplies an exact origin, and postMessage refuses to post to a
-// pinned origin mismatch in production.
-// 2026-09-27 (old shell removed): `ui` is no longer read. There is one widget,
-// so any value a backend sends (including 'glass') is ignored.
-// 2026-09-27 (new bar): reads the new bar's owner settings. `barTheme`,
-// `radius`, `launcher`, `side`, `barSize`, `logo`, `disclosure`,
-// `privacyHref`, `consentRequired` and `voice` (the dictation mic, on unless
-// the owner sends `false`) style and gate it. The backend sends
-// none of them yet, so each one has a default and an unknown value falls back
-// to it; `logo` and `privacyHref` only accept http(s) or data URLs.
-// 2026-07-16 (D4): added `greeting` — the owner's concierge greeting the frame
-// emits from the Site doc. Read defensively (non-string coerces to ''); the
-// shell shows it as the empty-state welcome, else the default copy.
-// 2026-08-19 (host scheme): `scheme` is the owner's light/dark/auto choice, and
-// it defaults to `auto` — meaning "follow the site". The widget cannot see the
-// host page from inside a cross-origin frame, so the LOADER reads it and appends
-// `?s=l|d` to the frame URL; readConfig picks that up here. See lib/scheme.ts
-// for the precedence and loader/src/loader.ts for how the page is read.
+// config.ts — reads the window.__PAWBAR__ boot config the serving frame HTML
+// injects before this bundle loads, with fallbacks for a plain `vite dev` page
+// (localhost endpoint; parentOrigin from document.referrer, else this page's
+// own origin — the real frame always supplies an exact origin).
 //
-// `tokens` is the owner's --pawbar-* map for light (or a pinned scheme);
-// `tokensDark` is the map that goes over it whenever the bar resolves dark
-// (PawBarFrame layers them via lib/bar-themes). Both must be a plain object;
-// anything else reads as {}, and only string values are kept.
+// This file is the trust boundary for the boot config: every field is read
+// defensively and has a default, so an older backend that sends none of the
+// owner settings still boots a complete bar, and a malformed value falls back
+// rather than reaching the DOM. `logo` and `privacyHref` accept only http(s)
+// (and data: for images); `tokens` / `tokensDark` are plain string maps.
 //
-// 2026-08-19 (one theme): the old `theme` field is gone. The backend never emitted it, so the
-// `?? 'dark'` fallback won on every site that has ever run this and the light
-// palette was unreachable by construction. An owner who wants a different
-// surface overrides --pawbar-* through `tokens`, which is the customization
-// path that is actually wired and tested. A boot config still carrying `theme`
-// is simply ignored rather than rejected — old frame HTML must keep booting.
+// Owner settings (readOwnerConfig, shared with the owner preview's live
+// `pawbar:preview-config` channel in lib/preview-tokens): tokens, tokensDark,
+// scheme, launcher, side, barSize, logo, launcherLabel, disclosure,
+// privacyHref, consentRequired, voice (the dictation mic), poweredBy (the
+// "Powered by Paw Sites" credit) and expandable (the full-screen toggle). The
+// three booleans are on unless the owner sends exactly `false`.
+//
+// Two facts come from the LOADER rather than the boot config, because only it
+// can see the host page: `hostScheme` (`?s=l|d` on the frame URL, see
+// lib/scheme) and `siteTheme` (the `#t=` fragment, see lib/site-theme). The
+// site theme sits under the owner's tokens; the bar has no theme presets.
+//
+// Retired keys are ignored, never rejected, so old frame HTML keeps booting:
+// `theme` (2026-08-19), `ui` (2026-09-27), `barTheme` and `radius` (the bar
+// follows the site; corners are `--pawbar-radius` in `tokens`).
 
 import { hostSchemeFromUrl, readSetting, type SchemeSetting } from './lib/scheme';
+import { siteThemeFromHash, type SiteTheme } from './lib/site-theme';
 
 export interface PawBarConfig {
   siteKey: string;
@@ -85,8 +74,8 @@ export interface PawBarConfig {
    *  Defaults to 'compact' — a resting widget on somebody else's site should
    *  ask for as little of their page as it can and grow when it is wanted. */
   barResting: 'full' | 'compact';
-  barTheme: string;
-  radius: number | undefined;
+  /** The host page's look, read by the loader (`#t=`). {} standalone. */
+  siteTheme: SiteTheme;
   launcher: 'bar' | 'icon';
   side: 'left' | 'right';
   barSize: 'sm' | 'md' | 'lg';
@@ -97,7 +86,30 @@ export interface PawBarConfig {
   /** The dictation mic in the open card. On unless the owner sends `false`
    *  (browsers transcribe on their vendor's servers). */
   voice: boolean;
+  /** The "Powered by Paw Sites" credit. On unless the owner sends `false`. */
+  poweredBy: boolean;
+  /** The full-screen toggle. On unless the owner sends `false`. */
+  expandable: boolean;
 }
+
+/** The owner settings, the part of the config the owner preview can change live. */
+export type OwnerConfig = Pick<
+  PawBarConfig,
+  | 'tokens'
+  | 'tokensDark'
+  | 'scheme'
+  | 'launcher'
+  | 'side'
+  | 'barSize'
+  | 'logo'
+  | 'launcherLabel'
+  | 'disclosure'
+  | 'privacyHref'
+  | 'consentRequired'
+  | 'voice'
+  | 'poweredBy'
+  | 'expandable'
+>;
 
 /** Read a string array off the boot config, dropping anything that isn't a
  *  non-empty string and capping the length. The frame is server-authored, but
@@ -157,6 +169,29 @@ function devParentOrigin(): string {
   return window.location.origin;
 }
 
+/** Normalise the owner settings off any boot-shaped object. */
+export function readOwnerConfig(boot: Partial<PawBarBootConfig> | undefined): OwnerConfig {
+  return {
+    tokens: readTokens(boot?.tokens),
+    tokensDark: readTokens(boot?.tokensDark),
+    scheme: readSetting(boot?.scheme),
+    launcher: boot?.launcher === 'icon' ? 'icon' : 'bar',
+    side: boot?.side === 'left' ? 'left' : 'right',
+    barSize: boot?.barSize === 'md' || boot?.barSize === 'lg' ? boot.barSize : 'sm',
+    logo: readImageUrl(boot?.logo) || readImageUrl(boot?.agentAvatar),
+    // Capped to match the server's own bound (LauncherAppearance.label) so a
+    // long value cannot stretch the resting pill across the host's page.
+    launcherLabel:
+      typeof boot?.launcherLabel === 'string' ? boot.launcherLabel.trim().slice(0, 40) : '',
+    disclosure: typeof boot?.disclosure === 'string' ? boot.disclosure.trim().slice(0, 140) : '',
+    privacyHref: readLinkUrl(boot?.privacyHref),
+    consentRequired: boot?.consentRequired === true,
+    voice: boot?.voice !== false,
+    poweredBy: boot?.poweredBy !== false,
+    expandable: boot?.expandable !== false,
+  };
+}
+
 export function readConfig(): PawBarConfig {
   const boot = window.__PAWBAR__;
   return {
@@ -166,10 +201,8 @@ export function readConfig(): PawBarConfig {
     parentOrigin: boot?.parentOrigin ?? devParentOrigin(),
     mode: 'concierge',
     preview: boot?.preview === true,
-    tokens: readTokens(boot?.tokens),
-    tokensDark: readTokens(boot?.tokensDark),
-    scheme: readSetting(boot?.scheme),
     hostScheme: hostSchemeFromUrl(window.location.search) ?? '',
+    siteTheme: siteThemeFromHash(window.location.hash),
     // Defensive: only a real string survives; a number/null/malformed value → ''.
     greeting: typeof boot?.greeting === 'string' ? boot.greeting : '',
     starters: readStrings(boot?.starters, 4),
@@ -180,23 +213,10 @@ export function readConfig(): PawBarConfig {
         ? boot.agentSubtitle
         : 'The team can also help',
     avatars: readStrings(boot?.avatars, 3).map(readImageUrl).filter(Boolean),
-    // Capped to match the server's own bound (LauncherAppearance.label) so a
-    // long value cannot stretch the resting pill across the host's page.
-    launcherLabel:
-      typeof boot?.launcherLabel === 'string' ? boot.launcherLabel.trim().slice(0, 40) : '',
     // Anything that is not the literal 'full' reads as 'compact', so a backend
     // that has never heard of this field gets the new resting behaviour rather
     // than a widget stuck in a mode nobody chose.
     barResting: boot?.barResting === 'full' ? 'full' : 'compact',
-    barTheme: typeof boot?.barTheme === 'string' ? boot.barTheme : 'default',
-    radius: typeof boot?.radius === 'number' && Number.isFinite(boot.radius) ? boot.radius : undefined,
-    launcher: boot?.launcher === 'icon' ? 'icon' : 'bar',
-    side: boot?.side === 'left' ? 'left' : 'right',
-    barSize: boot?.barSize === 'md' || boot?.barSize === 'lg' ? boot.barSize : 'sm',
-    logo: readImageUrl(boot?.logo) || readImageUrl(boot?.agentAvatar),
-    disclosure: typeof boot?.disclosure === 'string' ? boot.disclosure.trim().slice(0, 140) : '',
-    privacyHref: readLinkUrl(boot?.privacyHref),
-    consentRequired: boot?.consentRequired === true,
-    voice: boot?.voice !== false,
+    ...readOwnerConfig(boot),
   };
 }

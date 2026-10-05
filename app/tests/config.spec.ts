@@ -8,9 +8,11 @@
 // `ui` field ('glass' or anything else) reads cleanly and is ignored.
 // `tokens` and `tokensDark` read as plain string maps, {} when absent or not a
 // map; `launcher`, `side` and `logo` read with their defaults. `voice` (the
-// dictation mic) is on unless the boot config sends exactly `false`.
+// dictation mic) is on unless the boot config sends exactly `false`, and so
+// are `poweredBy` and `expandable`. The retired `barTheme` and `radius` keys
+// are ignored. `siteTheme` is the loader's `#t=` fragment, validated.
 import { describe, it, expect, afterEach } from 'vitest';
-import { readConfig } from '../src/config';
+import { readConfig, readOwnerConfig } from '../src/config';
 
 type Boot = NonNullable<Window['__PAWBAR__']>;
 
@@ -28,6 +30,7 @@ function setBoot(boot: unknown): void {
 
 afterEach(() => {
   delete (window as unknown as { __PAWBAR__?: unknown }).__PAWBAR__;
+  history.replaceState(null, '', window.location.pathname);
 });
 
 describe('readConfig — greeting', () => {
@@ -126,5 +129,56 @@ describe('readConfig — voice', () => {
     expect(readConfig().voice).toBe(false);
     setBoot({ ...base, voice: 'no' });
     expect(readConfig().voice).toBe(true);
+  });
+});
+
+describe('readConfig — poweredBy and expandable', () => {
+  it('are on by default, and off only for exactly false', () => {
+    setBoot({ ...base });
+    expect(readConfig()).toMatchObject({ poweredBy: true, expandable: true });
+    setBoot({ ...base, poweredBy: false, expandable: false });
+    expect(readConfig()).toMatchObject({ poweredBy: false, expandable: false });
+    setBoot({ ...base, poweredBy: 0, expandable: 'false' });
+    expect(readConfig()).toMatchObject({ poweredBy: true, expandable: true });
+  });
+});
+
+describe('readConfig — retired theme keys', () => {
+  it('ignores barTheme and radius', () => {
+    setBoot({ ...base, barTheme: 'midnight', radius: 12 });
+    const config = readConfig() as unknown as Record<string, unknown>;
+    expect(config.barTheme).toBeUndefined();
+    expect(config.radius).toBeUndefined();
+    expect(config.tokens).toEqual({});
+  });
+});
+
+describe('readConfig — site theme from the loader', () => {
+  const frag = (theme: unknown) =>
+    '#t=' + btoa(JSON.stringify(theme)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  it('reads and validates the #t= fragment', () => {
+    setBoot({ ...base });
+    history.replaceState(null, '', frag({ accent: '#635BFF', radius: 99, font: 'Inter', evil: 'x' }));
+    expect(readConfig().siteTheme).toEqual({ accent: '#635bff', radius: 32, font: 'Inter' });
+  });
+
+  it('is {} with no fragment, or a broken one', () => {
+    setBoot({ ...base });
+    expect(readConfig().siteTheme).toEqual({});
+    history.replaceState(null, '', '#t=@@not-base64');
+    expect(readConfig().siteTheme).toEqual({});
+    history.replaceState(null, '', '#t=' + btoa('not json'));
+    expect(readConfig().siteTheme).toEqual({});
+  });
+});
+
+describe('readOwnerConfig', () => {
+  it('normalises a partial preview payload with the boot rules', () => {
+    const c = readOwnerConfig({ launcher: 'icon', logo: 'javascript:alert(1)', barSize: 'xl' as never, tokens: [] as never });
+    expect(c.launcher).toBe('icon');
+    expect(c.logo).toBe('');
+    expect(c.barSize).toBe('sm');
+    expect(c.tokens).toEqual({});
   });
 });
