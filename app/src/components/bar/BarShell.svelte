@@ -56,6 +56,15 @@
     with {pawbar:sniff} in case it already ran. Every theme is validated by
     readSiteTheme. The site's Google Fonts sheet is linked into this document
     unless the owner set --pawbar-font.
+    The preview posts each theme up to the dashboard as {pawbar:site-theme,
+    theme} (null when empty), targeted at exactly parentOrigin, and null once
+    when nothing arrived within 2s of boot.
+  • The owner preview's state switcher: {pawbar:preview-state, state} through
+    the loader gate, preview only. 'rest' unpins and leaves full screen,
+    'open' pins an empty thread (greeting, consent step), 'thread' pins
+    SAMPLE_THREAD. Once a state is set, `chat` reads null: the real thread is
+    hidden, sends are refused, the polls stop, consent builds no stores, and
+    the frame gets no persistKey, so nothing is fetched or stored.
   • config.starters is not shown; the bar has no starter chips.
   • It owns the iframe document's reset (no margin, transparent background)
     and sets a system font, since the iframe has no site font to inherit.
@@ -72,7 +81,7 @@
     so the same fail-closed gate covers them.
 -->
 <script lang="ts" module>
-  import type { ChatStore } from '../../store/chat.svelte';
+  import type { ChatStore, Message } from '../../store/chat.svelte';
   import type { OperatorStore } from '../../store/operator.svelte';
 
   /** The two stores that may only exist once chatting is allowed. */
@@ -84,6 +93,13 @@
   export const CONSENT_KEY = '__pawbar_consent_v1:';
   /** The root's gutter on each side. Room for focus rings; the bar has no shadow. */
   export const STAGE_PAD = 8;
+
+  /** The owner preview's 'thread' state: local, never sent, never saved. */
+  export const SAMPLE_THREAD: Message[] = [
+    { id: 'pv1', role: 'user', content: 'Do you ship internationally?', status: 'done' },
+    { id: 'pv2', role: 'assistant', content: 'Yes, to most countries.', status: 'done' },
+    { id: 'pv3', role: 'owner', content: 'Happy to help. Which country?', status: 'done' },
+  ];
 </script>
 
 <script lang="ts">
@@ -144,9 +160,12 @@
       }
     }
     // Stores first: the frame sends its held message the moment consent flips.
-    stores ??= createChat();
+    // A preview state stays off the network: no stores, no list.
+    if (!demo) {
+      stores ??= createChat();
+      void conversations.refresh();
+    }
     consent = 'granted';
-    void conversations.refresh();
   }
   // The owner preview toggles consentRequired live; show or clear the step.
   $effect(() => {
@@ -157,7 +176,11 @@
       else if (consent === 'required') onconsent(true);
     });
   });
-  const chat = $derived(stores?.chat ?? null);
+  // The owner preview's state switcher (pawbar:preview-state). Once set, the
+  // frame shows the state, never the real conversation, and `chat` is null so
+  // nothing reaches the stores, the polls or the network.
+  let demo = $state<'rest' | 'open' | 'thread' | null>(null);
+  const chat = $derived(demo ? null : (stores?.chat ?? null));
 
   // ── Sending and the rest of the frame's events ───────────────────────────
   async function onsend(text: string) {
@@ -190,14 +213,14 @@
   const pinned = $derived(expanded || fullscreen);
 
   $effect(() => {
-    const op = stores?.operator;
+    const op = chat && stores?.operator;
     if (!op) return;
     if (pinned) op.start();
     else op.startClosed();
     return () => op.stop();
   });
   $effect(() => {
-    if (pinned && stores) void untrack(() => conversations.refresh());
+    if (pinned && chat) void untrack(() => conversations.refresh());
   });
 
   // The chip is the content-sized box. Once, at boot.
@@ -235,6 +258,24 @@
   $effect(() => {
     loadSiteFont('--pawbar-font' in config.tokens ? undefined : siteTheme.fontHref);
   });
+  // The owner preview tells the dashboard what it read, so the editor can say
+  // "Matches acme.com" or "not detected": each theme as it lands, or null when
+  // nothing came within 2s of boot (an empty theme is null too).
+  // Posted on a timer so the next theme cancels a pending one; only the
+  // boot wait is long.
+  let booting = true;
+  $effect(() => {
+    const t = siteTheme;
+    const to = untrack(() => config.preview && config.parentOrigin);
+    if (!to) return;
+    const has = Object.keys(t).length > 0;
+    const id = setTimeout(
+      () => window.parent.postMessage({ type: 'pawbar:site-theme', theme: has ? { ...t } : null }, to),
+      booting && !has ? 2000 : 0,
+    );
+    booting = false;
+    return () => clearTimeout(id);
+  });
   /** The owner preview's scene: the site, framed beside the bar in this document. */
   const scene = () => document.querySelector<HTMLIFrameElement>('iframe.pawbar-scene')?.contentWindow ?? null;
 
@@ -254,7 +295,7 @@
       }
       if (!isFromLoader(ev, { self: window, parent: window.parent, parentOrigin })) return;
       const data = ev.data as
-        | { type?: string; s?: unknown; w?: unknown; h?: unknown; tools?: unknown; theme?: unknown }
+        | { type?: string; s?: unknown; w?: unknown; h?: unknown; tools?: unknown; theme?: unknown; state?: unknown }
         | null;
       if (!data || typeof data !== 'object') return;
       switch (data.type) {
@@ -285,6 +326,16 @@
         case 'pawbar:act-result':
           actions?.receive(data);
           break;
+        case 'pawbar:preview-state': {
+          // Owner preview only, from the dashboard at parentOrigin.
+          const s = data.state;
+          if (!preview || !parentOrigin || ev.origin !== parentOrigin) break;
+          if (s !== 'rest' && s !== 'open' && s !== 'thread') break;
+          demo = s;
+          expanded = s !== 'rest';
+          fullscreen = false;
+          break;
+        }
         case 'pawbar:tools':
           setPageTools(data.tools);
           break;
@@ -342,9 +393,9 @@
     bind:this={frame}
     bind:expanded
     bind:fullscreen
-    messages={chat?.messages ?? []}
+    messages={demo === 'thread' ? SAMPLE_THREAD : (chat?.messages ?? [])}
     conversationId={chat?.conversationId ?? ''}
-    conversations={stores ? conversations.items : []}
+    conversations={chat ? conversations.items : []}
     restoring={!!chat?.hydrating && (chat?.messages.length ?? 0) === 0}
     botPaused={chat?.botPaused ?? false}
     notice={chat?.notice ?? null}
@@ -362,11 +413,11 @@
     onopenchange={(o) => (cardOpen = o)}
     {cart}
     {contact}
-    {consent}
+    consent={demo === 'thread' ? 'granted' : consent}
     {onconsent}
     {hostViewport}
     {scheme}
-    persistKey={config.widgetId}
+    persistKey={demo ? '' : config.widgetId}
     placeholder={config.launcherLabel || undefined}
     greeting={config.greeting}
     logoSrc={config.logo}

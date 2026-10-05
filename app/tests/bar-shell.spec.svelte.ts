@@ -21,6 +21,12 @@
 // the iframe.pawbar-scene window (origin 'null') and nobody else, and the
 // shell asks that scene for it at boot. poweredBy / expandable reach the
 // frame, and a live (preview) config change redraws it.
+// Owner preview state (pawbar:preview-state): only with preview, from the
+// parent window at parentOrigin. 'rest' folds the bar and leaves full screen,
+// 'open' pins an empty thread (greeting, consent) over the real one, 'thread'
+// pins the local sample, and none of it fetches, polls, sends or stores.
+// The preview posts the site theme up to parentOrigin as it lands, and null
+// once when none came within 2s of boot.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 
@@ -394,7 +400,7 @@ describe('site tools', () => {
 });
 
 describe('the site theme', () => {
-  const parent = {} as Window;
+  const parent = { postMessage: vi.fn() } as unknown as Window;
   function message(origin: string, data: unknown, source: unknown = parent) {
     const ev = new MessageEvent('message', { origin, data });
     Object.defineProperty(ev, 'source', { value: source });
@@ -501,5 +507,164 @@ describe('owner switches', () => {
     flushSync();
     expect(q(target, '.consent')).toBeNull();
     expect(localStorage.getItem(CONSENT_KEY + 'w1')).toBeNull();
+  });
+});
+
+describe('the owner preview state', () => {
+  const parent = { postMessage: vi.fn() } as unknown as Window;
+  function message(origin: string, data: unknown, source: unknown = parent) {
+    const ev = new MessageEvent('message', { origin, data });
+    Object.defineProperty(ev, 'source', { value: source });
+    window.dispatchEvent(ev);
+    flushSync();
+  }
+  const state = (s: unknown, origin = 'http://host.test', source: unknown = parent) =>
+    message(origin, { type: 'pawbar:preview-state', state: s }, source);
+  const shows = (t: HTMLElement, text: string) => (t.textContent ?? '').includes(text);
+  function seeded(extra: Partial<PawBarConfig> = {}) {
+    const s = shell({ preview: true, greeting: 'Hello there', ...extra });
+    s.chat.messages.push({ id: 'r1', role: 'user', content: 'my real question', status: 'done' });
+    flushSync();
+    return s;
+  }
+  beforeEach(() => {
+    vi.spyOn(window, 'parent', 'get').mockReturnValue(parent);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('is ignored outside the preview, from another origin or window, and without parentOrigin', () => {
+    const pub = shell({ greeting: 'Hello there' });
+    state('thread');
+    expect(shows(pub.target, 'Do you ship internationally?')).toBe(false);
+    if (live) unmount(live);
+    live = null;
+    const { target } = shell({ preview: true });
+    state('thread', 'http://evil.test');
+    state('thread', 'http://host.test', window);
+    state('thread', 'http://host.test', {});
+    expect(shows(target, 'Do you ship internationally?')).toBe(false);
+    if (live) unmount(live);
+    live = null;
+    const open = shell({ preview: true, parentOrigin: '' });
+    state('thread', '');
+    expect(shows(open.target, 'Do you ship internationally?')).toBe(false);
+  });
+
+  it('ignores a state it does not know', () => {
+    const { target } = seeded();
+    state('history');
+    state({ toString: () => 'thread' });
+    expect(shows(target, 'Hello there')).toBe(false);
+    expect(shows(target, 'Do you ship internationally?')).toBe(false);
+  });
+
+  it("'open' pins an empty thread over the real one, consent step included", () => {
+    const real = seeded();
+    state('open');
+    expect(shows(real.target, 'Hello there')).toBe(true);
+    expect(shows(real.target, 'my real question')).toBe(false);
+    expect(real.operator.start).not.toHaveBeenCalled();
+    if (live) unmount(live);
+    live = null;
+    const { target, createChat } = seeded({ consentRequired: true });
+    state('open');
+    expect(q(target, '.consent')).not.toBeNull();
+    vi.mocked(fetch).mockClear();
+    [...target.querySelectorAll<HTMLButtonElement>('.consent button')].find((b) => b.textContent === 'Accept')!.click();
+    flushSync();
+    expect(q(target, '.consent')).toBeNull();
+    expect(createChat).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("'thread' shows the sample and none of it leaves the frame", async () => {
+    const { target, chat, operator } = seeded();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockClear();
+    const stored = () => JSON.stringify([{ ...localStorage }, { ...sessionStorage }]);
+    const before = stored();
+    state('thread');
+    expect(shows(target, 'Do you ship internationally?')).toBe(true);
+    expect(shows(target, 'Yes, to most countries.')).toBe(true);
+    expect(q(target, '.msg.owner')).not.toBeNull();
+    expect(shows(target, 'my real question')).toBe(false);
+    type(target, 'hi').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await tick();
+    flushSync();
+    expect(chat.send).not.toHaveBeenCalled();
+    expect(operator.start).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(stored()).toBe(before);
+    state('open');
+    expect(shows(target, 'Do you ship internationally?')).toBe(false);
+  });
+
+  it("'rest' folds the bar and leaves full screen", () => {
+    const { target, poster } = seeded();
+    state('open');
+    q<HTMLButtonElement>(target, 'button[aria-label="Full screen"]')!.click();
+    flushSync();
+    expect(poster.expand).toHaveBeenLastCalledWith(true);
+    state('rest');
+    expect(poster.expand).toHaveBeenLastCalledWith(false);
+    expect(shows(target, 'Hello there')).toBe(false);
+    expect(shows(target, 'my real question')).toBe(false);
+  });
+});
+
+describe('the preview reports the site theme', () => {
+  const post = vi.fn();
+  const parent = { postMessage: post } as unknown as Window;
+  const reports = () => post.mock.calls.filter(([m]) => m?.type === 'pawbar:site-theme');
+  function fromParent(theme: unknown) {
+    const ev = new MessageEvent('message', { origin: 'http://host.test', data: { type: 'pawbar:site-theme', theme } });
+    Object.defineProperty(ev, 'source', { value: parent });
+    window.dispatchEvent(ev);
+    flushSync();
+  }
+  beforeEach(() => {
+    post.mockClear();
+    vi.useFakeTimers();
+    vi.spyOn(window, 'parent', 'get').mockReturnValue(parent);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('posts the boot theme to parentOrigin, validated keys only', () => {
+    shell({ preview: true, siteTheme: { accent: '#1d4ed8', radius: 6 } });
+    vi.advanceTimersByTime(0);
+    expect(reports()).toEqual([[{ type: 'pawbar:site-theme', theme: { accent: '#1d4ed8', radius: 6 } }, 'http://host.test']]);
+  });
+
+  it('posts null once when nothing arrives within 2s, then each theme as it lands', () => {
+    shell({ preview: true });
+    vi.advanceTimersByTime(1999);
+    expect(reports()).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(reports()).toEqual([[{ type: 'pawbar:site-theme', theme: null }, 'http://host.test']]);
+    vi.advanceTimersByTime(5000);
+    expect(reports()).toHaveLength(1);
+    fromParent({ accent: '#1d4ed8', bogus: 1 });
+    vi.advanceTimersByTime(0);
+    expect(reports()[1]).toEqual([{ type: 'pawbar:site-theme', theme: { accent: '#1d4ed8' } }, 'http://host.test']);
+  });
+
+  it('a theme before 2s cancels the null', () => {
+    shell({ preview: true });
+    vi.advanceTimersByTime(500);
+    fromParent({ font: 'Inter' });
+    vi.advanceTimersByTime(5000);
+    expect(reports()).toEqual([[{ type: 'pawbar:site-theme', theme: { font: 'Inter' } }, 'http://host.test']]);
+  });
+
+  it('posts nothing outside the preview or without parentOrigin', () => {
+    shell({ siteTheme: { accent: '#1d4ed8' } });
+    if (live) unmount(live);
+    live = null;
+    shell({ preview: true, parentOrigin: '', siteTheme: { accent: '#1d4ed8' } });
+    vi.advanceTimersByTime(5000);
+    expect(reports()).toEqual([]);
   });
 });
