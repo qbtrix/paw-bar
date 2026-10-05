@@ -49,7 +49,18 @@ import { gzipSync } from 'node:zlib';
 // toggle and the teardown are the feature.
 //
 // Still a ceiling. The next change to want 512 bytes argues for them here too.
-const BUDGET_BYTES = 3072;
+//
+// RAISED 2026-10-05, 3072 -> 4096, for site-theme detection (the bar follows
+// the website's look: accent, page colours, font, corner radius) and the
+// `?pawbar=sniff` mode the owner preview reads it through. Same argument as the
+// two raises above: the loader is the only code running in the host document,
+// so it is the only place the site's look can be read. Shipping it any other
+// way means a stored server-side snapshot, which goes stale on every redesign.
+// The feature costs ~890 gzipped bytes and put the file at 3,955. Measured and
+// rejected: a URI-encoded fragment instead of base64url (the format the frame
+// contract names), and dropping the custom-property variants or the link-colour
+// fallback, each of which is the only signal on some real site.
+const BUDGET_BYTES = 4096;
 
 const path = new URL('../dist/loader.js', import.meta.url);
 const raw = readFileSync(path);
