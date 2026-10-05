@@ -102,6 +102,32 @@ posts `pawbar:site-theme` to this window. That scene is sandboxed without
 accepted only when `event.source` is the scene's `contentWindow`. The bar also
 asks it once at boot (`{type: "pawbar:sniff"}`) in case it posted first.
 
+The dashboard's state switcher talks to `BarShell` directly. Accepted only with
+`preview: true`, from `window.parent`, at exactly `parentOrigin`:
+
+- `{type: "pawbar:preview-state", state}` with `state` one of:
+  - `"rest"`: the bar as a visitor first sees it. Unpinned, out of full screen.
+  - `"open"`: pinned open on an empty thread (greeting, AI notice, and the
+    consent step when `consentRequired`).
+  - `"thread"`: pinned open on a short canned conversation (visitor, assistant,
+    one team reply), so the owner can judge every bubble colour.
+
+  Any other value is ignored. Once a state is set the frame never shows the
+  real conversation: the chat store is detached, so nothing is sent, polled,
+  fetched or written to storage (the bar's sessionStorage state included), and
+  leaving `"thread"` drops the sample.
+
+The preview also reports what it read about the site, so the editor can say
+"Matches acme.com" or "not detected". It posts
+`{type: "pawbar:site-theme", theme}` to `window.parent` with `parentOrigin` as
+the exact target origin (never `"*"`), and only when both are set:
+
+- each time the effective site theme changes (the `#t=` fragment at boot, the
+  loader, or the scene). `theme` is the validated object from
+  `src/lib/site-theme.ts` (`accent`, `bg`, `fg`, `font`, `fontHref`, `radius`,
+  only the keys present), or `null` when nothing in it survived validation;
+- `theme: null` once, 2 seconds after boot, when no theme has arrived by then.
+
 ### Layout tokens
 
 Sizes and spacing are `--pawbar-*` custom properties like the colours, so a
