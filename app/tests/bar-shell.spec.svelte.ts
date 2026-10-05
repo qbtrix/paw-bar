@@ -27,6 +27,8 @@
 // pins the local sample, and none of it fetches, polls, sends or stores.
 // The preview posts the site theme up to parentOrigin as it lands, and null
 // once when none came within 2s of boot.
+// In the owner preview the empty stage lets input through to the site under
+// it, and focus moving into the scene iframe folds an open card.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 
@@ -666,5 +668,56 @@ describe('the preview reports the site theme', () => {
     shell({ preview: true, parentOrigin: '', siteTheme: { accent: '#1d4ed8' } });
     vi.advanceTimersByTime(5000);
     expect(reports()).toEqual([]);
+  });
+});
+
+describe('the owner preview lets the site behind the bar take input', () => {
+  // The stage covers the whole window. In the preview that window also holds
+  // the site (iframe.pawbar-scene) under it, so only the bar itself may take
+  // pointer input. jsdom computes no stylesheet, so the rule is read from source.
+  const source = Object.values(
+    import.meta.glob('../src/components/bar/BarShell.svelte', { query: '?raw', import: 'default', eager: true }),
+  )[0] as string;
+  const style = source.slice(source.lastIndexOf('<style>'));
+  const rule = (sel: RegExp) => style.match(new RegExp(sel.source + String.raw`\s*\{([^}]*)\}`))?.[1] ?? '';
+
+  it('the empty stage lets clicks and scrolls through; the bar takes them', () => {
+    expect(rule(/\n\s*\.stage/)).toMatch(/pointer-events:\s*none/);
+    expect(rule(/\.stage > :global\(\.frame-wrap\)/)).toMatch(/pointer-events:\s*auto/);
+  });
+
+  let scene: HTMLIFrameElement;
+  beforeEach(() => {
+    scene = document.createElement('iframe');
+    scene.className = 'pawbar-scene';
+    document.body.append(scene);
+  });
+  afterEach(() => {
+    delete (document as { activeElement?: unknown }).activeElement;
+  });
+  /** A click in the scene: focus moves into its iframe and this window blurs. */
+  function clickScene() {
+    Object.defineProperty(document, 'activeElement', { configurable: true, get: () => scene });
+    window.dispatchEvent(new Event('blur'));
+    flushSync();
+  }
+
+  it('in the preview, a click on the site folds an open card', async () => {
+    const { target, poster } = shell({ preview: true });
+    openCard(target);
+    expect(poster.overlay).toHaveBeenLastCalledWith(true);
+    clickScene();
+    await tick();
+    flushSync();
+    expect(poster.overlay).toHaveBeenLastCalledWith(false);
+  });
+
+  it('outside the preview, a blur does nothing (the loader reports host clicks)', async () => {
+    const { target, poster } = shell({ preview: false });
+    openCard(target);
+    clickScene();
+    await tick();
+    flushSync();
+    expect(poster.overlay).toHaveBeenLastCalledWith(true);
   });
 });
