@@ -101,6 +101,45 @@ const hover = (target: HTMLElement) => {
   flushSync();
 };
 
+describe('full screen header', () => {
+  const title = (t: HTMLElement) => t.querySelector('.head-title');
+
+  it('shows the logo and the agent name only in full screen', () => {
+    const { target, props } = frame({ expanded: true, agentName: 'Acme Concierge' });
+    props.messages = [say('u1', 'user', 'hi')];
+    flushSync();
+    expect(target.querySelector('.frame-head')).not.toBeNull();
+    expect(title(target)).toBeNull();
+    expect(target.querySelector('.head-brand')).toBeNull();
+    props.fullscreen = true;
+    flushSync();
+    expect(title(target)!.textContent).toBe('Acme Concierge');
+    expect(target.querySelector('.head-brand .head-logo')).not.toBeNull();
+    props.fullscreen = false;
+    flushSync();
+    expect(title(target)).toBeNull();
+  });
+
+  it('falls back to a neutral title when the site sets no name', () => {
+    const { target } = frame({ expanded: true, fullscreen: true });
+    expect(title(target)!.textContent).toBe('Chat');
+  });
+
+  it('keeps every action in the full-screen header', () => {
+    const { target, props } = frame({
+      expanded: true,
+      fullscreen: true,
+      onnewconversation: vi.fn(),
+      onopenconversation: vi.fn(),
+    });
+    props.messages = [say('u1', 'user', 'hi')];
+    flushSync();
+    for (const label of ['Your conversations', 'New chat', 'Exit full screen', 'Close chat']) {
+      expect(target.querySelector(`.frame-head button[aria-label="${label}"]`), label).not.toBeNull();
+    }
+  });
+});
+
 describe('conversations (V8)', () => {
   it('the header + starts a new chat, only once there is a conversation to leave', async () => {
     const onnewconversation = vi.fn();
