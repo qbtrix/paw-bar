@@ -81,6 +81,21 @@ describe('white-label scale', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('a themable bubble fill brings a themable text colour', () => {
+    // An owner who sets "Team replies" to a dark colour got black text on it:
+    // .msg.owner took --pawbar-owner-bubble-bg but inherited the thread's ink,
+    // which is near-black on a light frame. Each bubble rule that reads a
+    // themable fill must read the matching -fg token too.
+    const frame = files.find((f) => f.rel === 'components/bar/PawBarFrame.svelte');
+    expect(frame).toBeDefined();
+    const rules = [...frame!.text.matchAll(/\.msg\.(\w+)\s*\{([^}]*)\}/g)];
+    const themed = rules.filter(([, , body]) => /background:\s*var\(--pawbar-[\w-]*bubble-bg/.test(body));
+    expect(themed.length).toBeGreaterThanOrEqual(2);
+    for (const [, kind, body] of themed) {
+      expect(body, `.msg.${kind}`).toMatch(/color:\s*var\(--pawbar-[\w-]*bubble-fg/);
+    }
+  });
+
   it('uses no elevation shadow tokens', () => {
     // Removed 2026-08-19 (captain direction), and the measurement agreed: a
     // pixel diff over both a white and a near-black host page put every changed

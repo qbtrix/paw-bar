@@ -1817,6 +1817,7 @@
     max-width: 100%;
     padding: var(--pbf-s3) var(--pbf-s4);
     background: var(--pawbar-owner-bubble-bg, var(--pawbar-thread-wash, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 9%, transparent)));
+    color: var(--pawbar-owner-bubble-fg, inherit);
     border: 1px solid var(--pawbar-thread-line, color-mix(in oklab, var(--pawbar-frame-fg, #f2f2f5) 16%, transparent));
     border-radius: var(--pawbar-radius-bubble, min(var(--pawbar-radius, 16px), 16px));
     border-bottom-left-radius: min(var(--pawbar-radius, 6px), 6px);
