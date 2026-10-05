@@ -37,7 +37,9 @@
       – pawbar:viewport (new loader) is the host page's viewport. Until it
         arrives, or forever under an old loader, the screen's available size
         stands in. Never this window's: this window is the iframe, sized from
-        the content, and sizing content against it is a feedback loop.
+        the content, and sizing content against it is a feedback loop. The
+        owner preview is the exception: no loader runs there, and the window
+        IS the page (a fixed box the dashboard sizes), so it is measured.
   • Owner settings from the boot config (launcher, side, size, theme, tokens,
     radius, disclosure, privacy link, voice) go straight to the frame.
   • config.starters is not shown; the bar has no starter chips.
@@ -187,7 +189,15 @@
     const s = typeof screen === 'undefined' ? null : screen;
     return { w: s?.availWidth || 1280, h: s?.availHeight || 800 };
   }
-  let hostViewport = $state(screenViewport());
+  // The owner preview has no loader, so its own window is the page the bar
+  // sits on. Measuring the screen there sized the card for a whole monitor and
+  // spilled it out of the dashboard's preview box.
+  let windowW = $state(typeof window === 'undefined' ? 0 : window.innerWidth);
+  let windowH = $state(typeof window === 'undefined' ? 0 : window.innerHeight);
+  let loaderViewport = $state<{ w: number; h: number } | null>(null);
+  const hostViewport = $derived(
+    loaderViewport ?? (config.preview && windowW > 0 && windowH > 0 ? { w: windowW, h: windowH } : screenViewport()),
+  );
 
   // ── Scheme ────────────────────────────────────────────────────────────────
   let hostScheme = $state(untrack(() => config.hostScheme));
@@ -233,7 +243,7 @@
         case 'pawbar:viewport': {
           const w = Number(data.w);
           const h = Number(data.h);
-          if (w > 0 && h > 0) hostViewport = { w, h };
+          if (w > 0 && h > 0) loaderViewport = { w, h };
           break;
         }
       }
@@ -272,6 +282,8 @@
     return () => ro.disconnect();
   });
 </script>
+
+<svelte:window bind:innerWidth={windowW} bind:innerHeight={windowH} />
 
 <div class="stage" data-anchor={config.launcher === 'icon' ? config.side : 'center'} bind:this={stageEl}>
   <PawBarFrame
