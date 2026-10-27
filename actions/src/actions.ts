@@ -169,36 +169,6 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
   };
   if (tools.size) sendSoon();
 
-  // WebMCP (data-webmcp only): the same-origin tools the page registered,
-  // read again on toolchange; the newest read wins.
-  const mc = script.hasAttribute('data-webmcp') && ((doc as Data).modelContext || (navigator as Data).modelContext);
-  let gen = 0;
-  async function readWeb(): Promise<void> {
-    const n = ++gen;
-    const next = new Map<string, [Data, Exec]>();
-    for (const t of await mc.getTools()) {
-      // Keys with no rule to enforce go; any other unknown key makes the frame drop the tool.
-      const { $schema, title, description, additionalProperties, ...s } = t.inputSchema || { type: 'object' };
-      if (t.annotations?.consequentialHint || !TOOL_NAME.test(t.name)) continue;
-      next.set(t.name, [
-        { name: t.name, description: t.description, inputSchema: s, confirm: true },
-        async (a, o) => {
-          const v = JSON.parse((await mc.executeTool(t, a, o)) ?? 'null');
-          return typeof v == 'string' ? { message: v } : v?.isError ? { ok: false } : v;
-        },
-      ]);
-    }
-    if (n == gen) {
-      web = next;
-      sendSoon();
-    }
-  }
-  const sync = () => readWeb().catch((e) => console.warn('paw-bar: webmcp', e));
-  if (mc) {
-    mc.addEventListener('toolchange', sync);
-    sync();
-  }
-
   const norm = (p: string): string => p.replace(/\/+$/, '') || '/';
 
   function navigate(to: unknown): ActError | (() => void) {
@@ -326,4 +296,35 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
       }
     }
   });
+
+  // WebMCP (data-webmcp only): the same-origin tools the page registered,
+  // read again on toolchange; the newest read wins.
+  const mc = script.hasAttribute('data-webmcp') && ((doc as Data).modelContext || (navigator as Data).modelContext);
+  let gen = 0;
+  async function readWeb(): Promise<void> {
+    const n = ++gen;
+    const next = new Map<string, [Data, Exec]>();
+    for (const t of await mc.getTools()) {
+      // Keys with no rule to enforce go; any other unknown key makes the frame drop the tool.
+      const { $schema, title, description, additionalProperties, ...s } = t.inputSchema || { type: 'object' };
+      if (t.annotations?.consequentialHint || !TOOL_NAME.test(t.name)) continue;
+      next.set(t.name, [
+        { name: t.name, description: t.description, inputSchema: s, confirm: true },
+        async (a, o) => {
+          const v = JSON.parse((await mc.executeTool(t, a, o)) ?? 'null');
+          return typeof v == 'string' ? { message: v } : v?.isError ? { ok: false } : v;
+        },
+      ]);
+    }
+    if (n == gen) {
+      web = next;
+      sendSoon();
+    }
+  }
+  const sync = () => readWeb().catch((e) => console.warn('paw-bar: webmcp', e));
+  // Last, after the message listener: an odd modelContext can only cost its own tools.
+  if (mc) {
+    mc.addEventListener?.('toolchange', sync);
+    sync();
+  }
 })(window as ActWindow);
