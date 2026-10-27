@@ -66,6 +66,8 @@ interface PawBarBootConfig {
   poweredBy?: boolean;
   /** The full-screen toggle. Absent or anything but `false` → on. */
   expandable?: boolean;
+  /** Whether visitors may move the bar (default true). */
+  movable?: boolean;
 }
 
 interface Window {

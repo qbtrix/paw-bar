@@ -135,11 +135,11 @@ describe('readConfig — voice', () => {
 describe('readConfig — poweredBy and expandable', () => {
   it('are on by default, and off only for exactly false', () => {
     setBoot({ ...base });
-    expect(readConfig()).toMatchObject({ poweredBy: true, expandable: true });
-    setBoot({ ...base, poweredBy: false, expandable: false });
-    expect(readConfig()).toMatchObject({ poweredBy: false, expandable: false });
-    setBoot({ ...base, poweredBy: 0, expandable: 'false' });
-    expect(readConfig()).toMatchObject({ poweredBy: true, expandable: true });
+    expect(readConfig()).toMatchObject({ poweredBy: true, expandable: true, movable: true });
+    setBoot({ ...base, poweredBy: false, expandable: false, movable: false });
+    expect(readConfig()).toMatchObject({ poweredBy: false, expandable: false, movable: false });
+    setBoot({ ...base, poweredBy: 0, expandable: 'false', movable: 0 });
+    expect(readConfig()).toMatchObject({ poweredBy: true, expandable: true, movable: true });
   });
 });
 

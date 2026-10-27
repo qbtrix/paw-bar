@@ -95,9 +95,86 @@ describe('size', () => {
   });
 });
 
+describe('size steps', () => {
+  const press = async (t: HTMLElement, label: string) => {
+    q<HTMLButtonElement>(t, `button[aria-label="${label}"]`)!.click();
+    await tick();
+    flushSync();
+  };
+  const wrap = (t: HTMLElement) => q(t, '.frame-wrap')!.dataset;
+
+  it('steps docked → wider → full screen, and back down one step at a time', async () => {
+    const { target } = render({ expanded: true, greeting: 'Hi' });
+    await press(target, 'Wider');
+    expect(wrap(target).wide).toBe('true');
+    expect(q(target, '.pawbar-host')!.dataset.wide).toBe('true');
+    expect(q(target, 'button[aria-label="Smaller"]')).not.toBeNull();
+    await press(target, 'Full screen');
+    expect(wrap(target).full).toBe('true');
+    expect(wrap(target).wide).toBeUndefined();
+    await press(target, 'Exit full screen');
+    expect(wrap(target).full).toBeUndefined();
+    expect(wrap(target).wide).toBe('true');
+    await press(target, 'Smaller');
+    expect(wrap(target).wide).toBeUndefined();
+    expect(q(target, 'button[aria-label="Wider"]')).not.toBeNull();
+  });
+
+  it('skips the wide step on a phone-sized host', async () => {
+    const { target } = render({ expanded: true, greeting: 'Hi', hostViewport: { w: 390, h: 800 } });
+    expect(q(target, 'button[aria-label="Wider"]')).toBeNull();
+    await press(target, 'Full screen');
+    expect(wrap(target).full).toBe('true');
+    await press(target, 'Exit full screen');
+    expect(wrap(target).full).toBeUndefined();
+    expect(wrap(target).wide).toBeUndefined();
+  });
+
+  it('closing the card drops the wide step', async () => {
+    const { target } = render({ expanded: true, greeting: 'Hi' });
+    await press(target, 'Wider');
+    await press(target, 'Close chat');
+    expect(wrap(target).wide).toBeUndefined();
+  });
+});
+
+describe('moving the bar', () => {
+  it('offers only the spots one move away, and says where it went', async () => {
+    const onmove = vi.fn();
+    const { target, props } = render({ expanded: true, greeting: 'Hi', onmove, dock: 'center' });
+    const labels = () => [...target.querySelectorAll('.head-btn.move')].map((b) => b.getAttribute('aria-label'));
+    expect(labels()).toEqual(['Move to the left', 'Move to the right']);
+    q<HTMLButtonElement>(target, 'button[aria-label="Move to the left"]')!.click();
+    expect(onmove).toHaveBeenCalledWith('left');
+    props.dock = 'left';
+    await tick();
+    flushSync();
+    expect(labels()).toEqual(['Move to the middle']);
+    expect(q(target, '.frame-wrap')!.dataset.anchor).toBe('left');
+    expect(target.textContent).toContain('Moved to the left');
+  });
+
+  it('has no Move buttons without onmove, in full screen, or for the bar on a phone', () => {
+    const a = render({ expanded: true, greeting: 'Hi' });
+    expect(a.target.querySelector('.head-btn.move')).toBeNull();
+    if (live) unmount(live);
+    const b = render({ expanded: true, greeting: 'Hi', onmove: vi.fn(), fullscreen: true });
+    expect(b.target.querySelector('.head-btn.move')).toBeNull();
+    if (live) unmount(live);
+    const c = render({ expanded: true, greeting: 'Hi', onmove: vi.fn(), hostViewport: { w: 390, h: 800 } });
+    expect(c.target.querySelector('.head-btn.move')).toBeNull();
+    if (live) unmount(live);
+    const d = render({ expanded: true, greeting: 'Hi', onmove: vi.fn(), launcher: 'icon', side: 'right', hostViewport: { w: 390, h: 800 } });
+    expect([...d.target.querySelectorAll('.head-btn.move')].map((x) => x.getAttribute('aria-label'))).toEqual(['Move to the left']);
+  });
+});
+
 describe('full screen', () => {
-  it('turns on from the top-row icon and Escape leaves it before closing the card', async () => {
+  it('Escape leaves full screen, then the wide step, before closing the card', async () => {
     const { target } = render({ expanded: true });
+    q<HTMLButtonElement>(target, 'button[aria-label="Wider"]')!.click();
+    await tick();
+    flushSync();
     q<HTMLButtonElement>(target, 'button[aria-label="Full screen"]')!.click();
     await tick();
     flushSync();
@@ -108,6 +185,12 @@ describe('full screen', () => {
     await tick();
     flushSync();
     expect(q(target, '.frame-wrap')!.dataset.full).toBeUndefined();
+    expect(q(target, '.frame-wrap')!.dataset.wide).toBe('true');
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await tick();
+    flushSync();
+    expect(q(target, '.frame-wrap')!.dataset.wide).toBeUndefined();
     expect(q(target, '.card')).not.toBeNull();
   });
 });
@@ -153,7 +236,7 @@ describe('close (✕)', () => {
     const head = q(target, '.frame-head')!;
     expect([...head.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))).toEqual([
       'Your conversations',
-      'Full screen',
+      'Wider',
       'Close chat',
     ]);
     const card = q(target, '.card')!;
@@ -310,7 +393,7 @@ describe('poweredBy and expandable', () => {
     const msgs = [{ id: 'u1', role: 'user', content: 'hi', status: 'done' }];
     const on = render({ expanded: true, messages: msgs });
     expect(on.target.textContent).toContain('Paw Sites');
-    expect(q(on.target, 'button[aria-label*="ull screen"]')).not.toBeNull();
+    expect(q(on.target, 'button[aria-label="Wider"]')).not.toBeNull();
     if (live) unmount(live);
     live = null;
     document.body.innerHTML = '';
@@ -318,5 +401,6 @@ describe('poweredBy and expandable', () => {
     const off = render({ expanded: true, messages: msgs, poweredBy: false, expandable: false });
     expect(off.target.textContent).not.toContain('Paw Sites');
     expect(q(off.target, 'button[aria-label*="ull screen"]')).toBeNull();
+    expect(q(off.target, 'button[aria-label="Wider"]')).toBeNull();
   });
 });

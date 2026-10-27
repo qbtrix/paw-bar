@@ -13,8 +13,9 @@
 // `pawbar:preview-config` channel in lib/preview-tokens): tokens, tokensDark,
 // scheme, launcher, side, barSize, logo, launcherLabel, disclosure,
 // privacyHref, consentRequired, voice (the dictation mic), poweredBy (the
-// "Powered by Paw Sites" credit) and expandable (the full-screen toggle). The
-// three booleans are on unless the owner sends exactly `false`.
+// "Powered by Paw Sites" credit), expandable (the wide and full-screen steps)
+// and movable (visitors may move the bar). These booleans are on unless the
+// owner sends exactly `false`.
 //
 // Two facts come from the LOADER rather than the boot config, because only it
 // can see the host page: `hostScheme` (`?s=l|d` on the frame URL, see
@@ -88,8 +89,10 @@ export interface PawBarConfig {
   voice: boolean;
   /** The "Powered by Paw Sites" credit. On unless the owner sends `false`. */
   poweredBy: boolean;
-  /** The full-screen toggle. On unless the owner sends `false`. */
+  /** The wide and full-screen steps. On unless the owner sends `false`. */
   expandable: boolean;
+  /** Visitors may move the bar to another spot. On unless the owner sends `false`. */
+  movable: boolean;
 }
 
 /** The owner settings, the part of the config the owner preview can change live. */
@@ -109,6 +112,7 @@ export type OwnerConfig = Pick<
   | 'voice'
   | 'poweredBy'
   | 'expandable'
+  | 'movable'
 >;
 
 /** Read a string array off the boot config, dropping anything that isn't a
@@ -189,6 +193,7 @@ export function readOwnerConfig(boot: Partial<PawBarBootConfig> | undefined): Ow
     voice: boot?.voice !== false,
     poweredBy: boot?.poweredBy !== false,
     expandable: boot?.expandable !== false,
+    movable: boot?.movable !== false,
   };
 }
 

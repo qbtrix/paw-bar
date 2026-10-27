@@ -53,6 +53,7 @@ import { ConversationsStore } from '../src/store/conversations.svelte';
 import type { PawBarConfig } from '../src/config';
 import type { ActionRunner } from '../src/lib/page-actions';
 import { getPageTools, resetPageTools } from '../src/lib/page-tools';
+import { DOCK_KEY } from '../src/lib/bar-steps';
 
 let live: ReturnType<typeof mount> | null = null;
 beforeEach(() => {
@@ -98,6 +99,7 @@ function config(extra: Partial<PawBarConfig> = {}): PawBarConfig {
     voice: true,
     poweredBy: true,
     expandable: true,
+    movable: true,
     ...extra,
   };
 }
@@ -245,6 +247,10 @@ describe('the loader protocol', () => {
   it('full screen asks the loader for the viewport and gives it back', () => {
     const { target, poster } = shell();
     openCard(target);
+    // The wide step is the app's own: the loader only sees a resize.
+    q<HTMLButtonElement>(target, 'button[aria-label="Wider"]')!.click();
+    flushSync();
+    expect(poster.expand).not.toHaveBeenCalledWith(true);
     q<HTMLButtonElement>(target, 'button[aria-label="Full screen"]')!.click();
     flushSync();
     expect(poster.expand).toHaveBeenLastCalledWith(true);
@@ -298,6 +304,37 @@ describe("the owner's look reaches the frame", () => {
     expect(q(target, '.stage')!.dataset.anchor).toBe('left');
     expect(q(target, '.frame-wrap')!.dataset.launcher).toBe('icon');
     expect(poster.resize).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 'left');
+  });
+
+  it('a visitor moves the bar, the loader hears the side, and the pick is kept per site', () => {
+    const first = shell();
+    openCard(first.target);
+    q<HTMLButtonElement>(first.target, 'button[aria-label="Move to the left"]')!.click();
+    flushSync();
+    expect(q(first.target, '.stage')!.dataset.anchor).toBe('left');
+    expect(first.poster.resize).toHaveBeenLastCalledWith(expect.any(Number), expect.any(Number), 'left');
+    expect(localStorage.getItem(DOCK_KEY + 'w1')).toBe('left');
+    if (live) unmount(live);
+    live = null;
+    const again = shell();
+    expect(q(again.target, '.stage')!.dataset.anchor).toBe('left');
+    expect(again.poster.resize).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 'left');
+  });
+
+  it("the owner's switch and the owner preview ignore a visitor's pick", () => {
+    localStorage.setItem(DOCK_KEY + 'w1', 'left');
+    const off = shell({ movable: false, greeting: 'Hi' });
+    openCard(off.target);
+    expect(q(off.target, '.stage')!.dataset.anchor).toBe('center');
+    expect(off.target.querySelector('.head-btn.move')).toBeNull();
+    expect(off.poster.resize).toHaveBeenLastCalledWith(expect.any(Number), expect.any(Number), undefined);
+    if (live) unmount(live);
+    live = null;
+    const pv = shell({ preview: true, greeting: 'Hi' });
+    openCard(pv.target);
+    expect(q(pv.target, '.stage')!.dataset.anchor).toBe('center');
+    expect(pv.target.querySelector('.head-btn.move')).toBeNull();
+    expect(localStorage.getItem(DOCK_KEY + 'w1')).toBe('left');
   });
 
   it("the bar launcher sits in the centre, and the logo is the pill's", () => {
@@ -477,12 +514,13 @@ describe('owner switches', () => {
     const on = shell({ greeting: 'Hi' });
     openCard(on.target);
     expect(on.target.textContent).toContain('Paw Sites');
-    expect(q(on.target, 'button[aria-label="Full screen"]')).not.toBeNull();
+    expect(q(on.target, 'button[aria-label="Wider"]')).not.toBeNull();
     if (live) unmount(live);
     live = null;
     const { target } = shell({ poweredBy: false, expandable: false, greeting: 'Hi' });
     openCard(target);
     expect(target.textContent).not.toContain('Paw Sites');
+    expect(q(target, 'button[aria-label="Wider"]')).toBeNull();
     expect(q(target, 'button[aria-label="Full screen"]')).toBeNull();
   });
 
@@ -604,6 +642,8 @@ describe('the owner preview state', () => {
   it("'rest' folds the bar and leaves full screen", () => {
     const { target, poster } = seeded();
     state('open');
+    q<HTMLButtonElement>(target, 'button[aria-label="Wider"]')!.click();
+    flushSync();
     q<HTMLButtonElement>(target, 'button[aria-label="Full screen"]')!.click();
     flushSync();
     expect(poster.expand).toHaveBeenLastCalledWith(true);
