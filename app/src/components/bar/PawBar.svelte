@@ -60,7 +60,13 @@
   other size change. (It first ran inside a View Transition; the browser holds
   rendering while that callback runs, the spring runs on animation frames, and
   the card froze half-grown and clipped. One animation system, not two.)
-  Escape peels: menu, then full screen, then the card.
+  Escape peels: menu, then full screen, then the wide step, then the card.
+
+  WIDE. `wide` (bindable, set by PawBarFrame's step controls) is the middle
+  step between the docked card and full screen: the card takes
+  --pawbar-wide-width (820px), clamped to the host. `dock` is where the bar
+  launcher sits ('left' | 'center' | 'right', the visitor may move it); the
+  surface grows out of that spot. The icon launcher keeps using `side`.
 
   2026-09-27 (bigger sizes): every size grew one step (Default is now 52px
   tall, 540px wide open), and the icon launcher has its own larger diameter
@@ -222,6 +228,8 @@
     resizable = false,
     expandable = true,
     fullscreen = $bindable(false),
+    wide = $bindable(false),
+    dock = 'center',
     value = $bindable(''),
     streaming = false,
     readonly = false,
@@ -259,6 +267,10 @@
     /** The full screen toggle in the card's top row. */
     expandable?: boolean;
     fullscreen?: boolean;
+    /** The middle size step: a wider card, still floating. */
+    wide?: boolean;
+    /** Where the bar launcher sits. Ignored by the icon, which uses `side`. */
+    dock?: 'left' | 'center' | 'right';
     /** The draft. Bindable so a refused message can be put back. */
     value?: string;
     /** A reply is being written: send becomes Stop. */
@@ -298,7 +310,7 @@
   } = $props();
 
   const isIcon = $derived(launcher === 'icon');
-  const anchor = $derived(isIcon ? side : 'center');
+  const anchor = $derived(isIcon ? side : dock);
 
   // ── Size ──────────────────────────────────────────────────────────────────
   let chosen = $state<BarSize | null>(readChosenSize());
@@ -484,6 +496,7 @@
   export async function closeChat() {
     contactOpen = false;
     setFullscreen(false);
+    wide = false;
     dismissed = true;
     hoverLocked = true;
     await close();
@@ -722,13 +735,15 @@
     }
   }
 
-  // Escape peels one layer at a time: dictation, the menu, full screen, then the card.
+  // Escape peels one layer at a time: dictation, the menu, full screen, the
+  // wide step, then the card.
   function onWindowKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape') return;
     if (listening) stopDictation();
     else if (menuOpen) void closeMenu();
     else if (contactOpen) closeContact();
     else if (fullscreen) setFullscreen(false);
+    else if (wide) wide = false;
     else if (open) void close();
   }
 
@@ -844,6 +859,7 @@
   data-anchor={anchor}
   data-launcher={launcher}
   data-full={fullscreen ? 'true' : undefined}
+  data-wide={wide && !fullscreen ? 'true' : undefined}
   bind:this={hostEl}
   onfocusin={onFocusIn}
   onfocusout={onFocusOut}
@@ -1160,6 +1176,9 @@
      The frame, not this component, lays out the viewport around it. */
   .pawbar-host[data-full] {
     --pb-card-w: var(--pawbar-full-width, 720px);
+  }
+  .pawbar-host[data-wide] .card {
+    width: min(var(--pawbar-wide-width, 820px), calc(var(--pb-host-w, 100vw) - 48px));
   }
   .pawbar-host[data-full] .card {
     width: min(var(--pawbar-full-width, 720px), calc(var(--pb-host-w, 100vw) - var(--pb-s4) * 2));

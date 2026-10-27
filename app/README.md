@@ -33,7 +33,7 @@ window.__PAWBAR__ = {
   tokensDark?: Record<string,string>, // over `tokens` while the bar resolves dark
   scheme?: "light" | "dark" | "auto", // default "auto": follow the host page
   launcher?: "bar" | "icon",          // default "bar"
-  side?: "left" | "right",            // icon launcher corner; default "right"
+  side?: "left" | "right",            // icon launcher corner; default "right" (the bar sits centre)
   barSize?: "sm" | "md" | "lg",       // default "sm"
   logo?: string,                      // http(s) or data: image; falls back to agentAvatar
   launcherLabel?: string,             // resting pill copy, max 40
@@ -42,7 +42,8 @@ window.__PAWBAR__ = {
   consentRequired?: boolean,          // ask before chatting; default false
   voice?: boolean,                    // dictation mic; on unless exactly false
   poweredBy?: boolean,                // "Powered by Paw Sites"; on unless exactly false
-  expandable?: boolean,               // full-screen toggle; on unless exactly false
+  expandable?: boolean,               // wide + full-screen steps; on unless exactly false
+  movable?: boolean,                  // visitors may move the bar (kept per visitor); on unless exactly false
 
   greeting?: string, starters?: string[], agentName?: string, agentAvatar?: string,
 };

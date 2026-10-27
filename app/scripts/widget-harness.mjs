@@ -10,9 +10,12 @@
 // VITE_PAWBAR_UI=glass build. That build no longer exists.
 //
 // Run from app/:  node scripts/widget-harness.mjs
-//   SCEN=main|icon|phone|consent|leave|viewport|grow  (default main)
+//   SCEN=main|icon|phone|consent|leave|viewport|grow|move  (default main)
+//   main steps docked → wide → full and back; move moves the bar left, reloads
+//   to check the pick is kept, then walks it right.
 //   BOOT='{"launcher":"icon","side":"left"}'     boot config overrides
 //   VW=390 VH=800                                viewport
+//   PW_CHROMIUM=/path/to/headless_shell          browser override
 // Prints the iframe box at each step; screenshots go to test-results/wh-*.png.
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -105,7 +108,8 @@ frameOrigin = `http://127.0.0.1:${await listen(frame)}`;
 
 const W = +(process.env.VW || 1280);
 const H = +(process.env.VH || 820);
-const browser = await chromium.launch();
+// PW_CHROMIUM points at an installed browser when the pinned one is missing.
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || undefined });
 // The screen differs from the viewport on purpose: it tells the loader's
 // pawbar:viewport message apart from the app's screen-size fallback.
 const context = await browser.newContext({ viewport: { width: W, height: H }, screen: { width: 1920, height: 1080 } });
@@ -185,6 +189,41 @@ if (SCEN !== 'main') {
   } else if (SCEN === 'viewport') {
     const hostW = await fr().evaluate(() => getComputedStyle(document.querySelector('.frame-wrap')).getPropertyValue('--pb-host-w'));
     log('frame --pb-host-w', hostW || '(unset)', 'host innerWidth', W, 'screen 1920');
+  } else if (SCEN === 'move') {
+    await fr().click('.pawbar');
+    await page.waitForTimeout(600);
+    await fr().fill('textarea', 'Do you ship to Oslo?');
+    await fr().press('textarea', 'Enter');
+    await page.waitForTimeout(3500);
+    log('centre box', await box());
+    await fr().click('button[aria-label="Move to the left"]');
+    await page.waitForTimeout(700);
+    log('left box', await box(), 'focus', await fr().evaluate(() => document.activeElement?.getAttribute('aria-label')));
+    await shot(tag + '-left');
+    // The box jumped out from under a still pointer: a host click must still fold it.
+    await page.mouse.move(700, 60);
+    await page.click('#hit2');
+    await page.waitForTimeout(700);
+    log('after move, host click box', await box());
+    await page.reload();
+    await page.waitForTimeout(1500);
+    log('after reload box', await box());
+    await shot(tag + '-reload');
+    const rb = await page.locator('iframe').boundingBox();
+    await page.mouse.move(rb.x + rb.width / 2, rb.y + rb.height / 2);
+    await page.waitForTimeout(700);
+    await fr().click('textarea');
+    await page.waitForTimeout(700);
+    await fr().click('button[aria-label="Move to the middle"]');
+    await page.waitForTimeout(500);
+    await fr().click('button[aria-label="Move to the right"]');
+    await page.waitForTimeout(700);
+    log('right box', await box());
+    await shot(tag + '-right');
+    await fr().click('button[aria-label="Wider"]');
+    await page.waitForTimeout(900);
+    log('right wide box', await box());
+    await shot(tag + '-right-wide');
   } else if (SCEN === 'consent') {
     await fr().click('.pawbar');
     await page.waitForTimeout(600);
@@ -237,17 +276,26 @@ for (let i = 0; i < 3; i++) {
   log('cycle', i, 'open', b, 'closed', await box());
 }
 
-// Full screen and back.
+// Wide, full screen, and back down one step at a time.
 await fr().click('.pawbar');
 await page.waitForTimeout(500);
+log('docked box', await box());
+await shot('docked');
+await fr().click('button[aria-label="Wider"]');
+await page.waitForTimeout(900);
+log('wide box', await box());
+await shot('wide');
 await fr().click('button[aria-label="Full screen"]');
 await page.waitForTimeout(700);
 log('full box', await box());
 await shot('full');
 await fr().click('button[aria-label="Exit full screen"]');
-await page.waitForTimeout(700);
-log('after full box', await box());
+await page.waitForTimeout(900);
+log('after full box (wide)', await box());
 await shot('after-full');
+await fr().click('button[aria-label="Smaller"]');
+await page.waitForTimeout(900);
+log('after smaller box', await box());
 await fr().click('button[aria-label="Close chat"]');
 await page.waitForTimeout(700);
 log('closed box', await box(), 'hits', await hits());

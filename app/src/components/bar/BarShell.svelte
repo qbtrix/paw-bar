@@ -34,7 +34,11 @@
         bar like any outside click; nothing is posted per host click at rest.
       – host-open pins (and re-asserts the chip: an old loader's
         PawBar.open() switches itself to its column); host-close is ✕.
-      – `side` rides on resize to dock the icon launcher (old loaders centre).
+      – `side` rides on resize to dock the box to a corner (old loaders
+        centre). It is the effective dock: the visitor's pick (lib/bar-steps,
+        frame storage per widget) while the owner allows moving and this is
+        not the owner preview, else the owner's launcher and side. Moving
+        off clears nothing; it just stops reading the pick.
       – pawbar:viewport (new loader) is the host page's viewport. Until it
         arrives, or forever under an old loader, the screen's available size
         stands in. Never this window's: this window is the iframe, sized from
@@ -118,6 +122,7 @@
   import type { ConversationsStore } from '../../store/conversations.svelte';
   import { resolveScheme } from '../../lib/scheme';
   import { dockSize } from '../../lib/dock-size';
+  import { DOCK_KEY, docksFor, ownerDock, readDock, writeDock, type Dock } from '../../lib/bar-steps';
   import { getHostPage, setHostPage } from '../../lib/host-page';
   import { setPageTools } from '../../lib/page-tools';
   import { loadSiteFont, readSiteTheme, type SiteTheme } from '../../lib/site-theme';
@@ -378,13 +383,26 @@
     };
   });
 
+  // ── Where the bar sits ────────────────────────────────────────────────────
+  const dockKey = untrack(() => DOCK_KEY + config.widgetId);
+  // The owner preview shows the owner's placement and never touches the pick.
+  let picked = $state<Dock | null>(untrack(() => (config.preview ? null : readDock(dockKey, config.launcher))));
+  const canMove = $derived(config.movable && !config.preview);
+  const dock = $derived<Dock>(
+    canMove && picked && docksFor(config.launcher).includes(picked) ? picked : ownerDock(config.launcher, config.side),
+  );
+  function onmove(to: Dock) {
+    picked = to;
+    writeDock(dockKey, to);
+  }
+
   // ── Size reports ──────────────────────────────────────────────────────────
   let stageEl: HTMLDivElement | null = $state(null);
   $effect(() => {
     const stage = stageEl;
     const wrap = stage?.querySelector<HTMLElement>('.frame-wrap');
     if (!wrap) return;
-    const side = config.launcher === 'icon' ? config.side : undefined;
+    const side = dock === 'center' ? undefined : dock;
     const report = () => {
       if (fullscreen) return;
       const r = wrap.getBoundingClientRect();
@@ -403,7 +421,7 @@
 
 <svelte:window bind:innerWidth={windowW} bind:innerHeight={windowH} />
 
-<div class="stage" data-anchor={config.launcher === 'icon' ? config.side : 'center'} bind:this={stageEl}>
+<div class="stage" data-anchor={dock} bind:this={stageEl}>
   <PawBarFrame
     bind:this={frame}
     bind:expanded
@@ -439,6 +457,8 @@
     agentName={config.agentName}
     launcher={config.launcher}
     side={config.side}
+    {dock}
+    onmove={canMove ? onmove : undefined}
     size={config.barSize}
     site={siteTheme}
     tokens={config.tokens}

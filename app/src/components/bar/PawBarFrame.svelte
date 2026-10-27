@@ -50,6 +50,19 @@
   cap, message type and corner radius with it, and aligns the surface and the
   credit to the icon launcher's corner.
 
+  SIZE STEPS (lib/bar-steps). The header steps the open bar docked → wide →
+  full screen and back one step at a time: "Wider", then "Smaller" and
+  "Full screen", then "Exit full screen" (back to wide). Wide is a wider card
+  (PawBar's `wide`) over a thread of fixed height, so a short conversation
+  sits just above the composer as in full screen; it is frame state only, the
+  loader sees an ordinary resize. A narrow host has no wide step, and Escape
+  peels full, then wide, then the card.
+
+  MOVE. `dock` is where the bar sits; `onmove` (set when the owner lets
+  visitors move it) adds Move buttons to the header that offer only the spots
+  one step away (lib/bar-steps `neighbours`), announced politely. Not in full
+  screen, and not for the bar launcher on a phone, where it spans the width.
+
   FULL SCREEN binds PawBar's `fullscreen` and turns the bar into a full-page
   chat. The wrapper covers the viewport as ONE opaque surface
   (--pawbar-full-bg, else the frame's colour, layered over --pawbar-scrim and
@@ -258,6 +271,7 @@
   import type { VisitorConversation } from '../../lib/conversations-client';
   import { ago } from '../../lib/relative-time';
   import { readBarSession, writeBarSession } from '../../lib/bar-session';
+  import { stepUp, stepDown, neighbours, ownerDock, type Dock } from '../../lib/bar-steps';
 
   let {
     messages = [],
@@ -275,6 +289,8 @@
     expandable = true,
     voice = true,
     fullscreen = $bindable(false),
+    dock,
+    onmove,
     site = {},
     tokens = {},
     tokensDark = {},
@@ -331,6 +347,10 @@
     /** PawBar's dictation mic (shown only where the browser supports it). */
     voice?: boolean;
     fullscreen?: boolean;
+    /** Where the bar sits. Defaults to the owner's launcher and side. */
+    dock?: Dock;
+    /** The visitor moved the bar. Unset: no Move buttons. */
+    onmove?: (dock: Dock) => void;
     /** The website's own look (validated by the caller). Under `tokens`. */
     site?: SiteTheme;
     /** --pawbar-* overrides applied on top of the site theme. */
@@ -470,7 +490,8 @@
 
   // What the bar is actually drawn at, reported by the bar itself.
   let barSize = $state<BarSize>('sm');
-  const anchor = $derived(launcher === 'icon' ? side : 'center');
+  const where = $derived<Dock>(dock ?? ownerDock(launcher, side));
+  const anchor = $derived(where);
 
   // The thread shows while the bar is pinned open and there is something to
   // show. Escape or an outside click unpins the bar, which folds the thread
@@ -631,10 +652,6 @@
     logoFailed = false;
   });
 
-  async function toggleFull() {
-    fullscreen = !fullscreen;
-    await focusField();
-  }
   const canList = $derived(
     !!(onopenconversation || onnewconversation) && (conversations.length > 0 || messages.length > 0),
   );
@@ -823,6 +840,32 @@
     wasPinned = p;
   });
 
+  // ── Size steps and moving ─────────────────────────────────────────────────
+  let wide = $state(false);
+  const wideOn = $derived(wide && !narrow);
+  async function step(up: boolean) {
+    const s = (up ? stepUp : stepDown)({ wide, full: fullscreen }, narrow);
+    wide = s.wide;
+    fullscreen = s.full;
+    await focusField();
+  }
+  $effect(() => {
+    if (!pinned) wide = false;
+  });
+
+  const DOCK_NAMES: Record<Dock, string> = { left: 'left', center: 'middle', right: 'right' };
+  const moveTo = $derived(
+    onmove && !fullscreen && !(launcher === 'bar' && viewportW < 600) ? neighbours(where, launcher) : {},
+  );
+  let moved = $state('');
+  async function move(to: Dock) {
+    onmove?.(to);
+    moved = `Moved to the ${DOCK_NAMES[to]}`;
+    // The pressed button can vanish (no spot past the edge): keep focus on Move.
+    await tick();
+    if (!frameEl?.contains(document.activeElement)) frameEl?.querySelector<HTMLElement>('.head-btn.move')?.focus();
+  }
+
   // Scrolling is allowed only once the content is genuinely taller than the
   // cap. While the spring is still catching up to a streaming reply, the
   // content is briefly taller than the box too, and with `overflow-y: auto`
@@ -830,7 +873,10 @@
   // showed it again: ten show/hide flips in one reply, each one stealing width
   // and reflowing the text. Clipped (and pinned to the bottom, below) during
   // growth, scrollable past the cap, with the gutter reserved either way.
-  const scrollable = $derived(fullscreen || innerH > cap);
+  // Wide, like full screen, is laid out by CSS (a box sized from the host
+  // viewport, the thread flexing into what the card leaves), so it always
+  // scrolls and the spring sits out.
+  const scrollable = $derived(fullscreen || wideOn || innerH > cap);
 
   const threadH = new Spring(0, { stiffness: 0.16, damping: 0.8 });
   $effect(() => {
@@ -957,11 +1003,13 @@
   data-anchor={anchor}
   data-launcher={launcher}
   data-full={fullscreen ? 'true' : undefined}
+  data-wide={wideOn && !fullscreen ? 'true' : undefined}
   data-pawbar-scheme={scheme}
   style:--pb-host-w={hostViewport?.w ? `${hostViewport.w}px` : undefined}
   style:--pb-host-h={hostViewport?.h ? `${hostViewport.h}px` : undefined}
   bind:this={frameEl}
 >
+<span class="sr-only" role="status" aria-live="polite">{moved}</span>
 <div class="frame" class:open={showThread} class:surface>
   {#if showThread && !history}
     <div class="frame-head" class:scrolled transition:slide={soft}>
@@ -990,6 +1038,20 @@
         </div>
         <span class="head-gap"></span>
       {/if}
+      {#if moveTo.left}
+        <button type="button" class="head-btn move" aria-label={`Move to the ${DOCK_NAMES[moveTo.left]}`} title={`Move to the ${DOCK_NAMES[moveTo.left]}`} onclick={() => move(moveTo.left!)}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
+          </svg>
+        </button>
+      {/if}
+      {#if moveTo.right}
+        <button type="button" class="head-btn move" aria-label={`Move to the ${DOCK_NAMES[moveTo.right]}`} title={`Move to the ${DOCK_NAMES[moveTo.right]}`} onclick={() => move(moveTo.right!)}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13 17l5-5-5-5M6 17l5-5-5-5" />
+          </svg>
+        </button>
+      {/if}
       {#if canList}
         <button type="button" class="head-btn" aria-label="Your conversations" title="Your conversations" onclick={showConversations}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1007,16 +1069,20 @@
       {/if}
       {#if !fullscreen}<span class="head-gap"></span>{/if}
       {#if expandable || fullscreen}
-        <button
-          type="button"
-          class="head-btn"
-          aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-          title={fullscreen ? 'Exit full screen' : 'Full screen'}
-          onclick={toggleFull}
-        >
+        {#if wideOn && !fullscreen}
+          <button type="button" class="head-btn" aria-label="Smaller" title="Smaller" onclick={() => step(false)}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+            </svg>
+          </button>
+        {/if}
+        {@const upLabel = fullscreen ? 'Exit full screen' : wideOn || narrow || !expandable ? 'Full screen' : 'Wider'}
+        <button type="button" class="head-btn" aria-label={upLabel} title={upLabel} onclick={() => step(!fullscreen)}>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             {#if fullscreen}
               <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+            {:else if upLabel === 'Wider'}
+              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
             {:else}
               <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
             {/if}
@@ -1035,7 +1101,7 @@
     class="thread"
     bind:this={threadEl}
     onscroll={onScroll}
-    style:height={fullscreen ? undefined : `${threadH.current}px`}
+    style:height={fullscreen || wideOn ? undefined : `${threadH.current}px`}
     style:overflow-y={scrollable ? 'auto' : 'hidden'}
     role={history ? 'region' : 'log'}
     aria-live={history ? 'off' : 'polite'}
@@ -1261,6 +1327,7 @@
     bind:this={bar}
     bind:expanded
     bind:fullscreen
+    bind:wide
     boundary={frameEl}
     placeholder={unavailable ? "Chat isn't available right now" : botPaused ? 'Reply to the team…' : placeholder}
     {streaming}
@@ -1280,7 +1347,8 @@
     {logo}
     {logoSrc}
     {launcher}
-    {side}
+    side={where === 'left' ? 'left' : where === 'right' ? 'right' : side}
+    dock={where}
     {size}
     {resizable}
     {voice}
@@ -1452,6 +1520,26 @@
        reply's action row, which sits inside this gap (see .foot). */
     gap: calc(var(--pbf-u) * 8);
   }
+  /* Wide: a box as tall as the host allows (less the loader's margin and the
+     stage's gutter; the host height, never this window's, so no feedback
+     loop), with the thread flexing into whatever the card leaves. A taller
+     card (the contact panel) shrinks the thread instead of pushing the header
+     off screen, and a short conversation sits just above the composer. */
+  .frame-wrap[data-wide] {
+    height: min(calc(var(--pb-host-h, 100vh) - 40px), 900px);
+  }
+  .frame-wrap[data-wide] .frame,
+  .frame-wrap[data-wide] .thread-box,
+  .frame-wrap[data-wide] .thread {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .frame-wrap[data-wide] .thread-inner {
+    flex: none;
+  }
+  .frame-wrap[data-wide] .thread-inner:not(.history),
   .frame-wrap[data-full] .thread-inner:not(.history) {
     margin-top: auto;
   }
