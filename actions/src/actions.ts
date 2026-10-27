@@ -26,9 +26,21 @@
 // name replaces its tool); a refused tool gets a console warning. The frame
 // (app/src/lib/page-tools) applies every other declaration rule, and it and
 // the server check args against the schema before anything is posted here.
-// do:'tool' runs execute(args) (absent args = {}) for a registered name (else
-// not_found) with a TOOL_MS timeout; ok unless it threw or returned
-// {ok:false} (`failed`); a string `message` goes back clipped to 160.
+// do:'tool' runs execute(args, {signal}) (absent args = {}) for a registered
+// name (else not_found) with a TOOL_MS timeout that aborts the signal; ok
+// unless it threw or returned {ok:false} (`failed`); a string `message` goes
+// back clipped to 160.
+//
+// WebMCP, only with `data-webmcp` on this tag: the tools the page registered
+// on document.modelContext (else navigator.modelContext, the older name), read
+// with same-origin getTools() and again on toolchange. A tool marked
+// consequentialHint (payments, account changes) or with a name outside
+// TOOL_NAME is skipped; $schema/title/description/additionalProperties leave
+// the schema, any other key the frame refuses drops the tool; confirm is
+// always true. pawbarTools win a shared name and come first; the frame gets at
+// most TOOLS_MAX. A run goes through executeTool(tool, args, {signal}): a
+// string result is the message, {isError:true} has failed. No shim: nothing
+// here defines modelContext. It costs ~350 B of the 2,560 B gzip budget.
 //
 // SECURITY: a message is honoured only when ev.origin is the frame origin AND
 // ev.source is the contentWindow of the Paw Bar iframe (an iframe on that
@@ -50,6 +62,7 @@ const TOOL_MS = 10000;
 
 type ActError = 'not_found' | 'blocked' | 'unsupported';
 type Data = Record<string, any>;
+type Exec = (args: Data, opts: { signal: AbortSignal }) => unknown;
 type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarTools?: any };
 
 (function boot(win: ActWindow): void {
@@ -73,8 +86,9 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
   let overlay: HTMLElement | null = null;
   let overlayTimer = 0;
   let sendTimer = 0;
-  // name -> [what the frame sees, execute]
-  const tools = new Map<string, [Data, (args: Data) => unknown]>();
+  // name -> [what the frame sees, execute]; `web` holds the WebMCP tools.
+  const tools = new Map<string, [Data, Exec]>();
+  let web = new Map<string, [Data, Exec]>();
 
   // The Paw Bar iframe's window: the one that sent `source`, or with no
   // source given, the first on the page. Null when there is none.
@@ -113,7 +127,10 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
   }
 
   function sendTools(w = frameWin()): void {
-    w?.postMessage({ type: 'pawbar:tools', tools: Array.from(tools.values(), (t) => t[0]) }, frameOrigin);
+    // pawbarTools first; a WebMCP tool of the same name is shadowed.
+    const all = [...tools.values()];
+    web.forEach((t, k) => tools.has(k) || all.push(t));
+    w?.postMessage({ type: 'pawbar:tools', tools: all.slice(0, TOOLS_MAX).map((t) => t[0]) }, frameOrigin);
   }
 
   function sendSoon(): void {
@@ -122,13 +139,17 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
   }
 
   function runTool(d: Data, reply: (r: Data) => void): void {
-    const t = tools.get(d.name);
+    const t = tools.get(d.name) || web.get(d.name);
     if (!t) return reply({ ok: false, error: 'not_found' });
     // First answer wins; a late one after the timeout is dropped.
     let done = 0;
     const fin = (r: Data) => done++ || reply(r);
-    setTimeout(() => fin({ ok: false, error: 'timeout' }), TOOL_MS);
-    new Promise((res) => res(t[1](d.args ?? {}))).then(
+    const ac = new AbortController();
+    setTimeout(() => {
+      ac.abort();
+      fin({ ok: false, error: 'timeout' });
+    }, TOOL_MS);
+    new Promise((res) => res(t[1](d.args ?? {}, { signal: ac.signal }))).then(
       (r: any) => {
         const ok = r?.ok !== false;
         const m = r?.message;
@@ -147,6 +168,36 @@ type ActWindow = Window & typeof globalThis & { [LOADED_FLAG]?: boolean; pawbarT
     sendSoon();
   };
   if (tools.size) sendSoon();
+
+  // WebMCP (data-webmcp only): the same-origin tools the page registered,
+  // read again on toolchange; the newest read wins.
+  const mc = script.hasAttribute('data-webmcp') && ((doc as Data).modelContext || (navigator as Data).modelContext);
+  let gen = 0;
+  async function readWeb(): Promise<void> {
+    const n = ++gen;
+    const next = new Map<string, [Data, Exec]>();
+    for (const t of await mc.getTools()) {
+      // Keys with no rule to enforce go; any other unknown key makes the frame drop the tool.
+      const { $schema, title, description, additionalProperties, ...s } = t.inputSchema || { type: 'object' };
+      if (t.annotations?.consequentialHint || !TOOL_NAME.test(t.name)) continue;
+      next.set(t.name, [
+        { name: t.name, description: t.description, inputSchema: s, confirm: true },
+        async (a, o) => {
+          const v = JSON.parse((await mc.executeTool(t, a, o)) ?? 'null');
+          return typeof v == 'string' ? { message: v } : v?.isError ? { ok: false } : v;
+        },
+      ]);
+    }
+    if (n == gen) {
+      web = next;
+      sendSoon();
+    }
+  }
+  const sync = () => readWeb().catch((e) => console.warn('paw-bar: webmcp', e));
+  if (mc) {
+    mc.addEventListener('toolchange', sync);
+    sync();
+  }
 
   const norm = (p: string): string => p.replace(/\/+$/, '') || '/';
 
