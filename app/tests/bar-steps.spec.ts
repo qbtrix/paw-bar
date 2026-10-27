@@ -8,7 +8,6 @@ import {
   stepDown,
   docksFor,
   ownerDock,
-  neighbours,
   readDock,
   writeDock,
   DOCK_KEY,
@@ -52,13 +51,6 @@ describe('dock', () => {
     expect(ownerDock('bar', 'left')).toBe('center');
     expect(ownerDock('icon', 'left')).toBe('left');
     expect(ownerDock('icon', 'right')).toBe('right');
-  });
-
-  it('moves one spot at a time and stops at the edges', () => {
-    expect(neighbours('center', 'bar')).toEqual({ left: 'left', right: 'right' });
-    expect(neighbours('left', 'bar')).toEqual({ left: undefined, right: 'center' });
-    expect(neighbours('right', 'icon')).toEqual({ left: 'left', right: undefined });
-    expect(neighbours('center', 'icon')).toEqual({});
   });
 
   it('remembers a pick per site key', () => {

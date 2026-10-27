@@ -130,6 +130,17 @@ describe('size steps', () => {
     expect(wrap(target).wide).toBeUndefined();
   });
 
+  it('a host that turns narrow drops the wide step in the card too', async () => {
+    const { target, props } = render({ expanded: true, greeting: 'Hi', hostViewport: { w: 1280, h: 820 } });
+    await press(target, 'Wider');
+    expect(q(target, '.pawbar-host')!.dataset.wide).toBe('true');
+    props.hostViewport = { w: 390, h: 800 };
+    await tick();
+    flushSync();
+    expect(wrap(target).wide).toBeUndefined();
+    expect(q(target, '.pawbar-host')!.dataset.wide).toBeUndefined();
+  });
+
   it('closing the card drops the wide step', async () => {
     const { target } = render({ expanded: true, greeting: 'Hi' });
     await press(target, 'Wider');
@@ -139,33 +150,78 @@ describe('size steps', () => {
 });
 
 describe('moving the bar', () => {
-  it('offers only the spots one move away, and says where it went', async () => {
+  const move = (t: HTMLElement) => q<HTMLButtonElement>(t, '.head-btn.move');
+  const slots = (t: HTMLElement) => [...t.querySelectorAll<HTMLButtonElement>('.move-map .slot')];
+  const labels = (t: HTMLElement) => slots(t).map((b) => b.getAttribute('aria-label'));
+  const here = (t: HTMLElement) => slots(t).find((b) => b.getAttribute('aria-pressed') === 'true')?.getAttribute('aria-label');
+  const openMap = async (t: HTMLElement) => {
+    move(t)!.click();
+    await tick();
+    flushSync();
+  };
+  const key = async (el: Element, k: string) => {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    await tick();
+    flushSync();
+  };
+
+  it('one Move button opens a map of every spot, with the current one marked', async () => {
     const onmove = vi.fn();
     const { target, props } = render({ expanded: true, greeting: 'Hi', onmove, dock: 'center' });
-    const labels = () => [...target.querySelectorAll('.head-btn.move')].map((b) => b.getAttribute('aria-label'));
-    expect(labels()).toEqual(['Move to the left', 'Move to the right']);
-    q<HTMLButtonElement>(target, 'button[aria-label="Move to the left"]')!.click();
+    expect(target.querySelectorAll('.head-btn.move')).toHaveLength(1);
+    expect(move(target)!.getAttribute('aria-label')).toBe('Move chat');
+    expect(move(target)!.getAttribute('aria-expanded')).toBe('false');
+    expect(slots(target)).toHaveLength(0);
+    await openMap(target);
+    expect(move(target)!.getAttribute('aria-expanded')).toBe('true');
+    expect(labels(target)).toEqual(['Move to the left', 'Move to the middle', 'Move to the right']);
+    expect(here(target)).toBe('Move to the middle');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Move to the middle');
+    slots(target)[0].click();
+    await tick();
+    flushSync();
     expect(onmove).toHaveBeenCalledWith('left');
+    expect(slots(target)).toHaveLength(0);
+    expect(document.activeElement).toBe(move(target));
+    expect(target.textContent).toContain('Moved to the left');
     props.dock = 'left';
     await tick();
     flushSync();
-    expect(labels()).toEqual(['Move to the middle']);
     expect(q(target, '.frame-wrap')!.dataset.anchor).toBe('left');
-    expect(target.textContent).toContain('Moved to the left');
+    await openMap(target);
+    expect(here(target)).toBe('Move to the left');
   });
 
-  it('has no Move buttons without onmove, in full screen, or for the bar on a phone', () => {
+  it('arrow keys walk the spots, and Escape closes the map without folding the card', async () => {
+    const { target } = render({ expanded: true, greeting: 'Hi', onmove: vi.fn(), dock: 'center' });
+    await openMap(target);
+    await key(document.activeElement!, 'ArrowRight');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Move to the right');
+    await key(document.activeElement!, 'ArrowRight');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Move to the right');
+    await key(document.activeElement!, 'ArrowLeft');
+    await key(document.activeElement!, 'ArrowLeft');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Move to the left');
+    await key(document.activeElement!, 'Escape');
+    expect(slots(target)).toHaveLength(0);
+    expect(document.activeElement).toBe(move(target));
+    expect(q(target, '.frame-head')).not.toBeNull();
+  });
+
+  it('has no Move button without onmove, in full screen, or for the bar on a phone', async () => {
     const a = render({ expanded: true, greeting: 'Hi' });
-    expect(a.target.querySelector('.head-btn.move')).toBeNull();
+    expect(move(a.target)).toBeNull();
     if (live) unmount(live);
     const b = render({ expanded: true, greeting: 'Hi', onmove: vi.fn(), fullscreen: true });
-    expect(b.target.querySelector('.head-btn.move')).toBeNull();
+    expect(move(b.target)).toBeNull();
     if (live) unmount(live);
     const c = render({ expanded: true, greeting: 'Hi', onmove: vi.fn(), hostViewport: { w: 390, h: 800 } });
-    expect(c.target.querySelector('.head-btn.move')).toBeNull();
+    expect(move(c.target)).toBeNull();
     if (live) unmount(live);
     const d = render({ expanded: true, greeting: 'Hi', onmove: vi.fn(), launcher: 'icon', side: 'right', hostViewport: { w: 390, h: 800 } });
-    expect([...d.target.querySelectorAll('.head-btn.move')].map((x) => x.getAttribute('aria-label'))).toEqual(['Move to the left']);
+    await openMap(d.target);
+    expect(labels(d.target)).toEqual(['Move to the left', 'Move to the right']);
+    expect(here(d.target)).toBe('Move to the right');
   });
 });
 
