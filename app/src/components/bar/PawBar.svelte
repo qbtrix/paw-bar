@@ -129,9 +129,13 @@
     full screen and the Talk-to-a-person panel, and folds the card even with
     a draft typed, which would otherwise hold it open. The draft is kept for
     the next open. `outsidePress()` is exported too: the widget shell calls
-    it for a click on the host page. Hover cannot reopen it until the pointer has left the
-    bar, because the surface reshaping under a still pointer fires a fresh
-    pointerenter. `closeChat()` is exported for the frame's list header.
+    it for a click on the host page, and it clears hover too, since the frame
+    may never hear the pointer leave a box that moved away. After ✕ hover
+    cannot reopen it until the pointer has left the bar, and after hover
+    folds it only a real pointer move reopens it: the surface reshaping under
+    a still pointer fires a fresh pointerenter, and honouring that can flip
+    the card open and shut. `closeChat()` is exported for the frame's list
+    header.
     Escape still peels one layer at a time and keeps a drafted card open.
     A press anywhere inside a hover-opened card pins it, as a click on the
     pill does.
@@ -391,9 +395,11 @@
     const el = boundary ?? hostEl;
     if (!el) return;
     el.addEventListener('pointerenter', onEnter);
+    el.addEventListener('pointermove', onEnter);
     el.addEventListener('pointerleave', onLeave);
     return () => {
       el.removeEventListener('pointerenter', onEnter);
+      el.removeEventListener('pointermove', onEnter);
       el.removeEventListener('pointerleave', onLeave);
     };
   });
@@ -449,7 +455,8 @@
   function onEnter(e: PointerEvent) {
     if (e.pointerType !== 'mouse' || isIcon) return;
     clearTimeout(leaveTimer);
-    if (hoverLocked) return;
+    if (hoverLocked || (stale && e.type !== 'pointermove')) return;
+    stale = false;
     hovering = true;
     dismissed = false;
   }
@@ -463,10 +470,17 @@
     if (inside && !inside.contains(e.target as Node)) hoverLocked = false;
   }
   // A short grace period so skimming the edge does not flicker it shut.
+  // Once hover has folded it, only a real pointer move reopens it: the bar
+  // shrinking back under a still pointer fires a fresh pointerenter, and
+  // honouring that let a box that moves under the pointer flip open and shut.
+  let stale = false;
   function onLeave(e: PointerEvent) {
     if (e.pointerType !== 'mouse' || isIcon) return;
     clearTimeout(leaveTimer);
-    leaveTimer = setTimeout(() => (hovering = false), 140);
+    leaveTimer = setTimeout(() => {
+      hovering = false;
+      stale = true;
+    }, 140);
   }
   // Only focus INSIDE THE CARD holds it open. Focus on the resting face's
   // trigger must not: Escape hands focus back to it, and if that counted the
@@ -759,7 +773,9 @@
   export function outsidePress() {
     menuOpen = false;
     // Never fold a reply that is still being written.
-    if (open && !value.trim() && !streaming) expanded = false;
+    // A press on the site is proof the pointer is outside, even when the
+    // frame never heard it leave (the box moved away under a still pointer).
+    if (open && !value.trim() && !streaming) expanded = hovering = false;
   }
 
   // ── Size menu ─────────────────────────────────────────────────────────────

@@ -251,7 +251,7 @@ if (SCEN !== 'main') {
     await moveTo('right');
     await page.waitForTimeout(700);
     if (process.env.VW2) await page.setViewportSize({ width: +process.env.VW2, height: +process.env.VH2 });
-    await page.mouse.move(20, 20);
+    await page.mouse.move(20, 20, { steps: 5 });
     await page.mouse.click(20, 20);
     await page.waitForTimeout(800);
     log('corner folded box', await box());
