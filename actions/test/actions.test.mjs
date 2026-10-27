@@ -13,7 +13,8 @@
 // off without the attribute, the mapping (consequential and bad names
 // skipped, schema keys stripped, confirm forced), pawbarTools winning a name,
 // toolchange re-reads, executeTool with an object, result mapping, timeout
-// abort, and the navigator.modelContext fallback.
+// abort, the navigator.modelContext fallback, and a broken modelContext
+// leaving actions and pawbarTools working.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -665,4 +666,19 @@ test('webmcp: falls back to navigator.modelContext', async () => {
   });
   await sleep(80);
   assert.deepEqual(toolLists(replies).at(-1).data.tools.map((t) => t.name), ['request_invitation']);
+});
+
+test('webmcp: an odd modelContext costs only its own tools', async () => {
+  const { window, iframe, replies, warns } = mount({
+    before: (w) => {
+      w.document.modelContext = {};
+      w.pawbarTools = [cartTool()];
+    },
+    webmcp: true,
+  });
+  act(window, { type: 'pawbar:act', id: 'n1', do: 'scroll_to', target: 'nowhere' }, { source: iframe.contentWindow });
+  await sleep(80);
+  assert.deepEqual(results(replies).map((r) => r.data), [{ type: 'pawbar:act-result', id: 'n1', ok: false, error: 'not_found' }]);
+  assert.deepEqual(toolLists(replies).at(-1).data.tools.map((t) => t.name), ['add_to_cart']);
+  assert.ok(warns.some((w) => String(w[0]).includes('webmcp')));
 });
