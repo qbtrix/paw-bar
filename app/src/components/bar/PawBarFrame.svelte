@@ -99,8 +99,10 @@
   A done reply with a page `action` shows its line underneath ("Taking you to
   …", "Showing …", "Here's the page", "I couldn't find that on this page"), or,
   when the site has no actions script, a link that opens the page in a tab.
-  A site tool waiting on the visitor (state 'confirm') shows its label with
-  Confirm / Cancel, which call `ontoolanswer(id, yes)`; after that its line is
+  A site tool waiting on the visitor (state 'confirm') shows its label, then
+  the site's own description of that tool (from lib/page-tools, when the
+  registry has it) and each arg as name and value, since the label is model
+  text, with Confirm / Cancel, which call `ontoolanswer(id, yes)`; after that its line is
   the host's result message, or "Done" / "That didn't work" / "Cancelled".
   A reload shows an unanswered one as "<label> · Not done" with no buttons.
 
@@ -263,6 +265,7 @@
   import type { SiteTheme } from '../../lib/site-theme';
   import { FAILURE_COPY, formatCopy, UNAVAILABLE_COPY } from '../../lib/chat-errors';
   import { actionLine } from '../../lib/page-actions';
+  import { findPageTool } from '../../lib/page-tools';
   import type { Notice } from '../../store/chat.svelte';
   import Markdown from '../Markdown.svelte';
   import { provideCart, type CartStore } from '../../store/cart.svelte';
@@ -1233,8 +1236,16 @@
                   {#if act.state === 'fallback' && act.to}
                     <a class="source" href={act.to} target="_blank" rel="noopener noreferrer">{actionLine(act, act.state)} ↗</a>
                   {:else if act.do === 'tool' && act.state === 'confirm' && ontoolanswer}
+                    {@const what = findPageTool(act.name)?.description}
+                    {@const args = Object.entries(act.args ?? {})}
                     <div class="meta turn-note tool-confirm" role="group" aria-label={act.label} in:fade={soft}>
                       <span>{actionLine(act, act.state)}</span>
+                      {#if what}<span class="tool-what">{what}</span>{/if}
+                      {#if args.length}
+                        <dl class="tool-args">
+                          {#each args as [k, v] (k)}<div><dt>{k}</dt><dd>{String(v)}</dd></div>{/each}
+                        </dl>
+                      {/if}
                       <button type="button" class="retry" onclick={() => ontoolanswer?.(m.id, true)}>Confirm</button>
                       <button type="button" class="retry quiet" onclick={() => ontoolanswer?.(m.id, false)}>Cancel</button>
                     </div>
@@ -2118,6 +2129,23 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--pbf-s2);
+  }
+  /* The site's own words and the exact args: the label above is model text. */
+  .tool-what,
+  .tool-args {
+    flex-basis: 100%;
+    margin: 0;
+  }
+  .tool-args div {
+    display: flex;
+    gap: var(--pbf-s2);
+  }
+  .tool-args dt {
+    font-weight: 600;
+  }
+  .tool-args dd {
+    margin: 0;
+    overflow-wrap: anywhere;
   }
   .turn-note.error {
     color: var(--pawbar-danger, color-mix(in oklab, #d93036 72%, var(--pawbar-frame-fg, #f2f2f5)));

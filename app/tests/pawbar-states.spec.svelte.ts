@@ -37,6 +37,7 @@ import { mount, unmount, flushSync, tick } from 'svelte';
 import PawBarFrame, { type BarMessage } from '../src/components/bar/PawBarFrame.svelte';
 import PawBar from '../src/components/bar/PawBar.svelte';
 import { resolveTheme } from '../src/lib/bar-themes';
+import { setPageTools, resetPageTools } from '../src/lib/page-tools';
 
 let live: ReturnType<typeof mount> | null = null;
 afterEach(() => {
@@ -615,5 +616,27 @@ describe('a site tool under a reply', () => {
   it('offers no buttons without a handler', () => {
     const { target } = frame({ expanded: true, messages: [reply({ ...tool, state: 'confirm' })] });
     expect(buttons(target)).toHaveLength(0);
+  });
+
+  it("shows the site's description and the exact args, not just the model's label", () => {
+    setPageTools([{ name: 'add_to_cart', description: 'Adds <b>one</b> item to your cart', inputSchema: { type: 'object' } }]);
+    const args = { product: '<img src=x>', quantity: 2 };
+    const { target } = frame({ expanded: true, ontoolanswer: vi.fn(), messages: [reply({ ...tool, args, state: 'confirm' })] });
+    const card = target.querySelector('.tool-confirm')!;
+    expect(card.querySelector('.tool-what')?.textContent).toBe('Adds <b>one</b> item to your cart');
+    const rows = [...card.querySelectorAll('.tool-args div')].map((d) => [d.querySelector('dt')?.textContent, d.querySelector('dd')?.textContent]);
+    expect(rows).toEqual([
+      ['product', '<img src=x>'],
+      ['quantity', '2'],
+    ]);
+    expect(card.querySelector('img, b')).toBeNull();
+    resetPageTools();
+  });
+
+  it('shows the args alone when the tool is not in the registry', () => {
+    resetPageTools();
+    const { target } = frame({ expanded: true, ontoolanswer: vi.fn(), messages: [reply({ ...tool, state: 'confirm' })] });
+    expect(target.querySelector('.tool-what')).toBeNull();
+    expect(target.querySelector('.tool-args dd')?.textContent).toBe('CAIRN-45');
   });
 });

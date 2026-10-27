@@ -9,6 +9,11 @@
 // checks and limits kept here, the pawbar:tools post (debounced, on request,
 // never to a spoofed asker), and do:'tool' runs: result message, failure,
 // throw, unknown name, absent args, and the 10 s timeout (shortened here).
+// WebMCP (data-webmcp), against a stub modelContext since jsdom has none:
+// off without the attribute, the mapping (consequential and bad names
+// skipped, schema keys stripped, confirm forced), pawbarTools winning a name,
+// toolchange re-reads, executeTool with an object, result mapping, timeout
+// abort, and the navigator.modelContext fallback.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +29,7 @@ const FRAME_ORIGIN = 'https://api.pawbar.dev';
 const mounted = [];
 test.after(() => mounted.forEach((w) => w.close()));
 
-function mount({ body = '', path = '/', reducedMotion = false, endpointAttr = null, before = null } = {}) {
+function mount({ body = '', path = '/', reducedMotion = false, endpointAttr = null, before = null, webmcp = false } = {}) {
   const navigations = [];
   const warns = [];
   const vc = new VirtualConsole();
@@ -65,6 +70,7 @@ function mount({ body = '', path = '/', reducedMotion = false, endpointAttr = nu
   if (before) before(window);
   const s = window.document.createElement('script');
   if (endpointAttr) s.setAttribute('data-endpoint', endpointAttr);
+  if (webmcp) s.setAttribute('data-webmcp', '');
   // An inline script has no src, so currentScript.src is ''. Give the IIFE the
   // src it would have when served, the way a real include sees it.
   Object.defineProperty(s, 'src', { get: () => ENDPOINT + '/paw-bar/actions.js' });
@@ -520,4 +526,143 @@ test('a tool that never settles times out, and a late answer sends nothing more'
     results(replies).map((r) => r.data),
     [{ type: 'pawbar:act-result', id: 't1', ok: false, error: 'timeout' }],
   );
+});
+
+// ── WebMCP ──────────────────────────────────────────────────────────────────
+const INVITE_SCHEMA = { type: 'object', properties: { event_slug: { type: 'string', maxLength: 60 } }, required: ['event_slug'] };
+const inviteTool = (over = {}) => ({
+  name: 'request_invitation',
+  description: 'Ask for an invitation to an event',
+  inputSchema: INVITE_SCHEMA,
+  execute: async ({ event_slug }) => `Requested ${event_slug}`,
+  ...over,
+});
+
+// A stand-in for document.modelContext: registered tools, getTools copies
+// without execute (as the spec says), executeTool returns the JSON string.
+function stubMC(tools) {
+  const listeners = [];
+  const calls = [];
+  return {
+    tools,
+    calls,
+    getTools: async () =>
+      tools.map(({ execute, ...t }) => JSON.parse(JSON.stringify({ ...t, origin: HOST_ORIGIN }))),
+    executeTool: async (rt, input, opts) => {
+      calls.push({ name: rt.name, input, opts });
+      const t = tools.find((x) => x.name === rt.name);
+      if (!t) throw new Error('NotFoundError');
+      return JSON.stringify(await t.execute(input, opts));
+    },
+    addEventListener: (type, fn) => type === 'toolchange' && listeners.push(fn),
+    change: () => listeners.forEach((f) => f()),
+  };
+}
+const withMC = (mc) => (w) => (w.document.modelContext = mc);
+
+test('webmcp: nothing is read without data-webmcp', async () => {
+  const mc = stubMC([inviteTool()]);
+  const { replies } = mount({ before: withMC(mc) });
+  await sleep(80);
+  assert.equal(toolLists(replies).length, 0);
+});
+
+test('webmcp: lists page tools, skips consequential and bad names, strips rule-free schema keys', async () => {
+  const mc = stubMC([
+    inviteTool({ inputSchema: { $schema: 'x', title: 'T', description: 'D', additionalProperties: false, ...INVITE_SCHEMA } }),
+    inviteTool({ name: 'get_application_status', inputSchema: undefined, annotations: { readOnlyHint: true } }),
+    inviteTool({ name: 'checkout', annotations: { consequentialHint: true } }),
+    inviteTool({ name: 'Bad-Name' }),
+  ]);
+  const { replies } = mount({ before: withMC(mc), webmcp: true });
+  await sleep(80);
+  const lists = toolLists(replies);
+  assert.equal(lists.length, 1);
+  assert.equal(lists[0].origin, FRAME_ORIGIN);
+  assert.deepEqual(lists[0].data.tools, [
+    { name: 'request_invitation', description: 'Ask for an invitation to an event', inputSchema: INVITE_SCHEMA, confirm: true },
+    { name: 'get_application_status', description: 'Ask for an invitation to an event', inputSchema: { type: 'object' }, confirm: true },
+  ]);
+});
+
+test('webmcp: a pawbarTools tool wins a shared name and comes first', async () => {
+  const mc = stubMC([inviteTool(), inviteTool({ name: 'add_to_cart' })]);
+  const { replies } = mount({ before: (w) => (withMC(mc)(w), (w.pawbarTools = [cartTool()])), webmcp: true });
+  await sleep(80);
+  const tools = toolLists(replies).at(-1).data.tools;
+  assert.deepEqual(tools.map((t) => [t.name, t.description]), [
+    ['add_to_cart', 'Add a product to the cart'],
+    ['request_invitation', 'Ask for an invitation to an event'],
+  ]);
+});
+
+test('webmcp: toolchange re-reads, so a removed tool leaves the list', async () => {
+  const mc = stubMC([inviteTool(), inviteTool({ name: 'start_application' })]);
+  const { replies } = mount({ before: withMC(mc), webmcp: true });
+  await sleep(80);
+  mc.tools.pop();
+  mc.change();
+  await sleep(80);
+  assert.deepEqual(toolLists(replies).at(-1).data.tools.map((t) => t.name), ['request_invitation']);
+});
+
+test('webmcp: runs through executeTool with an object and shows a string result', async () => {
+  const mc = stubMC([inviteTool()]);
+  const { window, iframe, replies } = mount({ before: withMC(mc), webmcp: true });
+  await sleep(80);
+  runTool(window, iframe, { name: 'request_invitation', args: { event_slug: 'winter-ball' } });
+  await sleep(20);
+  assert.deepEqual(mc.calls[0].input, { event_slug: 'winter-ball' });
+  assert.ok(mc.calls[0].opts.signal, 'an abort signal is passed');
+  assert.deepEqual(results(replies).map((r) => r.data), [
+    { type: 'pawbar:act-result', id: 't1', ok: true, message: 'Requested winter-ball' },
+  ]);
+});
+
+test('webmcp: isError, {ok:false} and a rejection have failed; null is done', async () => {
+  const outs = [{ isError: true, content: [] }, { ok: false, message: 'Full' }, null];
+  const mc = stubMC([
+    ...outs.map((o, i) => inviteTool({ name: 't' + i, execute: async () => o })),
+    inviteTool({ name: 'boom', execute: async () => { throw new Error('no'); } }),
+  ]);
+  const { window, iframe, replies } = mount({ before: withMC(mc), webmcp: true });
+  await sleep(80);
+  for (const name of ['t0', 't1', 't2', 'boom']) {
+    runTool(window, iframe, { id: name, name, args: { event_slug: 'x' } });
+  }
+  await sleep(20);
+  const by = Object.fromEntries(results(replies).map((r) => [r.data.id, r.data]));
+  assert.equal(by.t0.ok, false);
+  assert.equal(by.t0.error, 'failed');
+  assert.deepEqual([by.t1.ok, by.t1.message], [false, 'Full']);
+  assert.deepEqual([by.t2.ok, by.t2.message], [true, undefined]);
+  assert.deepEqual([by.boom.ok, by.boom.error], [false, 'failed']);
+});
+
+test('webmcp: the timeout aborts the execution signal', async () => {
+  let signal;
+  const mc = stubMC([inviteTool({ execute: (_a, o) => ((signal = o.signal), new Promise(() => {})) })]);
+  const { window, iframe, replies } = mount({
+    before: (w) => {
+      const st = w.setTimeout.bind(w);
+      w.setTimeout = (fn, ms, ...rest) => st(fn, ms === 10000 ? 20 : ms, ...rest);
+      withMC(mc)(w);
+    },
+    webmcp: true,
+  });
+  await sleep(80);
+  runTool(window, iframe, { name: 'request_invitation', args: { event_slug: 'x' } });
+  await sleep(60);
+  assert.equal(signal.aborted, true);
+  assert.deepEqual(results(replies).map((r) => r.data.error), ['timeout']);
+});
+
+test('webmcp: falls back to navigator.modelContext', async () => {
+  const mc = stubMC([inviteTool()]);
+  const { replies } = mount({
+    before: (w) => Object.defineProperty(w.navigator, 'modelContext', { value: mc, configurable: true }),
+    webmcp: true,
+  });
+  await sleep(80);
+  assert.deepEqual(toolLists(replies).at(-1).data.tools.map((t) => t.name), ['request_invitation']);
 });
