@@ -309,6 +309,8 @@ describe("the owner's look reaches the frame", () => {
   it('a visitor moves the bar, the loader hears the side, and the pick is kept per site', () => {
     const first = shell();
     openCard(first.target);
+    q<HTMLButtonElement>(first.target, 'button[aria-label="Move chat"]')!.click();
+    flushSync();
     q<HTMLButtonElement>(first.target, 'button[aria-label="Move to the left"]')!.click();
     flushSync();
     expect(q(first.target, '.stage')!.dataset.anchor).toBe('left');

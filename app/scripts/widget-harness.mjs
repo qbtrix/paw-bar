@@ -10,11 +10,16 @@
 // VITE_PAWBAR_UI=glass build. That build no longer exists.
 //
 // Run from app/:  node scripts/widget-harness.mjs
-//   SCEN=main|icon|phone|consent|leave|viewport|grow|move  (default main)
-//   main steps docked → wide → full and back; move moves the bar left, reloads
-//   to check the pick is kept, then walks it right.
+//   SCEN=main|icon|phone|consent|leave|viewport|grow|move|corner|iconcorner|squash
+//   (default main). main steps docked → wide → full and back; move moves the
+//   bar left through the Move map, reloads to check the pick is kept, then
+//   walks it right. corner and iconcorner put a fixed "Cookie settings" button
+//   in the host's bottom-right corner, move the bar there and log every box
+//   change under a jittering pointer (a flip shows as a long list). squash
+//   checks the header keeps its height in wide with the contact panel open.
 //   BOOT='{"launcher":"icon","side":"left"}'     boot config overrides
-//   VW=390 VH=800                                viewport
+//   VW=390 VH=800 DPR=2                          viewport, pixel ratio
+//   VW2=584 VH2=663                              corner: resize after moving
 //   PW_CHROMIUM=/path/to/headless_shell          browser override
 // Prints the iframe box at each step; screenshots go to test-results/wh-*.png.
 import { createServer } from 'node:http';
@@ -45,6 +50,7 @@ const host = createServer((req, res) => {
 <body><main><h1>Ocean Supply</h1><p>Customer page.</p><div class="hero"></div><p>More content.</p></main>
 <button id="hit" onclick="this.dataset.n=(+this.dataset.n||0)+1;this.textContent='clicks '+this.dataset.n">clicks 0</button>
 <button id="hit2" onclick="this.dataset.n=(+this.dataset.n||0)+1;this.textContent='clicks '+this.dataset.n">clicks 0</button>
+${['corner', 'iconcorner'].includes(process.env.SCEN) ? '<button id="cookie" style="position:fixed;right:16px;bottom:16px;padding:10px 16px;border-radius:8px;border:1px solid #bbb;background:#fff;font:14px system-ui">Cookie settings</button>' : ''}
 <script src="/loader.js" data-site-key="sk_test" data-widget-id="w_test" data-endpoint="${frameOrigin}/api/v1"></script>
 </body></html>`);
 });
@@ -112,7 +118,7 @@ const H = +(process.env.VH || 820);
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || undefined });
 // The screen differs from the viewport on purpose: it tells the loader's
 // pawbar:viewport message apart from the app's screen-size fallback.
-const context = await browser.newContext({ viewport: { width: W, height: H }, screen: { width: 1920, height: 1080 } });
+const context = await browser.newContext({ viewport: { width: W, height: H }, screen: { width: 1920, height: 1080 }, deviceScaleFactor: +(process.env.DPR || 1) });
 const page = await context.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push('host: ' + e));
@@ -129,6 +135,12 @@ const fr = () => page.frames().find((f) => f.url().includes('/paw-bar/frame'));
 const shot = (n) => page.screenshot({ path: `test-results/wh-${n}.png` });
 const log = (...a) => console.log(...a);
 const hits = () => page.evaluate(() => [document.getElementById('hit').dataset.n || '0', document.getElementById('hit2').dataset.n || '0'].join('/'));
+// Move through the header's Move map: open it, pick a slot.
+const moveTo = async (d) => {
+  await fr().click('button[aria-label="Move chat"]');
+  await page.waitForTimeout(250);
+  await fr().click(`button[aria-label="Move to the ${d}"]`);
+};
 const raf = (n = 10) => fr().evaluate((n) => new Promise((r) => { let k = 0; const f = () => (++k >= n ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
 
 log('rest box', await box());
@@ -196,6 +208,9 @@ if (SCEN !== 'main') {
     await fr().press('textarea', 'Enter');
     await page.waitForTimeout(3500);
     log('centre box', await box());
+    await fr().click('button[aria-label="Move chat"]');
+    await page.waitForTimeout(300);
+    await shot(tag + '-map');
     await fr().click('button[aria-label="Move to the left"]');
     await page.waitForTimeout(700);
     log('left box', await box(), 'focus', await fr().evaluate(() => document.activeElement?.getAttribute('aria-label')));
@@ -214,9 +229,9 @@ if (SCEN !== 'main') {
     await page.waitForTimeout(700);
     await fr().click('textarea');
     await page.waitForTimeout(700);
-    await fr().click('button[aria-label="Move to the middle"]');
+    await moveTo('middle');
     await page.waitForTimeout(500);
-    await fr().click('button[aria-label="Move to the right"]');
+    await moveTo('right');
     await page.waitForTimeout(700);
     log('right box', await box());
     await shot(tag + '-right');
@@ -224,6 +239,100 @@ if (SCEN !== 'main') {
     await page.waitForTimeout(900);
     log('right wide box', await box());
     await shot(tag + '-right-wide');
+  } else if (SCEN === 'corner') {
+    // A host page with a fixed button in the bottom-right corner (a cookie
+    // button), the bar moved there, folded, then hovered with a still pointer.
+    // The box must settle, not flip between sizes.
+    await fr().click('.pawbar');
+    await page.waitForTimeout(600);
+    await fr().fill('textarea', 'Do you ship to Oslo?');
+    await fr().press('textarea', 'Enter');
+    await page.waitForTimeout(3500);
+    await moveTo('right');
+    await page.waitForTimeout(700);
+    if (process.env.VW2) await page.setViewportSize({ width: +process.env.VW2, height: +process.env.VH2 });
+    await page.mouse.move(20, 20, { steps: 5 });
+    await page.mouse.click(20, 20);
+    await page.waitForTimeout(800);
+    log('corner folded box', await box());
+    await shot(tag + '-folded');
+    const fb = await page.locator('iframe').boundingBox();
+    await page.evaluate(() => {
+      window.__b = [];
+      const t0 = performance.now();
+      const f = () => {
+        const r = document.querySelector('iframe').getBoundingClientRect();
+        const k = `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+        if (window.__b[window.__b.length - 1]?.[1] !== k) window.__b.push([Math.round(performance.now() - t0), k]);
+        if (performance.now() - t0 < 2500) requestAnimationFrame(f);
+      };
+      requestAnimationFrame(f);
+    });
+    // A real hand is never still: nudge the pointer a pixel every 40ms.
+    const px = fb.x + fb.width * +(process.env.HX || 0.5);
+    const py = fb.y + fb.height * +(process.env.HY || 0.5);
+    for (let i = 0; i < 65; i++) {
+      await page.mouse.move(px + (i % 2), py);
+      await page.waitForTimeout(40);
+    }
+    const seq = await page.evaluate(() => window.__b);
+    log('hover box changes', seq.length, JSON.stringify(seq.slice(0, 40)));
+    log('corner hovered box', await box());
+    await shot(tag + '-hovered');
+  } else if (SCEN === 'iconcorner') {
+    // The icon launcher moved to the right corner over a fixed host button,
+    // open with a thread, a jittering pointer over each part of the card.
+    await fr().click('.launch');
+    await page.waitForTimeout(700);
+    await fr().fill('textarea', 'Do you ship to Oslo?');
+    await fr().press('textarea', 'Enter');
+    await page.waitForTimeout(3500);
+    await moveTo('right');
+    await page.waitForTimeout(900);
+    log('icon right box', await box());
+    await shot(tag + '-open');
+    await fr().click('button[aria-label="Move chat"]');
+    await page.waitForTimeout(300);
+    await shot(tag + '-map');
+    await fr().press('.move-map .slot[aria-pressed="true"]', 'Escape');
+    await page.waitForTimeout(200);
+    const ob = await page.locator('iframe').boundingBox();
+    for (const fy of [0.05, 0.3, 0.7, 0.95]) {
+      await page.evaluate(() => {
+        window.__b = [];
+        const t0 = performance.now();
+        const f = () => {
+          const r = document.querySelector('iframe').getBoundingClientRect();
+          const k = `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+          if (window.__b[window.__b.length - 1]?.[1] !== k) window.__b.push([Math.round(performance.now() - t0), k]);
+          if (performance.now() - t0 < 2000) requestAnimationFrame(f);
+        };
+        requestAnimationFrame(f);
+      });
+      for (let i = 0; i < 45; i++) {
+        await page.mouse.move(ob.x + ob.width * (0.2 + (i % 7) * 0.1), ob.y + ob.height * fy + (i % 2));
+        await page.waitForTimeout(40);
+      }
+      const seq = await page.evaluate(() => window.__b);
+      log('pointer at', fy, 'box changes', seq.length, JSON.stringify(seq.slice(-6)));
+    }
+    await shot(tag + '-after');
+  } else if (SCEN === 'squash') {
+    // Wide on a short host, then the tall Talk to a person panel: the header
+    // must keep its height (it is a flex child of a height-capped column).
+    await fr().click('.pawbar');
+    await page.waitForTimeout(600);
+    await fr().fill('textarea', 'Do you ship to Oslo?');
+    await fr().press('textarea', 'Enter');
+    await page.waitForTimeout(3500);
+    await fr().click('button[aria-label="Wider"]');
+    await page.waitForTimeout(800);
+    const head = () => fr().evaluate(() => Math.round(document.querySelector('.frame-head')?.getBoundingClientRect().height ?? -1));
+    log('wide box', await box(), 'header h', await head());
+    await fr().click('button:has-text("Talk to a person")');
+    await page.waitForTimeout(800);
+    log('contact box', await box(), 'header h', await head());
+    await shot(tag);
   } else if (SCEN === 'consent') {
     await fr().click('.pawbar');
     await page.waitForTimeout(600);

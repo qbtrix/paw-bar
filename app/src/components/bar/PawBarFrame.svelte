@@ -59,9 +59,12 @@
   peels full, then wide, then the card.
 
   MOVE. `dock` is where the bar sits; `onmove` (set when the owner lets
-  visitors move it) adds Move buttons to the header that offer only the spots
-  one step away (lib/bar-steps `neighbours`), announced politely. Not in full
-  screen, and not for the bar launcher on a phone, where it spans the width.
+  visitors move it) adds one Move button to the header. Its icon shows where
+  the chat sits; it opens a small map of the page's bottom edge with a slot per
+  spot (lib/bar-steps `docksFor`), the current one filled. Arrows walk the
+  slots, Escape closes the map without folding the card, and a move is
+  announced politely. Not in full screen, and not for the bar launcher on a
+  phone, where it spans the width.
 
   FULL SCREEN binds PawBar's `fullscreen` and turns the bar into a full-page
   chat. The wrapper covers the viewport as ONE opaque surface
@@ -274,7 +277,7 @@
   import type { VisitorConversation } from '../../lib/conversations-client';
   import { ago } from '../../lib/relative-time';
   import { readBarSession, writeBarSession } from '../../lib/bar-session';
-  import { stepUp, stepDown, neighbours, ownerDock, type Dock } from '../../lib/bar-steps';
+  import { stepUp, stepDown, docksFor, ownerDock, type Dock } from '../../lib/bar-steps';
 
   let {
     messages = [],
@@ -852,21 +855,55 @@
     fullscreen = s.full;
     await focusField();
   }
+  // PawBar sizes the card from `wide` itself, so a host that turns narrow
+  // must clear it rather than only mask it here.
   $effect(() => {
-    if (!pinned) wide = false;
+    if (!pinned || narrow) wide = false;
   });
 
   const DOCK_NAMES: Record<Dock, string> = { left: 'left', center: 'middle', right: 'right' };
-  const moveTo = $derived(
-    onmove && !fullscreen && !(launcher === 'bar' && viewportW < 600) ? neighbours(where, launcher) : {},
-  );
+  const canMove = $derived(!!onmove && !fullscreen && !(launcher === 'bar' && viewportW < 600));
   let moved = $state('');
-  async function move(to: Dock) {
-    onmove?.(to);
-    moved = `Moved to the ${DOCK_NAMES[to]}`;
-    // The pressed button can vanish (no spot past the edge): keep focus on Move.
+  let picking = $state(false);
+  let moveBtn: HTMLButtonElement | null = $state(null);
+  let mapEl: HTMLDivElement | null = $state(null);
+  $effect(() => {
+    if (!canMove || !pinned) picking = false;
+  });
+  async function toggleMap() {
+    picking = !picking;
     await tick();
-    if (!frameEl?.contains(document.activeElement)) frameEl?.querySelector<HTMLElement>('.head-btn.move')?.focus();
+    mapEl?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus();
+  }
+  async function closeMap() {
+    picking = false;
+    await tick();
+    moveBtn?.focus();
+  }
+  async function move(to: Dock) {
+    if (to !== where) {
+      onmove?.(to);
+      moved = `Moved to the ${DOCK_NAMES[to]}`;
+    }
+    await closeMap();
+  }
+  // Escape stops at the map, so it closes the map and not the card.
+  $effect(() => {
+    const el = mapEl;
+    if (!el) return;
+    el.addEventListener('keydown', onMapKey);
+    return () => el.removeEventListener('keydown', onMapKey);
+  });
+  function onMapKey(e: KeyboardEvent) {
+    const all = [...mapEl!.querySelectorAll<HTMLElement>('.slot')];
+    const i = all.indexOf(document.activeElement as HTMLElement);
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      void closeMap();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      all[Math.max(0, Math.min(all.length - 1, i + (e.key === 'ArrowLeft' ? -1 : 1)))]?.focus();
+    }
   }
 
   // Scrolling is allowed only once the content is genuinely taller than the
@@ -1041,19 +1078,23 @@
         </div>
         <span class="head-gap"></span>
       {/if}
-      {#if moveTo.left}
-        <button type="button" class="head-btn move" aria-label={`Move to the ${DOCK_NAMES[moveTo.left]}`} title={`Move to the ${DOCK_NAMES[moveTo.left]}`} onclick={() => move(moveTo.left!)}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
-          </svg>
-        </button>
-      {/if}
-      {#if moveTo.right}
-        <button type="button" class="head-btn move" aria-label={`Move to the ${DOCK_NAMES[moveTo.right]}`} title={`Move to the ${DOCK_NAMES[moveTo.right]}`} onclick={() => move(moveTo.right!)}>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M13 17l5-5-5-5M6 17l5-5-5-5" />
-          </svg>
-        </button>
+      {#if canMove}
+        <div class="move-wrap" onfocusout={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && (picking = false)}>
+          <button bind:this={moveBtn} type="button" class="head-btn move" aria-label="Move chat" title="Move chat" aria-expanded={picking} onclick={toggleMap}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="3" />
+              <rect x={where === 'left' ? 6 : where === 'right' ? 12 : 9} y="14" width="6" height="3" rx="1" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
+          {#if picking}
+            <div class="move-map" role="group" aria-label="Where the chat sits" bind:this={mapEl} transition:fade={soft}>
+              <span class="map-cap" aria-hidden="true">Move chat to</span>
+              {#each docksFor(launcher) as d (d)}
+                <button type="button" class="slot" data-dock={d} aria-label={`Move to the ${DOCK_NAMES[d]}`} aria-pressed={d === where} onclick={() => move(d)}></button>
+              {/each}
+            </div>
+          {/if}
+        </div>
       {/if}
       {#if canList}
         <button type="button" class="head-btn" aria-label="Your conversations" title="Your conversations" onclick={showConversations}>
@@ -1630,6 +1671,7 @@
      The bottom border is always there (transparent) so the hairline that
      appears once the thread is scrolled never shifts the layout. */
   .frame-head {
+    flex: none;
     display: flex;
     align-items: center;
     gap: var(--pbf-gap);
@@ -1692,6 +1734,78 @@
   }
   .head-gap {
     flex: 1;
+  }
+  /* The Move map: the page's bottom edge in miniature, a slot per spot, the
+     current one filled. */
+  .move-wrap {
+    position: relative;
+  }
+  .move-map {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 3;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    align-items: end;
+    width: 176px;
+    height: 104px;
+    box-sizing: border-box;
+    padding: 10px;
+    border: 1px solid var(--pawbar-frame-border, rgb(255 255 255 / 0.14));
+    border-radius: min(var(--pawbar-radius, 22px), 12px);
+    background: var(--pawbar-frame-bg, rgb(38 38 44 / 0.55));
+    -webkit-backdrop-filter: blur(var(--pawbar-blur, 18px)) saturate(1.3);
+    backdrop-filter: blur(var(--pawbar-blur, 18px)) saturate(1.3);
+    box-shadow: 0 10px 28px rgb(0 0 0 / 0.18);
+  }
+  .move-map::before {
+    content: '';
+    position: absolute;
+    inset: 10px;
+    border: 1.5px solid currentColor;
+    border-radius: min(var(--pawbar-radius, 22px), 6px);
+    opacity: 0.22;
+    pointer-events: none;
+  }
+  .map-cap {
+    position: absolute;
+    top: 18px;
+    left: 20px;
+    font-size: 12px;
+    opacity: 0.7;
+  }
+  .slot {
+    justify-self: center;
+    width: 40px;
+    height: 16px;
+    margin: 7px;
+    padding: 0;
+    border: 1.5px solid currentColor;
+    border-radius: min(var(--pawbar-radius, 22px), 6px);
+    background: none;
+    color: inherit;
+    opacity: 0.45;
+    cursor: pointer;
+  }
+  .slot[data-dock='left'] {
+    justify-self: start;
+  }
+  .slot[data-dock='right'] {
+    justify-self: end;
+  }
+  .slot:hover,
+  .slot:focus-visible,
+  .slot[aria-pressed='true'] {
+    opacity: 1;
+  }
+  .slot[aria-pressed='true'] {
+    background: currentColor;
+  }
+  .slot:focus-visible {
+    outline: 2px solid var(--pawbar-accent, currentColor);
+    outline-offset: 2px;
   }
   .head-btn {
     display: grid;

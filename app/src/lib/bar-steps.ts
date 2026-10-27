@@ -44,14 +44,6 @@ export function ownerDock(launcher: 'bar' | 'icon', side: 'left' | 'right'): Doc
   return launcher === 'icon' ? side : 'center';
 }
 
-/** The spots one move away, left and right of `dock`. */
-export function neighbours(dock: Dock, launcher: 'bar' | 'icon'): { left?: Dock; right?: Dock } {
-  const all = docksFor(launcher);
-  const i = all.indexOf(dock);
-  if (i < 0) return {};
-  return { left: all[i - 1], right: all[i + 1] };
-}
-
 export const DOCK_KEY = '__pawbar_dock_v1:';
 
 export function readDock(key: string, launcher: 'bar' | 'icon'): Dock | null {

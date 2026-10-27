@@ -75,6 +75,41 @@ describe('PawBar morph', () => {
     expect(root.classList.contains('expanded')).toBe(false);
   });
 
+  it('a press on the site folds a hovered card, even when the frame never saw the pointer leave', () => {
+    const { root, host } = render();
+    pointer(host, 'pointerenter');
+    expect(root.classList.contains('expanded')).toBe(true);
+    // The card moved out from under a still pointer: no pointerleave arrives.
+    (live as unknown as { outsidePress(): void }).outsidePress();
+    flushSync();
+    expect(root.classList.contains('expanded')).toBe(false);
+  });
+
+  it('after hover folds it, only a real pointer move reopens it, so a box moving under a still pointer cannot flicker', () => {
+    vi.useFakeTimers();
+    const { root, host } = render();
+    pointer(host, 'pointerenter');
+    pointer(host, 'pointerleave');
+    vi.advanceTimersByTime(200);
+    flushSync();
+    expect(root.classList.contains('expanded')).toBe(false);
+    // The folded bar shrank back under the pointer: the browser says "enter".
+    let flips = 0;
+    for (let i = 0; i < 10; i++) {
+      pointer(host, 'pointerenter');
+      if (root.classList.contains('expanded')) flips++;
+      pointer(host, 'pointerleave');
+      vi.advanceTimersByTime(200);
+      flushSync();
+    }
+    expect(flips).toBe(0);
+    vi.advanceTimersByTime(500);
+    pointer(host, 'pointerenter');
+    expect(root.classList.contains('expanded')).toBe(false);
+    pointer(host, 'pointermove');
+    expect(root.classList.contains('expanded')).toBe(true);
+  });
+
   it('ignores a touch pointerenter', () => {
     const { target, host } = render();
     pointer(host, 'pointerenter', 'touch');
